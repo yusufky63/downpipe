@@ -41,8 +41,12 @@ export type PopupRequest =
  * ever reach its own tab's list.
  */
 export type OverlayRequest =
-  /** The tab's media; `src` is the playing element's own http(s) source, if it has one. */
-  | { kind: "overlay_list"; src?: string }
+  /**
+   * The tab's media; `src` is the playing element's own http(s) source and
+   * `poster` its poster image, if it has them (the poster picks the video's
+   * own streams on a page with several, see `mediaForVideo`).
+   */
+  | { kind: "overlay_list"; src?: string; poster?: string }
   | { kind: "overlay_send"; mediaId: string }
   /** Send this frame's or tab's video page; its item has `PAGE_ITEM_ID`. */
   | { kind: "overlay_page" };
@@ -118,9 +122,15 @@ export function parseOverlayRequest(value: unknown): OverlayRequest | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
   switch (v.kind) {
-    case "overlay_list":
-      if (hasKeys(v, "kind")) return { kind: "overlay_list" };
-      return hasKeys(v, "kind", "src") && isWebUrl(v.src) ? { kind: "overlay_list", src: v.src } : null;
+    case "overlay_list": {
+      const extra = Object.keys(v).filter((k) => k !== "kind");
+      if (!extra.every((k) => (k === "src" || k === "poster") && isWebUrl(v[k]))) return null;
+      return {
+        kind: "overlay_list",
+        ...(isWebUrl(v.src) ? { src: v.src } : {}),
+        ...(isWebUrl(v.poster) ? { poster: v.poster } : {}),
+      };
+    }
     case "overlay_send":
       return hasKeys(v, "kind", "mediaId") && isMediaId(v.mediaId) ? { kind: "overlay_send", mediaId: v.mediaId } : null;
     case "overlay_page":

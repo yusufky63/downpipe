@@ -213,10 +213,19 @@ describe("media requests", () => {
     });
     expect(parseOverlayRequest({ kind: "overlay_send", mediaId: "m-1" })).toEqual({ kind: "overlay_send", mediaId: "m-1" });
     expect(parseOverlayRequest({ kind: "overlay_page" })).toEqual({ kind: "overlay_page" });
+    expect(parseOverlayRequest({ kind: "overlay_list", poster: "https://pbs.twimg.com/a/1.jpg" })).toEqual({
+      kind: "overlay_list",
+      poster: "https://pbs.twimg.com/a/1.jpg",
+    });
+    expect(
+      parseOverlayRequest({ kind: "overlay_list", src: "https://a.org/v.mp4", poster: "https://a.org/p.jpg" }),
+    ).toEqual({ kind: "overlay_list", src: "https://a.org/v.mp4", poster: "https://a.org/p.jpg" });
     for (const bad of [
       { kind: "overlay_page", pageUrl: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
       { kind: "send_page", tabId: 4 },
       { kind: "overlay_list", src: "blob:https://a.org/1" },
+      { kind: "overlay_list", poster: "data:image/png;base64,AA" },
+      { kind: "overlay_list", poster: 5 },
       { kind: "overlay_list", tabId: 4 },
       { kind: "overlay_send", mediaId: "m-1", tabId: 4 },
       { kind: "overlay_send" },

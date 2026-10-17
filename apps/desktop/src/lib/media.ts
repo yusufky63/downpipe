@@ -47,10 +47,13 @@ const CODEC_NAMES: [prefix: string, name: string][] = [
   ["mp3", "MP3"],
 ];
 
+const VIDEO_CODECS = new Set(["H.264", "H.265", "AV1", "VP9", "VP8"]);
+
 /**
- * "H.264 + AAC" from "avc1.4d401e, mp4a.40.2": the formats in words, so a
- * quality with its own sound can be told from one that joins a separate
- * track. Codecs it does not know are left out.
+ * "H.264 + AAC" from "avc1.4d401e, mp4a.40.2": the formats in words, video
+ * first whatever order the manifest lists them in (HLS often names the
+ * audio first), so a quality with its own sound can be told from one that
+ * joins a separate track. Codecs it does not know are left out.
  */
 export function codecName(codecs: string | undefined): string {
   const names = (codecs ?? "")
@@ -60,7 +63,8 @@ export function codecName(codecs: string | undefined): string {
       const found = CODEC_NAMES.find(([prefix]) => c.startsWith(prefix));
       return found ? [found[1]] : [];
     });
-  return [...new Set(names)].join(" + ");
+  const unique = [...new Set(names)];
+  return [...unique.filter((n) => VIDEO_CODECS.has(n)), ...unique.filter((n) => !VIDEO_CODECS.has(n))].join(" + ");
 }
 
 /** The second line of a quality: resolution, codecs, bit rate and estimated size. */

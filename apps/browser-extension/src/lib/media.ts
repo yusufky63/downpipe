@@ -306,6 +306,49 @@ function directory(url: URL): string {
 }
 
 /**
+ * Ids in a poster image's address that the video's own media addresses
+ * share: path segments of six or more characters that are mostly digits,
+ * such as the post id in X's `amplify_video_thumb/2098814416359653377/img/…`
+ * and `amplify_video/2098814416359653377/pl/….m3u8`. Sizes (`1280x720`) and
+ * random file names are not ids.
+ */
+export function posterIds(poster: string | undefined): string[] {
+  const url = webUrl(poster);
+  if (!url) return [];
+  return url.pathname
+    .split("/")
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .filter((s) => {
+      if (s.length < 6 || /^\d+x\d+$/.test(s)) return false;
+      const digits = s.replace(/\D/g, "").length;
+      return digits >= 6 && digits * 2 >= s.length;
+    });
+}
+
+/**
+ * The tab's media that belong to one video: those whose address contains
+ * an id from the video's poster (see `posterIds`). A page with several
+ * videos (a timeline) lists all of their streams; the Download button over
+ * one of them should offer that one. When nothing matches, or the video
+ * has no poster, the whole list.
+ */
+export function mediaForVideo<T extends Pick<MediaCandidate, "url">>(list: readonly T[], poster: string | undefined): T[] {
+  const ids = posterIds(poster);
+  if (ids.length === 0) return [...list];
+  const matched = list.filter((c) => {
+    const url = webUrl(c.url);
+    return url !== null && url.pathname.split("/").some((segment) => ids.includes(segment));
+  });
+  return matched.length > 0 ? matched : [...list];
+}
+
+/**
  * A playlist below another one of the same site: players load the master
  * playlist first and then the quality and audio playlists it lists, which
  * usually sit in folders under it. Those are parts of the stream already
@@ -419,7 +462,8 @@ const MAX_TITLE_LENGTH = 200;
 /**
  * A page title the host accepts as a name for the download: whitespace
  * collapsed, control characters removed, capped. Undefined when nothing
- * is left.
+ * is left, or only a site's short name: X titles its tab "X" until the
+ * post's text arrives, and "X.mp4" would name every video the same.
  */
 export function cleanTitle(raw: string | undefined): string | undefined {
   if (!raw) return undefined;
@@ -429,7 +473,7 @@ export function cleanTitle(raw: string | undefined): string | undefined {
     out += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? " " : ch;
   }
   const title = out.replace(/\s+/g, " ").trim();
-  return title ? [...title].slice(0, MAX_TITLE_LENGTH).join("") : undefined;
+  return [...title].length >= 3 ? [...title].slice(0, MAX_TITLE_LENGTH).join("") : undefined;
 }
 
 const FILE_NAME_UNSAFE = /[<>:"/\\|?*]/g;

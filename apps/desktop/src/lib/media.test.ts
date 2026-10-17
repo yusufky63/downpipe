@@ -126,6 +126,8 @@ describe("video pages", () => {
     expect(codecName("avc1.42001E, mp4a.40.2")).toBe("H.264 + AAC");
     expect(codecName("vp09.00.40.08")).toBe("VP9");
     expect(codecName("av01.0.08M.08, opus")).toBe("AV1 + Opus");
+    // HLS lists the audio first; the video still leads.
+    expect(codecName("mp4a.40.2,avc1.640020")).toBe("H.264 + AAC");
     expect(codecName("unknown")).toBe("");
     expect(codecName(undefined)).toBe("");
     expect(qualityOption(progressive)).toBe("360p · 640×360 · H.264 + AAC");

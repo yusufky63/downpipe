@@ -138,6 +138,12 @@ function webSource(video: HTMLVideoElement): string | undefined {
   return /^https?:\/\//i.test(src) && src.length <= 8192 ? src : undefined;
 }
 
+/** The poster image's address, which tells this video's streams from the page's others. */
+function webPoster(video: HTMLVideoElement): string | undefined {
+  const poster = video.poster;
+  return /^https?:\/\//i.test(poster) && poster.length <= 8192 ? poster : undefined;
+}
+
 function start(): void {
   const ui = build();
   let video: HTMLVideoElement | null = null;
@@ -248,9 +254,10 @@ function start(): void {
       return;
     }
     const src = webSource(video);
+    const poster = webPoster(video);
     ui.main.disabled = true;
     void ext.runtime
-      .sendMessage(src ? { kind: "overlay_list", src } : { kind: "overlay_list" })
+      .sendMessage({ kind: "overlay_list", ...(src ? { src } : {}), ...(poster ? { poster } : {}) })
       .then((reply: unknown) => {
         ui.main.disabled = false;
         const items = isOverlayItems(reply) ? reply.items : null;

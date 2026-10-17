@@ -24,6 +24,7 @@ import {
   excludeMatchesFor,
   frameOf,
   kindLabel,
+  mediaForVideo,
   mediaName,
   pageHeaders,
   parseTabMedia,
@@ -628,7 +629,11 @@ async function overlayAnswer(
             )
           : await tabMedia(tabId);
       const page = await videoPageOf(tabId, frameUrl);
-      const listed = items.filter((c) => !isSiteMedia(c.url)).map(overlayItem);
+      // On a page with several videos (an X timeline), only this one's.
+      const listed = mediaForVideo(
+        items.filter((c) => !isSiteMedia(c.url)),
+        request.poster,
+      ).map(overlayItem);
       return { items: page ? [pageOverlayItem(page.item), ...listed] : listed };
     }
     case "overlay_send":
@@ -854,7 +859,7 @@ ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
     answer(request).then(sendResponse, () => sendResponse(null));
     return true;
   }
-  // The overlay button inside web pages: two requests, always about the
+  // The overlay button inside web pages: three requests, always about the
   // sender's own tab, which the browser reports and the page cannot choose.
   if (isOwnContentScript(sender, ext.runtime.id)) {
     const request = parseOverlayRequest(message);

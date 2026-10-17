@@ -37,6 +37,8 @@ Media detection: the videos and audio a web page plays, including HLS and DASH s
 - Catalog schema version 5 (a `media` column, and a `site` column for video pages); older catalogs are upgraded on start.
 - Quality lists name the codecs (`H.264 + AAC`), and audio tracks their format.
 - Media detection no longer lists the requests YouTube's player makes to its video servers; the page itself is offered instead.
+- The Download button over a video on a page with several videos (an X timeline, a post with a quoted video) offers that video's stream only, matched by the id its poster image shares with its playlist, instead of every stream on the page.
+- A tab title of one or two characters (X shows "X" until a post has loaded) no longer names downloads, so videos from X are not all saved as `X.mp4`.
 
 ### Not downloaded, on purpose
 

@@ -13,10 +13,12 @@ import {
   frameOf,
   isPartOf,
   kindLabel,
+  mediaForVideo,
   mediaExtension,
   mediaName,
   pageHeaders,
   parseMediaFilters,
+  posterIds,
   parseMediaTypeList,
   parseTabMedia,
   responseSize,
@@ -312,6 +314,10 @@ describe("labels and names", () => {
     expect(cleanTitle("  A\tvideo\n title  ")).toBe("A video title");
     expect(cleanTitle("\u0000\u0007")).toBeUndefined();
     expect(cleanTitle(undefined)).toBeUndefined();
+    // A bare site name, as X's tab shows before the post loads, names nothing.
+    expect(cleanTitle("X")).toBeUndefined();
+    expect(cleanTitle(" ab ")).toBeUndefined();
+    expect(cleanTitle("Zoo")).toBe("Zoo");
     expect([...(cleanTitle("x".repeat(500)) ?? "")]).toHaveLength(200);
   });
 
@@ -337,5 +343,42 @@ describe("sources and frames", () => {
     expect(frameOf({ initiator: "https://player.example" })).toBe("https://player.example/");
     expect(frameOf({ initiator: "null" })).toBeUndefined();
     expect(frameOf({})).toBeUndefined();
+  });
+});
+
+// What an X post with two videos loads (seen on a real post, signed out).
+const X_POST = "https://pbs.twimg.com/amplify_video_thumb/2098814416359653377/img/8W7uRq67dQVcC7we?format=webp&name=medium";
+const X_OTHER = "https://pbs.twimg.com/amplify_video_thumb/2096974405414821888/img/ck4Gh9VO6ELGiAvt?format=webp&name=medium";
+
+describe("posterIds", () => {
+  it("finds the id a poster shares with its media", () => {
+    expect(posterIds(X_POST)).toEqual(["2098814416359653377"]);
+    expect(posterIds("https://pbs.twimg.com/ext_tw_video_thumb/1846000000000000001/pu/img/AbC9.jpg")).toEqual([
+      "1846000000000000001",
+    ]);
+  });
+
+  it("leaves sizes, random names and missing posters out", () => {
+    expect(posterIds("https://cdn.example.net/thumbs/1280x720/a8B3cD9eF2gH.jpg")).toEqual([]);
+    expect(posterIds("https://cdn.example.net/poster.jpg")).toEqual([]);
+    expect(posterIds("blob:https://x.com/1")).toEqual([]);
+    expect(posterIds(undefined)).toEqual([]);
+  });
+});
+
+describe("mediaForVideo", () => {
+  const list = [
+    { url: "https://video.twimg.com/amplify_video/2096974405414821888/pl/6CgnpnCvzLgr5FZr.m3u8?tag=29&v=447" },
+    { url: "https://video.twimg.com/amplify_video/2098814416359653377/pl/4n8R-J-RweGcpX1z.m3u8?tag=29&v=996" },
+  ];
+
+  it("offers the hovered video's stream on a page with several", () => {
+    expect(mediaForVideo(list, X_POST).map((c) => c.url)).toEqual([list[1]?.url]);
+    expect(mediaForVideo(list, X_OTHER).map((c) => c.url)).toEqual([list[0]?.url]);
+  });
+
+  it("falls back to the whole list", () => {
+    expect(mediaForVideo(list, undefined)).toEqual(list);
+    expect(mediaForVideo(list, "https://pbs.twimg.com/amplify_video_thumb/1111111111111111111/img/x.jpg")).toEqual(list);
   });
 });
