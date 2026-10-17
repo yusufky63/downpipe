@@ -55,15 +55,22 @@ export function bridgeStatus(result: HostResult): BridgeStatus {
 
 export type Outcome = "added" | "duplicate" | "failed";
 
+export const WAITING_MESSAGE = "Waiting for your answer in Downpipe";
+
 /** What happened to one download, in words for the popup and the badge. */
 export function downloadOutcome(result: HostResult): {
   outcome: Outcome;
   message: string;
   fileName?: string;
   taskId?: string;
+  /** Taken, but held in the app's confirmation dialog rather than started. */
+  awaitingConfirmation?: boolean;
 } {
   if (!result.ok) return { outcome: "failed", message: failureText(result.failure) };
   const r = result.response;
+  if (r.type === "accepted" && r.awaitingConfirmation) {
+    return { outcome: "added", message: WAITING_MESSAGE, fileName: r.fileName, taskId: r.taskId, awaitingConfirmation: true };
+  }
   if (r.type === "accepted") {
     return { outcome: "added", message: "Added to Downpipe", fileName: r.fileName, taskId: r.taskId };
   }

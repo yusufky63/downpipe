@@ -32,6 +32,7 @@ The IDM features that save the most time day to day.
 ### Changed
 
 - Download capture takes the default file types only, unless **Capture all file types** is switched on.
+- A browser download held by **Ask before downloads from the browser start** is shown in the extension as waiting, not as started or paused: its notification reads "Waiting for your answer in Downpipe", and the popup lists it as **Waiting in Downpipe** until the dialog is answered, then follows it into Downloading or Paused. The bridge's `accepted` and `tasks` answers carry an optional `awaiting_confirmation: true` for this; older extensions ignore it and keep showing Paused.
 - Clicking a download selects it; double click or Enter opens its details. The rows' Remove button moved into the menu (and the Delete key).
 - The window behaves like an app rather than a web page: the browser's own menu (Back, Reload, Inspect) and keys such as F5, Ctrl+R, Ctrl+P and Ctrl+F do nothing; text fields keep their cut, copy and paste menu. Labels and rows no longer highlight like page text.
 

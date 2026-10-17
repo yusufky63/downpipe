@@ -335,6 +335,10 @@ pub enum ResponseBody {
         task_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         file_name: Option<String>,
+        /// The app holds it until the user answers its confirmation dialog.
+        /// See [`TaskStatus::awaiting_confirmation`].
+        #[serde(default, skip_serializing_if = "is_false")]
+        awaiting_confirmation: bool,
     },
     Error {
         code: String,
@@ -365,6 +369,21 @@ pub struct TaskStatus {
     pub speed: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Sent with `true` only, next to `state: "paused"`, while the app holds
+    /// the download for the user to confirm its name, folder and queue.
+    ///
+    /// A flag rather than a new state: the download really is paused in the
+    /// catalog, and extensions from before this field drop entries whose
+    /// state they do not know, so a new state would cost them the row's
+    /// progress. With the flag they keep showing `paused`, which is true.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub awaiting_confirmation: bool,
+}
+
+/// Optional flags are left out unless set, so answers stay as they were
+/// for extensions that never heard of them.
+fn is_false(flag: &bool) -> bool {
+    !*flag
 }
 
 /// 1 to [`MAX_TASK_IDS`] ids shaped like the ones `accepted` returns. Both
@@ -779,23 +798,39 @@ mod tests {
 
     #[test]
     fn task_updates_serialize_without_empty_fields() {
-        let body = ResponseBody::Tasks {
-            tasks: vec![TaskStatus {
-                task_id: "t".into(),
-                state: "downloading".into(),
-                file_name: Some("a.zip".into()),
-                downloaded: 10,
-                total: None,
-                speed: 5,
-                error: None,
-            }],
+        let running = TaskStatus {
+            task_id: "t".into(),
+            state: "downloading".into(),
+            file_name: Some("a.zip".into()),
+            downloaded: 10,
+            total: None,
+            speed: 5,
+            error: None,
+            awaiting_confirmation: false,
         };
+        let held = TaskStatus {
+            task_id: "u".into(),
+            state: "paused".into(),
+            file_name: None,
+            downloaded: 0,
+            total: None,
+            speed: 0,
+            error: None,
+            awaiting_confirmation: true,
+        };
+        let body = ResponseBody::Tasks {
+            tasks: vec![running, held],
+        };
+        let response = Response::new(Some("q".into()), body);
+        let value = serde_json::to_value(&response).unwrap();
         assert_eq!(
-            serde_json::to_value(Response::new(Some("q".into()), body)).unwrap(),
+            value,
             json!({"protocol_version": 1, "id": "q", "type": "tasks", "tasks": [
-                {"task_id": "t", "state": "downloading", "file_name": "a.zip", "downloaded": 10, "speed": 5}
+                {"task_id": "t", "state": "downloading", "file_name": "a.zip", "downloaded": 10, "speed": 5},
+                {"task_id": "u", "state": "paused", "downloaded": 0, "speed": 0, "awaiting_confirmation": true}
             ]})
         );
+        assert_eq!(serde_json::from_value::<Response>(value).unwrap(), response);
     }
 
     #[test]
@@ -831,11 +866,24 @@ mod tests {
             ResponseBody::Accepted {
                 task_id: "t".into(),
                 file_name: Some("a.zip".into()),
+                awaiting_confirmation: false,
             },
         );
         assert_eq!(
             serde_json::to_value(&accepted).unwrap(),
             json!({"protocol_version": 1, "type": "accepted", "task_id": "t", "file_name": "a.zip"})
+        );
+        let held = Response::new(
+            None,
+            ResponseBody::Accepted {
+                task_id: "t".into(),
+                file_name: None,
+                awaiting_confirmation: true,
+            },
+        );
+        assert_eq!(
+            serde_json::to_value(&held).unwrap(),
+            json!({"protocol_version": 1, "type": "accepted", "task_id": "t", "awaiting_confirmation": true})
         );
         let error = Response::error(None, code::APP_NOT_RUNNING, "Downpipe is not running");
         let text = serde_json::to_string(&error).unwrap();

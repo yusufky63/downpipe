@@ -21,6 +21,19 @@ export function isRunning(state: TaskState): boolean {
   return RUNNING.includes(state);
 }
 
+/** Paused only because the app's confirmation dialog has not been answered. */
+export function isAwaitingConfirmation(task: TaskStatus): boolean {
+  return task.state === "paused" && task.awaitingConfirmation === true;
+}
+
+/**
+ * Worth asking about again while the popup is open: a running download
+ * moves on by itself, and a held one starts as soon as the user answers.
+ */
+export function mayChange(task: TaskStatus): boolean {
+  return isRunning(task.state) || isAwaitingConfirmation(task);
+}
+
 const STATE_VIEW: Record<TaskState, { badge: string; tone: Tone }> = {
   queued: { badge: "Queued", tone: "muted" },
   starting: { badge: "Starting", tone: "primary" },
@@ -54,8 +67,13 @@ export function itemView(activity: Activity, task: TaskStatus | undefined): Item
     const { badge, tone } = OUTCOME_VIEW[activity.outcome];
     return { label: activity.label, badge, tone, detail: activity.message, progress: null };
   }
-  const { badge, tone } = STATE_VIEW[task.state];
   const label = task.fileName || activity.label;
+  if (isAwaitingConfirmation(task)) {
+    // Not "Paused": nothing stopped it, the app is asking where to save it.
+    // The detail is short because the long badge leaves it little room.
+    return { label, badge: "Waiting in Downpipe", tone: "warning", detail: "Needs your answer", progress: null };
+  }
+  const { badge, tone } = STATE_VIEW[task.state];
   const pct = percent(task.downloaded, task.total);
   const pctText = pct === null ? "" : `${Math.floor(pct)}% · `;
   switch (task.state) {

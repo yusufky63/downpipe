@@ -11,7 +11,15 @@ export interface NotificationText {
 export function notificationFor(activity: Activity): NotificationText {
   switch (activity.outcome) {
     case "added":
-      return { title: "Downloading in Downpipe", message: activity.label, sticky: false };
+      // Not sticky either way: the app brings its question to the front, and
+      // a notification left behind would outlive the answer.
+      return activity.awaitingConfirmation
+        ? {
+            title: "Waiting for your answer in Downpipe",
+            message: `${activity.label}\nConfirm its name and folder in Downpipe to start the download.`,
+            sticky: false,
+          }
+        : { title: "Downloading in Downpipe", message: activity.label, sticky: false };
     case "duplicate":
       return { title: "Already in Downpipe", message: activity.label, sticky: false };
     case "kept":

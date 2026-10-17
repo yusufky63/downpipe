@@ -139,6 +139,12 @@ describe("activity", () => {
   it("drops stored entries that do not have the right shape", () => {
     expect(parseActivity([entry(1), { at: "x" }, null, { ...entry(2), outcome: "hacked" }])).toEqual([entry(1)]);
     expect(parseActivity([{ ...entry(3), taskId: "t" }, { ...entry(4), taskId: 7 }])).toEqual([{ ...entry(3), taskId: "t" }]);
+    expect(
+      parseActivity([
+        { ...entry(5), awaitingConfirmation: true },
+        { ...entry(6), awaitingConfirmation: "yes" },
+      ]),
+    ).toEqual([{ ...entry(5), awaitingConfirmation: true }]);
     expect(parseActivity(undefined)).toEqual([]);
   });
 

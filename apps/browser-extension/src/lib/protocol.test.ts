@@ -148,6 +148,31 @@ describe("parseResponse", () => {
     ).toEqual({ type: "error", id: undefined, code: "duplicate", message: "Already", taskId: "t" });
   });
 
+  it("reads the confirmation flag, and only a literal true", () => {
+    expect(parseResponse({ protocol_version: 1, type: "accepted", task_id: "t", awaiting_confirmation: true })).toEqual({
+      type: "accepted",
+      id: undefined,
+      taskId: "t",
+      fileName: undefined,
+      awaitingConfirmation: true,
+    });
+    const notTrue = parseResponse({ protocol_version: 1, type: "accepted", task_id: "t", awaiting_confirmation: "true" });
+    expect(notTrue?.type === "accepted" && notTrue.awaitingConfirmation).toBeUndefined();
+    const tasks = parseResponse({
+      protocol_version: 1,
+      type: "tasks",
+      tasks: [
+        { task_id: "held", state: "paused", downloaded: 0, speed: 0, awaiting_confirmation: true },
+        // From a Downpipe before the flag existed: still a plain paused entry.
+        { task_id: "old", state: "paused", downloaded: 0, speed: 0 },
+      ],
+    });
+    expect(tasks?.type === "tasks" && tasks.tasks.map((t) => [t.taskId, t.state, t.awaitingConfirmation])).toEqual([
+      ["held", "paused", true],
+      ["old", "paused", undefined],
+    ]);
+  });
+
   it("rejects anything else", () => {
     for (const bad of [
       null,

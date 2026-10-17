@@ -118,8 +118,8 @@ async function sendLink(info: chrome.contextMenus.OnClickData): Promise<void> {
     return;
   }
   const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
-  const { outcome, message: text, fileName, taskId } = downloadOutcome(result);
-  await report({ source: "link", label: fileName ?? label, outcome, message: text, taskId });
+  const { outcome, message: text, fileName, taskId, awaitingConfirmation } = downloadOutcome(result);
+  await report({ source: "link", label: fileName ?? label, outcome, message: text, taskId, awaitingConfirmation });
 }
 
 // ---------- Links on a page ----------
@@ -181,7 +181,14 @@ async function sendPageLink(url: string, pageUrl: string | undefined): Promise<L
   // Into the popup's list, but without a badge or notification per link:
   // the links page shows the results itself.
   await report(
-    { source: "link", label: outcome.fileName ?? label, outcome: outcome.outcome, message: outcome.message, taskId: outcome.taskId },
+    {
+      source: "link",
+      label: outcome.fileName ?? label,
+      outcome: outcome.outcome,
+      message: outcome.message,
+      taskId: outcome.taskId,
+      awaitingConfirmation: outcome.awaitingConfirmation,
+    },
     { quiet: true },
   );
   return { ...outcome, stop: bridgeDown(result) };
@@ -199,12 +206,12 @@ async function handOff(item: DownloadItemLike): Promise<boolean> {
   if (!message) return false;
   const label = fileNameHint(item.filename) ?? linkLabel(item.url);
   const result = await callHost(sendNative, message, CAPTURE_TIMEOUT_MS);
-  const { outcome, message: text, fileName, taskId } = downloadOutcome(result);
+  const { outcome, message: text, fileName, taskId, awaitingConfirmation } = downloadOutcome(result);
   if (outcome === "failed") {
     await report({ source: "capture", label, outcome: "kept", message: keptMessage(result) });
     return false;
   }
-  await report({ source: "capture", label: fileName ?? label, outcome, message: text, taskId });
+  await report({ source: "capture", label: fileName ?? label, outcome, message: text, taskId, awaitingConfirmation });
   return true;
 }
 

@@ -14,6 +14,14 @@ describe("notificationFor", () => {
     });
   });
 
+  it("says so when the download waits for the user's answer in the app", () => {
+    expect(notificationFor({ ...base, awaitingConfirmation: true })).toEqual({
+      title: "Waiting for your answer in Downpipe",
+      message: "report.pdf\nConfirm its name and folder in Downpipe to start the download.",
+      sticky: false,
+    });
+  });
+
   it("keeps problems on screen with the reason", () => {
     expect(
       notificationFor({ ...base, outcome: "kept", message: "Downpipe was not running, so the browser downloaded it." }),

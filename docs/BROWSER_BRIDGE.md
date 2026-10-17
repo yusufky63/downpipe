@@ -125,11 +125,11 @@ The filters are stored with the other extension settings in `storage.local`. Set
 - Before sending, the page checks the bridge. If Downpipe is not running, or the bridge is missing or refuses the extension, nothing is sent and the page shows the same guidance as the popup. If the app goes away halfway, the page stops at the first such answer instead of failing every remaining link.
 - Pages the browser does not let extensions read (its own settings pages, extension stores, some built-in viewers) open the links page with a note saying so.
 
-While **Ask before downloads from the browser start** is on in the app (Settings → App, on by default), the app still answers `accepted` at once, so the browser never waits for a person. The download is created paused and the app's window comes forward with a dialog for its file name, folder and queue: **Start download** queues it, **Download later** keeps it paused, and **Cancel** removes it. Nothing is requested from the server before the answer. Until then the popup lists it as Paused.
+While **Ask before downloads from the browser start** is on in the app (Settings → App, on by default), the app still answers `accepted` at once, so the browser never waits for a person. The download is created paused and the app's window comes forward with a dialog for its file name, folder and queue: **Start download** queues it, **Download later** keeps it paused, and **Cancel** removes it. Nothing is requested from the server before the answer. The `accepted` answer says so with `awaiting_confirmation: true`, so the extension's notification reads "Waiting for your answer in Downpipe" instead of "Downloading in Downpipe". Until the dialog is answered the popup lists the download as **Waiting in Downpipe** (not Paused) and keeps asking the app every second, so the row turns into Downloading, or Paused after **Download later**, while the popup is open. After **Cancel** the app no longer knows the download, and the row falls back to what was recorded when it was sent.
 
 Every hand-over from the link menu or capture is confirmed in three places:
 
-- **A notification:** "Downloading in Downpipe" with the file name. When Downpipe could not take a download, the notification says so and stays until dismissed, for example "Downloaded by the browser" when the app was closed. **Notifications** in the popup turns them off.
+- **A notification:** "Downloading in Downpipe" with the file name, or "Waiting for your answer in Downpipe" when the app asks first. When Downpipe could not take a download, the notification says so and stays until dismissed, for example "Downloaded by the browser" when the app was closed. **Notifications** in the popup turns them off.
 - **The toolbar badge:** `+` for a few seconds after a link was added, `!` when something went wrong.
 - **The popup's Downloads list:** the last five downloads with their live state from the app (Queued, Downloading, Done, Failed and so on). A running download shows percent, size and speed, and the list refreshes every second while the popup is open. Downloads Downpipe did not take are marked "Not sent" or "In browser" with the reason.
 
@@ -222,13 +222,27 @@ Responses carry `protocol_version`, the request's `id` and a `type`:
 ```json
 {"protocol_version": 1, "id": "p1", "type": "pong", "host_version": "0.2.0", "app_running": true, "app_version": "0.2.0"}
 {"protocol_version": 1, "id": "m1", "type": "accepted", "task_id": "8e48dd86-..."}
+{"protocol_version": 1, "id": "m2", "type": "accepted", "task_id": "68b6ffff-...", "awaiting_confirmation": true}
 {"protocol_version": 1, "id": "m1", "type": "error", "code": "duplicate", "message": "This link is already in Downpipe", "task_id": "8e48dd86-..."}
 {"protocol_version": 1, "id": "t1", "type": "tasks", "tasks": [
   {"task_id": "8e48dd86-...", "state": "downloading", "file_name": "report.pdf",
-   "downloaded": 3145728, "total": 12582912, "speed": 1310720}]}
+   "downloaded": 3145728, "total": 12582912, "speed": 1310720},
+  {"task_id": "68b6ffff-...", "state": "paused", "downloaded": 0, "speed": 0,
+   "awaiting_confirmation": true}]}
 ```
 
-In a `tasks` answer, `state` is one of `queued`, `starting`, `downloading`, `waiting`, `verifying`, `paused`, `completed`, `failed` and `canceled`; `file_name` is the final name once the server has answered; `total` is missing while the size is unknown; `error` (at most 300 characters) explains a failure. Ids the app does not know, for example removed downloads, are left out.
+| Field | In | Meaning |
+|---|---|---|
+| `task_id` | `accepted`, `tasks`, `duplicate` errors | The app's id for the download. |
+| `file_name` | `accepted`, `tasks` | The hint or the name the app chose; in `tasks`, the final name once the server has answered. |
+| `state` | `tasks` | One of `queued`, `starting`, `downloading`, `waiting`, `verifying`, `paused`, `completed`, `failed` and `canceled`. |
+| `downloaded`, `total`, `speed` | `tasks` | Bytes so far, bytes in all (missing while the size is unknown), bytes per second. |
+| `error` | `tasks` | At most 300 characters explaining a failure. |
+| `awaiting_confirmation` | `accepted`, `tasks` | Sent only as `true`: the app holds the download, paused, until the user answers its confirmation dialog. In `tasks` it comes with `state: "paused"`. |
+
+Ids the app does not know in a `tasks` query, for example removed downloads, are left out of the answer.
+
+Answers may gain optional fields within version 1; the extension ignores fields it does not know, and the host and the app accept each other's answers with or without them. That is why the confirmation is a flag and not a tenth `state`: the download really is paused in the app's catalog, and extensions from before the flag drop task entries with a state outside their fixed list, which would cost them that row's live state. With the flag they keep showing Paused, which is still true.
 
 | Error code | Meaning |
 |---|---|

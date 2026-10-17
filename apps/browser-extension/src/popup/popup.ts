@@ -2,11 +2,11 @@ import { ext } from "../lib/browser";
 import { hostOf, matchingSite } from "../lib/filters";
 import { isSettings, relativeTime, type Activity, type StatusReply, type TasksReply } from "../lib/messages";
 import type { TaskStatus } from "../lib/protocol";
-import { isRunning, itemView, statusView } from "../lib/view";
+import { itemView, mayChange, statusView } from "../lib/view";
 import { byId, extensionInfo, paintStatus, span } from "../ui/dom";
 
 const DOWNLOADS_PERMISSION: chrome.permissions.Permissions = { permissions: ["downloads"] };
-/** While a listed download runs, its progress is refreshed this often. */
+/** While a listed download runs or waits for an answer, it is refreshed this often. */
 const POLL_MS = 1_000;
 
 const els = {
@@ -129,9 +129,9 @@ function renderList(): void {
 function applyTasks(tasks: TaskStatus[]): void {
   live = new Map(tasks.map((t) => [t.taskId, t]));
   renderList();
-  // Keep refreshing only while something the popup shows is still running.
+  // Keep refreshing only while something the popup shows can still change.
   clearTimeout(pollTimer);
-  if (tasks.some((t) => isRunning(t.state))) pollTimer = setTimeout(() => void poll(), POLL_MS);
+  if (tasks.some(mayChange)) pollTimer = setTimeout(() => void poll(), POLL_MS);
 }
 
 async function poll(): Promise<void> {

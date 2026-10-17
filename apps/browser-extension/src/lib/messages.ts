@@ -134,6 +134,8 @@ export interface Activity {
   message: string;
   /** The app's id for the download, when it took it. */
   taskId?: string;
+  /** The app took it but waits for the user to confirm it before starting. */
+  awaitingConfirmation?: boolean;
 }
 
 export interface StatusReply {
@@ -177,7 +179,8 @@ export function parseActivity(value: unknown): Activity[] {
         typeof v.message === "string" &&
         (v.source === "link" || v.source === "capture") &&
         ["added", "duplicate", "failed", "kept"].includes(v.outcome as string) &&
-        (v.taskId === undefined || typeof v.taskId === "string")
+        (v.taskId === undefined || typeof v.taskId === "string") &&
+        (v.awaitingConfirmation === undefined || typeof v.awaitingConfirmation === "boolean")
       );
     })
     .slice(0, MAX_ACTIVITY);

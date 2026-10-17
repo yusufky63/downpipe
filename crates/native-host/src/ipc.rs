@@ -154,6 +154,10 @@ pub enum AppResponse {
         task_id: String,
         #[serde(default)]
         file_name: Option<String>,
+        /// Defaulted, so a host and an app one version apart still agree:
+        /// neither side rejects fields it does not know here.
+        #[serde(default)]
+        awaiting_confirmation: bool,
     },
     Error {
         code: String,
@@ -317,6 +321,36 @@ mod tests {
             "action": {"download": {"request": {"resource_url": "https://a.org/", "cookies": "x"}}},
         });
         assert!(AppRequest::parse(cookie.to_string().as_bytes()).is_err());
+    }
+
+    /// Host and app can be one update apart; the confirmation flag must not
+    /// make either side refuse the other's answer.
+    #[test]
+    fn answers_without_or_with_newer_fields_still_parse() {
+        let older = json!({"type": "accepted", "task_id": "t", "file_name": null});
+        assert_eq!(
+            serde_json::from_value::<AppResponse>(older).unwrap(),
+            AppResponse::Accepted {
+                task_id: "t".into(),
+                file_name: None,
+                awaiting_confirmation: false,
+            }
+        );
+        let older_tasks = json!({"type": "tasks", "tasks": [
+            {"task_id": "t", "state": "paused", "downloaded": 0, "speed": 0}
+        ]});
+        match serde_json::from_value::<AppResponse>(older_tasks).unwrap() {
+            AppResponse::Tasks { tasks } => assert!(!tasks[0].awaiting_confirmation),
+            other => panic!("{other:?}"),
+        }
+        let newer = json!({"type": "tasks", "tasks": [
+            {"task_id": "t", "state": "paused", "downloaded": 0, "speed": 0,
+             "awaiting_confirmation": true, "added_later": 1}
+        ]});
+        match serde_json::from_value::<AppResponse>(newer).unwrap() {
+            AppResponse::Tasks { tasks } => assert!(tasks[0].awaiting_confirmation),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Activity } from "./messages";
 import type { TaskStatus } from "./protocol";
-import { isRunning, itemView } from "./view";
+import { isRunning, itemView, mayChange } from "./view";
 
 const sent: Activity = {
   at: 0,
@@ -63,6 +63,20 @@ describe("itemView", () => {
     expect(itemView(sent, task({ state: "canceled" })).badge).toBe("Canceled");
   });
 
+  it("shows a download held for confirmation as waiting, not paused", () => {
+    expect(itemView(sent, task({ state: "paused", fileName: "asked.bin", awaitingConfirmation: true }))).toEqual({
+      label: "asked.bin",
+      badge: "Waiting in Downpipe",
+      tone: "warning",
+      detail: "Needs your answer",
+      progress: null,
+    });
+    // Once answered with "Download later" it is an ordinary paused download.
+    expect(itemView(sent, task({ state: "paused" })).badge).toBe("Paused");
+    // The flag only means something next to `paused`.
+    expect(itemView(sent, task({ state: "canceled", awaitingConfirmation: true })).badge).toBe("Canceled");
+  });
+
   it("falls back to what happened when it was sent", () => {
     expect(itemView(sent, undefined)).toEqual({
       label: "16777216",
@@ -80,5 +94,12 @@ describe("itemView", () => {
   it("knows which states are still running", () => {
     expect(["queued", "starting", "downloading", "waiting", "verifying"].every((s) => isRunning(s as never))).toBe(true);
     expect(["paused", "completed", "failed", "canceled"].some((s) => isRunning(s as never))).toBe(false);
+  });
+
+  it("keeps asking about running and held downloads only", () => {
+    expect(mayChange(task({ state: "downloading" }))).toBe(true);
+    expect(mayChange(task({ state: "paused", awaitingConfirmation: true }))).toBe(true);
+    expect(mayChange(task({ state: "paused" }))).toBe(false);
+    expect(mayChange(task({ state: "completed" }))).toBe(false);
   });
 });

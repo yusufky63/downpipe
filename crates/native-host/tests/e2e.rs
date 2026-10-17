@@ -198,6 +198,10 @@ async fn link_from_the_browser_downloads_in_the_manager() {
     let accepted = host.ask(&download);
     assert_eq!(accepted["type"], "accepted", "{accepted}");
     assert_eq!(accepted["id"], "d1");
+    assert!(
+        accepted.get("awaiting_confirmation").is_none(),
+        "starts at once: {accepted}"
+    );
     let task_id = accepted["task_id"].as_str().unwrap().to_string();
 
     let again = host.ask(&download);
@@ -226,8 +230,8 @@ async fn link_from_the_browser_downloads_in_the_manager() {
     }
 }
 
-/// The browser is answered at once; the download waits in the app until
-/// the user picks its name and folder.
+/// The browser is answered at once and told the download waits in the app
+/// until the user picks its name and folder.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn browser_downloads_wait_for_the_user() {
     let web = TestServer::start().await.unwrap();
@@ -242,8 +246,16 @@ async fn browser_downloads_wait_for_the_user() {
         "resource_url": web.url(&format!("/file/{size}?name=asked.bin")),
     }));
     assert_eq!(accepted["type"], "accepted", "{accepted}");
-    assert!(host.finish().success());
+    assert_eq!(accepted["awaiting_confirmation"], true, "{accepted}");
     let id = accepted["task_id"].as_str().unwrap().to_string();
+
+    // What the popup asks while the dialog is open.
+    let tasks_query = json!({"protocol_version": 1, "type": "tasks", "task_ids": [id]});
+    let answer = host.ask(&tasks_query);
+    let held = &answer["tasks"][0];
+    assert_eq!(held["state"], "paused", "{answer}");
+    assert_eq!(held["awaiting_confirmation"], true, "{answer}");
+    assert!(host.finish().success());
 
     let waiting = app.manager.get(&id).unwrap();
     assert_eq!(waiting.record.state, TaskState::Paused);
@@ -273,6 +285,15 @@ async fn browser_downloads_wait_for_the_user() {
     let path = done.record.path.unwrap();
     assert_eq!(path, chosen.path().join("renamed.bin"));
     assert_eq!(std::fs::read(&path).unwrap(), content(size, 0));
+
+    // Answered: the flag is gone from what the popup sees.
+    let mut host = Host::spawn(&app.endpoint);
+    let answer = host.ask(&tasks_query);
+    let finished = &answer["tasks"][0];
+    assert_eq!(finished["state"], "completed", "{answer}");
+    assert_eq!(finished["file_name"], "renamed.bin", "{answer}");
+    assert!(finished.get("awaiting_confirmation").is_none(), "{answer}");
+    assert!(host.finish().success());
 }
 
 /// What the popup does: ask for the downloads it sent until they finish.

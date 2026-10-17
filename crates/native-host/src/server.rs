@@ -239,6 +239,7 @@ fn task_status(task: TaskSnapshot) -> TaskStatus {
         error: record
             .error
             .map(|e| e.chars().take(MAX_TASK_ERROR_LEN).collect()),
+        awaiting_confirmation: task.live.awaiting_confirmation,
     }
 }
 
@@ -260,7 +261,8 @@ fn add(manager: &Manager, request: DownloadRequest, origin: Option<&str>) -> App
         headers,
         // The app asks for name, folder and queue first when the user wants
         // that (IDM's "Download File Info"); the browser is answered at once
-        // either way, so it never waits on a dialog.
+        // either way, so it never waits on a dialog, but it is told the
+        // download is waiting for that answer.
         confirm: manager.settings().confirm_browser_downloads,
         ..AddOptions::default()
     };
@@ -268,6 +270,7 @@ fn add(manager: &Manager, request: DownloadRequest, origin: Option<&str>) -> App
         Ok(task) => AppResponse::Accepted {
             task_id: task.record.id,
             file_name: task.record.file_name,
+            awaiting_confirmation: task.live.awaiting_confirmation,
         },
         Err(CoreError::Duplicate(id)) => AppResponse::Error {
             code: code::DUPLICATE.to_string(),

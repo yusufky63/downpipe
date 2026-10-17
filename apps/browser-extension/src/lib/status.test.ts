@@ -53,6 +53,16 @@ describe("downloadOutcome", () => {
     expect(downloadOutcome(fail("host_error")).outcome).toBe("failed");
   });
 
+  it("says when the app holds the download for the user's answer", () => {
+    expect(downloadOutcome(ok({ type: "accepted", taskId: "t", fileName: "a.zip", awaitingConfirmation: true }))).toEqual({
+      outcome: "added",
+      message: "Waiting for your answer in Downpipe",
+      fileName: "a.zip",
+      taskId: "t",
+      awaitingConfirmation: true,
+    });
+  });
+
   it("falls back to the host's message for codes it does not know", () => {
     expect(errorText("forbidden", "The server refused access")).toBe("The server refused access");
     expect(errorText("weird", "")).toBe("Downpipe refused the download (weird).");

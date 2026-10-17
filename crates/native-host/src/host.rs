@@ -100,9 +100,15 @@ pub fn respond(bytes: &[u8], link: &impl AppLink, origin: Option<&str>) -> Respo
         RequestKind::Download(request) => {
             let request = AppRequest::download(request, origin.map(str::to_string));
             let body = match link.call(&request) {
-                Ok(AppResponse::Accepted { task_id, file_name }) => {
-                    ResponseBody::Accepted { task_id, file_name }
-                }
+                Ok(AppResponse::Accepted {
+                    task_id,
+                    file_name,
+                    awaiting_confirmation,
+                }) => ResponseBody::Accepted {
+                    task_id,
+                    file_name,
+                    awaiting_confirmation,
+                },
                 Ok(AppResponse::Error {
                     code,
                     message,
@@ -203,6 +209,7 @@ mod tests {
                     ipc::AppAction::Download { request, .. } => AppResponse::Accepted {
                         task_id: "task-1".into(),
                         file_name: request.file_name.clone(),
+                        awaiting_confirmation: false,
                     },
                     ipc::AppAction::Tasks { task_ids } => AppResponse::Tasks {
                         tasks: task_ids
@@ -215,6 +222,7 @@ mod tests {
                                 total: Some(2),
                                 speed: 3,
                                 error: None,
+                                awaiting_confirmation: false,
                             })
                             .collect(),
                     },
@@ -395,6 +403,59 @@ mod tests {
         );
         assert!(
             matches!(r.body, ResponseBody::Error { ref code, .. } if code == code::APP_NOT_RUNNING)
+        );
+    }
+
+    #[test]
+    fn downloads_held_for_confirmation_are_reported_as_such() {
+        let app = FakeApp::new(|request| {
+            Ok(match &request.action {
+                ipc::AppAction::Download { .. } => AppResponse::Accepted {
+                    task_id: "held".into(),
+                    file_name: None,
+                    awaiting_confirmation: true,
+                },
+                ipc::AppAction::Tasks { .. } => AppResponse::Tasks {
+                    tasks: vec![TaskStatus {
+                        task_id: "held".into(),
+                        state: "paused".into(),
+                        file_name: Some("a.zip".into()),
+                        downloaded: 0,
+                        total: None,
+                        speed: 0,
+                        error: None,
+                        awaiting_confirmation: true,
+                    }],
+                },
+                ipc::AppAction::Ping => unreachable!(),
+            })
+        });
+        let input = frames(&[
+            json!({"protocol_version": 1, "type": "download", "resource_url": "https://example.org/a.zip"}),
+            json!({"protocol_version": 1, "type": "tasks", "task_ids": ["held"]}),
+        ]);
+        let mut output = Vec::new();
+        run(&mut input.as_slice(), &mut output, &app, None).unwrap();
+        let out = answers(&output);
+        assert_eq!(out[0]["type"], "accepted");
+        assert_eq!(out[0]["awaiting_confirmation"], true);
+        assert_eq!(out[1]["tasks"][0]["state"], "paused");
+        assert_eq!(out[1]["tasks"][0]["awaiting_confirmation"], true);
+
+        // Not held: the field is left out, as before it existed.
+        let plain = FakeApp::running();
+        let input = frames(&[
+            json!({"protocol_version": 1, "type": "download", "resource_url": "https://example.org/a.zip"}),
+            json!({"protocol_version": 1, "type": "tasks", "task_ids": ["task-1"]}),
+        ]);
+        let mut output = Vec::new();
+        run(&mut input.as_slice(), &mut output, &plain, None).unwrap();
+        let out = answers(&output);
+        assert!(out[0].get("awaiting_confirmation").is_none(), "{}", out[0]);
+        assert!(
+            out[1]["tasks"][0].get("awaiting_confirmation").is_none(),
+            "{}",
+            out[1]
         );
     }
 

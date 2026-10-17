@@ -133,11 +133,17 @@ export interface TaskStatus {
   /** Bytes per second. */
   speed: number;
   error?: string;
+  /**
+   * Paused in the app until the user confirms its name, folder and queue.
+   * A flag next to `paused` rather than a state of its own, so extensions
+   * that predate it still read the entry.
+   */
+  awaitingConfirmation?: boolean;
 }
 
 export type HostResponse =
   | { type: "pong"; id?: string; hostVersion: string; appRunning: boolean; appVersion?: string }
-  | { type: "accepted"; id?: string; taskId: string; fileName?: string }
+  | { type: "accepted"; id?: string; taskId: string; fileName?: string; awaitingConfirmation?: boolean }
   | { type: "error"; id?: string; code: string; message: string; taskId?: string }
   | { type: "tasks"; id?: string; tasks: TaskStatus[] };
 
@@ -147,6 +153,11 @@ function text(value: unknown, max = 300): string | undefined {
 
 function count(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/** The host leaves optional flags out unless they are set. */
+function flag(value: unknown): true | undefined {
+  return value === true ? true : undefined;
 }
 
 function parseTask(value: unknown): TaskStatus | null {
@@ -165,6 +176,7 @@ function parseTask(value: unknown): TaskStatus | null {
     total: count(v.total),
     speed,
     error: text(v.error),
+    awaitingConfirmation: flag(v.awaiting_confirmation),
   };
 }
 
@@ -187,7 +199,13 @@ export function parseResponse(value: unknown): HostResponse | null {
     case "accepted": {
       const taskId = text(v.task_id, 64);
       if (taskId === undefined) return null;
-      return { type: "accepted", id, taskId, fileName: text(v.file_name, MAX_FILE_NAME_LENGTH) };
+      return {
+        type: "accepted",
+        id,
+        taskId,
+        fileName: text(v.file_name, MAX_FILE_NAME_LENGTH),
+        awaitingConfirmation: flag(v.awaiting_confirmation),
+      };
     }
     case "error": {
       const code = text(v.code, 64);
