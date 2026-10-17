@@ -1,0 +1,38 @@
+[package]
+name = "downpipe-providers"
+description = "Site providers for Downpipe: the video on a page (YouTube) through yt-dlp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+downpipe-http.workspace = true
+futures-util.workspace = true
+hex.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+zip.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+downpipe-test-server.workspace = true
+tempfile.workspace = true
+
+# Runs its own `main`: the test binary doubles as the fake yt-dlp and Deno
+# that the tests start (see downpipe_test_server::fake_tools).
+[[test]]
+name = "ytdlp"
+harness = false
+
+[lints]
+workspace = true

@@ -642,6 +642,7 @@ export function App() {
               toast("Downloads from the browser now start at once. Settings, App turns the question back on.", "neutral");
             })
           }
+          onOpenSettings={() => setSettingsTab("media")}
         />
       )}
       {settingsTab !== null && settings && (

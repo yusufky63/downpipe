@@ -1,0 +1,70 @@
+[
+  {
+    "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+    "site": "YouTube",
+    "canonical": "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+  },
+  {
+    "url": "https://youtube.com/watch?feature=share&v=jNQXAC9IVRw&t=4s",
+    "site": "YouTube",
+    "canonical": "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw&list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb&index=2",
+    "site": "YouTube",
+    "canonical": "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+  },
+  {
+    "url": "https://m.youtube.com/watch?v=jNQXAC9IVRw",
+    "site": "YouTube",
+    "canonical": "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+  },
+  {
+    "url": "https://music.youtube.com/watch?v=jNQXAC9IVRw&si=x1",
+    "site": "YouTube",
+    "canonical": "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+  },
+  {
+    "url": "https://www.youtube.com/shorts/aqz-KE-bpKQ",
+    "site": "YouTube",
+    "canonical": "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+  },
+  {
+    "url": "https://www.youtube.com/embed/aqz-KE-bpKQ?autoplay=1",
+    "site": "YouTube",
+    "canonical": "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+  },
+  {
+    "url": "https://www.youtube-nocookie.com/embed/aqz-KE-bpKQ",
+    "site": "YouTube",
+    "canonical": "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+  },
+  {
+    "url": "https://www.youtube.com/live/aqz-KE-bpKQ?feature=shared",
+    "site": "YouTube",
+    "canonical": "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+  },
+  {
+    "url": "https://youtu.be/jNQXAC9IVRw?si=abc&t=3",
+    "site": "YouTube",
+    "canonical": "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+  },
+  {
+    "url": "http://WWW.YOUTUBE.COM/watch?v=jNQXAC9IVRw",
+    "site": "YouTube",
+    "canonical": "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+  },
+  { "url": "https://www.youtube.com/", "site": null, "canonical": null },
+  { "url": "https://www.youtube.com/watch", "site": null, "canonical": null },
+  { "url": "https://www.youtube.com/watch?v=short", "site": null, "canonical": null },
+  { "url": "https://www.youtube.com/watch?v=jNQXAC9IVR%3D", "site": null, "canonical": null },
+  { "url": "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb", "site": null, "canonical": null },
+  { "url": "https://www.youtube.com/@jawed", "site": null, "canonical": null },
+  { "url": "https://www.youtube.com/results?search_query=zoo", "site": null, "canonical": null },
+  { "url": "https://youtube.com.evil.example/watch?v=jNQXAC9IVRw", "site": null, "canonical": null },
+  { "url": "https://notyoutube.com/watch?v=jNQXAC9IVRw", "site": null, "canonical": null },
+  { "url": "ftp://www.youtube.com/watch?v=jNQXAC9IVRw", "site": null, "canonical": null },
+  { "url": "https://rr1---sn-4g5e6nsz.googlevideo.com/videoplayback?expire=1&id=o-x", "site": null, "canonical": null },
+  { "url": "https://example.org/video.mp4", "site": null, "canonical": null },
+  { "url": "not a url", "site": null, "canonical": null }
+]

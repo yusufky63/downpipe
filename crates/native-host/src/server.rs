@@ -12,7 +12,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use crate::frame::{self, FrameError};
 use crate::ipc::{AppAction, AppRequest, AppResponse, Endpoint};
 use crate::protocol::{
-    self, DownloadRequest, FEATURES, MAX_TASK_ERROR_LEN, MediaRequest, TaskStatus, code,
+    self, DownloadRequest, FEATURES, MAX_TASK_ERROR_LEN, MediaRequest, PageRequest, TaskStatus,
+    code,
 };
 
 /// A client that connects and then says nothing is dropped after this long.
@@ -218,6 +219,16 @@ impl Bridge {
                     .await
                     .unwrap_or_else(|e| AppResponse::error(code::INTERNAL, e.to_string()))
             }
+            AppAction::Page { request, origin } => {
+                let request = match request.validate() {
+                    Ok(request) => request,
+                    Err(e) => return AppResponse::error(e.code(), e.to_string()),
+                };
+                let manager = self.manager.clone();
+                tokio::task::spawn_blocking(move || add_page(&manager, request, origin.as_deref()))
+                    .await
+                    .unwrap_or_else(|e| AppResponse::error(code::INTERNAL, e.to_string()))
+            }
             AppAction::Tasks { task_ids } => {
                 if let Err(e) = protocol::validate_task_ids(&task_ids) {
                     return AppResponse::error(e.code(), e.to_string());
@@ -298,6 +309,26 @@ fn add_media(manager: &Manager, request: MediaRequest, origin: Option<&str>) -> 
         headers: page_headers(request.referrer, request.origin),
         media: Some(request.kind),
         // Same question as for a file, with the quality to pick as well.
+        confirm: manager.settings().confirm_browser_downloads,
+        ..AddOptions::default()
+    };
+    accepted(manager.add(options))
+}
+
+fn add_page(manager: &Manager, request: PageRequest, origin: Option<&str>) -> AppResponse {
+    tracing::info!(
+        origin = origin.unwrap_or("unknown"),
+        page = request.page_url,
+        "video page from the browser"
+    );
+    let options = AddOptions {
+        url: request.page_url,
+        // Named after the page; yt-dlp sets the extension.
+        file_name: request
+            .title
+            .map(|title| filename::sanitize(&format!("{title}.mp4"))),
+        // No headers: yt-dlp fetches the page itself, without the browser's
+        // referrer or cookies.
         confirm: manager.settings().confirm_browser_downloads,
         ..AddOptions::default()
     };

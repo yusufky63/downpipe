@@ -5,7 +5,7 @@
 // request, again only after a click. The page cannot see into the button
 // (a closed shadow root) and synthetic clicks from page scripts are ignored.
 import { ext } from "../lib/browser";
-import { isOverlayItems, overlayResultText, type OverlayItem } from "../lib/messages";
+import { PAGE_ITEM_ID, isOverlayItems, overlayResultText, type OverlayItem } from "../lib/messages";
 
 /** Thumbnails and decorative loops stay without a button. */
 const MIN_WIDTH = 200;
@@ -202,7 +202,10 @@ function start(): void {
     ui.menu.hidden = true;
     ui.main.disabled = true;
     try {
-      const reply: unknown = await ext.runtime.sendMessage({ kind: "overlay_send", mediaId: item.mediaId });
+      // The page entry (YouTube) sends the page's address, not a detected file.
+      const message =
+        item.mediaId === PAGE_ITEM_ID ? { kind: "overlay_page" } : { kind: "overlay_send", mediaId: item.mediaId };
+      const reply: unknown = await ext.runtime.sendMessage(message);
       const result = overlayResultText(reply);
       noteText(result.text, result.failed ? "danger" : "muted");
     } catch {

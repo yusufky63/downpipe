@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { HostResult } from "./host";
-import { STREAMS_UNSUPPORTED, bridgeDown, bridgeStatus, downloadOutcome, errorText, keptMessage, streamOutcome } from "./status";
+import {
+  PAGES_UNSUPPORTED,
+  STREAMS_UNSUPPORTED,
+  bridgeDown,
+  bridgeStatus,
+  downloadOutcome,
+  errorText,
+  keptMessage,
+  pageOutcome,
+  streamOutcome,
+} from "./status";
 import { statusView } from "./view";
 
 const ok = (response: Extract<HostResult, { ok: true }>["response"]): HostResult => ({ ok: true, response });
@@ -19,6 +29,7 @@ describe("bridgeStatus", () => {
       appVersion: "0.2.1",
       hostVersion: "0.2.0",
       media: false,
+      pages: false,
     });
     expect(bridgeStatus(ok({ type: "pong", hostVersion: "0.2.0", appRunning: false, features: [] }))).toEqual({
       state: "app_not_running",
@@ -31,7 +42,12 @@ describe("bridgeStatus", () => {
 
   it("knows whether streams can be sent", () => {
     const pong = ok({ type: "pong", hostVersion: "0.4.0", appRunning: true, appVersion: "0.4.0", features: ["media"] });
-    expect(bridgeStatus(pong)).toMatchObject({ state: "connected", media: true });
+    expect(bridgeStatus(pong)).toMatchObject({ state: "connected", media: true, pages: false });
+  });
+
+  it("knows whether video pages can be sent", () => {
+    const pong = ok({ type: "pong", hostVersion: "0.4.0", appRunning: true, appVersion: "0.4.0", features: ["media", "page"] });
+    expect(bridgeStatus(pong)).toMatchObject({ state: "connected", media: true, pages: true });
   });
 
   it("explains app errors in its own words", () => {
@@ -125,7 +141,9 @@ describe("statusView", () => {
 
   it("uses calm tones for working states", () => {
     expect(statusView(null, chromeExt).tone).toBe("muted");
-    expect(statusView({ state: "connected", appVersion: "1", hostVersion: "1", media: true }, chromeExt).tone).toBe("positive");
+    expect(statusView({ state: "connected", appVersion: "1", hostVersion: "1", media: true, pages: true }, chromeExt).tone).toBe(
+      "positive",
+    );
     expect(statusView({ state: "app_not_running", hostVersion: "1" }, chromeExt).tone).toBe("warning");
   });
 });
@@ -136,5 +154,16 @@ describe("streamOutcome", () => {
     expect(streamOutcome(old)).toEqual({ outcome: "failed", message: STREAMS_UNSUPPORTED });
     const taken = ok({ type: "accepted", taskId: "t", fileName: "Clip.mp4", awaitingConfirmation: true });
     expect(streamOutcome(taken)).toMatchObject({ outcome: "added", taskId: "t", awaitingConfirmation: true });
+  });
+});
+
+describe("pageOutcome", () => {
+  it("tells an outdated Downpipe from a refused page", () => {
+    const old = ok({ type: "error", code: "invalid_message", message: "unknown variant `page`" });
+    expect(pageOutcome(old)).toEqual({ outcome: "failed", message: PAGES_UNSUPPORTED });
+    const other = ok({ type: "error", code: "unsupported_page", message: "raw" });
+    expect(pageOutcome(other)).toEqual({ outcome: "failed", message: "Downpipe does not download videos from this site." });
+    const held = ok({ type: "accepted", taskId: "y", fileName: "Me at the zoo.mp4", awaitingConfirmation: true });
+    expect(pageOutcome(held)).toMatchObject({ outcome: "added", taskId: "y", fileName: "Me at the zoo.mp4" });
   });
 });

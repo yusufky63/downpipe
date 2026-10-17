@@ -9,8 +9,10 @@ mod tray;
 use std::path::PathBuf;
 
 use background::{Background, WhenDone, WhenDoneView};
+use downpipe_core::providers::ToolsStatus;
+use downpipe_core::providers::install::Tool;
 use downpipe_core::{
-    AddOptions, ConfirmOptions, CoreError, Manager, MediaChoices, QueueMove, Settings,
+    AddOptions, ConfirmOptions, CoreError, Manager, MediaChoices, QueueMove, Settings, SiteChoices,
     TaskSnapshot, TaskState,
 };
 use downpipe_native_host::ipc::Endpoint;
@@ -149,6 +151,28 @@ async fn inspect_media(manager: State<'_, Manager>, id: String) -> CmdResult<Med
 #[tauri::command]
 fn ffmpeg_status(manager: State<'_, Manager>) -> Option<PathBuf> {
     manager.ffmpeg()
+}
+
+/// Asks yt-dlp what a video page offers; fetches the page, no video.
+#[tauri::command]
+async fn inspect_site(manager: State<'_, Manager>, id: String) -> CmdResult<SiteChoices> {
+    Ok(manager.inspect_site(&id).await?)
+}
+
+/// yt-dlp, Deno (or Node) and FFmpeg as the settings find them.
+#[tauri::command]
+async fn site_tools(manager: State<'_, Manager>) -> CmdResult<ToolsStatus> {
+    Ok(manager.site_tools().await)
+}
+
+/// Download yt-dlp and/or Deno from their official releases. Only the
+/// settings' button calls this.
+#[tauri::command]
+async fn install_site_tools(
+    manager: State<'_, Manager>,
+    tools: Vec<Tool>,
+) -> CmdResult<ToolsStatus> {
+    Ok(manager.install_site_tools(&tools).await?)
 }
 
 /// Download a finished file again; `replace` deletes the old copy first.
@@ -608,6 +632,9 @@ fn main() {
             confirm_download,
             inspect_media,
             ffmpeg_status,
+            inspect_site,
+            site_tools,
+            install_site_tools,
             redownload,
             move_downloads,
             set_download_queue,

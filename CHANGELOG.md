@@ -4,9 +4,16 @@ All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
 ## Unreleased
 
-Media detection: the videos and audio a web page plays, including HLS and DASH streams behind `blob:` players, download in Downpipe.
+Media detection: the videos and audio a web page plays, including HLS and DASH streams behind `blob:` players, download in Downpipe. YouTube pages download through yt-dlp.
 
 ### New
+
+- **YouTube.** On a YouTube video page (watch, Shorts, embedded players, `youtu.be` links), **Download with Downpipe** sends the page to the app: in the popup's **Media on this page** (also with detection off), on the Download button over the video, as **Download this video with Downpipe** in the page's context menu, and on links to video pages. The app hands the page to [yt-dlp](https://github.com/yt-dlp/yt-dlp), because YouTube's player no longer fetches files a download manager can take over.
+- The confirmation dialog lists what yt-dlp finds: one quality per resolution and frame rate (H.264 before AV1 before VP9, so the result plays everywhere), the sound tracks per language and codec, and **Audio only**. The file is named after the video's title. Without FFmpeg, qualities that need video and sound joined cannot be started, and the dialog says why; **Audio only** and qualities with their own sound still work.
+- yt-dlp's progress shows in the list like any download, with the site and quality (`YouTube · 1080p`). Pausing ends yt-dlp and everything it started; resuming continues its partial files. Cancelling deletes them. FFmpeg joins video and sound into one MP4 (or MKV when the formats need it).
+- YouTube links pasted into the Add dialog become site downloads too, under one link per video: the same video from a share link, a playlist or with a timestamp is recognized as a duplicate.
+- **Settings → Media → Videos on pages:** paths for yt-dlp and Deno (empty: Downpipe's tools folder, then `PATH`; Node 22 or newer stands in for a missing Deno), the status of yt-dlp, the JavaScript runtime and FFmpeg with their versions, and a **Download yt-dlp and Deno** button that fetches the official builds from GitHub and checks each against the SHA-256 its release publishes. Nothing is downloaded until it is pressed; pressing it again updates yt-dlp.
+- Bridge: a `page` message (`page_url`, `title`) for video pages, accepted only for pages the app's provider takes (otherwise `unsupported_page`), and `page` in `pong`'s `features`.
 
 - **Media on this page** in the extension's popup (a switch, off by default): the extension notes the HLS (`.m3u8`) and DASH (`.mpd`) manifests and the media files a page plays, per tab, and lists them with a **Download** button each. Turning it on asks the browser for the `webRequest` permission and access to all sites; turning it off removes both and forgets the lists.
 - A **Download** button over playing videos (big enough, not DRM-protected) while detection is on. With one stream found it sends it; with several it lists them. Pages cannot click it for you.
@@ -25,12 +32,15 @@ Media detection: the videos and audio a web page plays, including HLS and DASH s
 ### Changed
 
 - The popup shows **Connected** in its header instead of a status box while the app is reachable, so the media and download lists fit in the browser's 600 px popup.
-- Catalog schema version 4 (a `media` column); older catalogs are upgraded on start.
+- Catalog schema version 5 (a `media` column, and a `site` column for video pages); older catalogs are upgraded on start.
+- Quality lists name the codecs (`H.264 + AAC`), and audio tracks their format.
+- Media detection no longer lists the requests YouTube's player makes to its video servers; the page itself is offered instead.
 
 ### Not downloaded, on purpose
 
 - DRM-protected streams (HLS `SAMPLE-AES` or any key format other than plain AES-128, DASH `ContentProtection`) are refused before any media is requested, and the overlay button does not appear on videos that use Encrypted Media Extensions.
 - Live streams (HLS without `#EXT-X-ENDLIST`, DASH `type="dynamic"`).
+- YouTube videos yt-dlp reports as DRM-protected, and live or upcoming ones. No cookies are sent, so private, members-only and age-restricted videos fail with YouTube's reason.
 
 ## 0.3.0 — 2026-10-17
 

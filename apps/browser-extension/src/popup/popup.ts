@@ -7,11 +7,12 @@ import {
   overlayResultText,
   relativeTime,
   type Activity,
+  type PageItem,
   type StatusReply,
   type TasksReply,
 } from "../lib/messages";
 import type { TaskStatus } from "../lib/protocol";
-import { itemView, mayChange, mediaEmptyText, mediaRowView, statusView } from "../lib/view";
+import { itemView, mayChange, mediaEmptyText, mediaRowView, pageRowView, statusView } from "../lib/view";
 import { byId, extensionInfo, paintStatus, span } from "../ui/dom";
 
 const DOWNLOADS_PERMISSION: chrome.permissions.Permissions = { permissions: ["downloads"] };
@@ -61,7 +62,11 @@ let page: { tabId: number; host: string } | null = null;
 let excludedSites: string[] = [];
 /** The connected Downpipe takes streams; assumed until the status says otherwise. */
 let streams = true;
+/** The connected Downpipe takes video pages (YouTube); assumed likewise. */
+let pages = true;
 let mediaItems: MediaCandidate[] = [];
+/** The tab is a video page the site provider can download. */
+let mediaPage: PageItem | undefined;
 let mediaEnabled = false;
 let mediaExcludedBy: string | undefined;
 let mediaTimer: ReturnType<typeof setTimeout> | undefined;
@@ -177,14 +182,49 @@ function mediaRow(c: MediaCandidate): HTMLLIElement {
   return li;
 }
 
+/** Results of sending the page row, in `mediaResults` next to media ids. */
+const PAGE_RESULT = "page";
+
+/** The video page itself (YouTube), first in the list. */
+function pageRow(page: PageItem): HTMLLIElement {
+  const view = pageRowView(page, pages);
+  const result = mediaResults.get(PAGE_RESULT);
+  const li = document.createElement("li");
+  li.className = "item media-item";
+  li.dataset.tone = result && result !== "sending" ? (result.failed ? "danger" : "positive") : "muted";
+  const label = span("item-label", view.label);
+  label.title = view.label;
+  const detail = span("item-detail num", result && result !== "sending" ? result.text : view.detail);
+  detail.title = detail.textContent ?? "";
+  const send = document.createElement("button");
+  send.type = "button";
+  send.className = "btn btn-small";
+  send.textContent = result === "sending" ? "Sending…" : "Download";
+  send.disabled = !view.sendable || result === "sending";
+  send.setAttribute("aria-label", `Download ${view.label} with Downpipe`);
+  send.addEventListener("click", () => void sendPage());
+  li.append(label, send, detail);
+  return li;
+}
+
 function renderMedia(): void {
-  const drawn = JSON.stringify([mediaEnabled, mediaExcludedBy, streams, mediaItems.map((c) => c.id), [...mediaResults]]);
+  const drawn = JSON.stringify([
+    mediaEnabled,
+    mediaExcludedBy,
+    streams,
+    pages,
+    mediaPage,
+    mediaItems.map((c) => c.id),
+    [...mediaResults],
+  ]);
   els.media.toggle.checked = mediaEnabled;
   if (drawn === mediaDrawn) return;
   mediaDrawn = drawn;
-  els.media.list.replaceChildren(...mediaItems.map(mediaRow));
+  const rows = mediaItems.map(mediaRow);
+  els.media.list.replaceChildren(...(mediaPage ? [pageRow(mediaPage), ...rows] : rows));
   els.media.empty.textContent = mediaEmptyText(mediaEnabled, mediaExcludedBy);
-  els.media.empty.hidden = mediaItems.length > 0;
+  // On a video page the page row is the download; "nothing yet" would be wrong.
+  els.media.empty.hidden = mediaItems.length > 0 || mediaPage !== undefined;
 }
 
 async function refreshMedia(): Promise<void> {
@@ -195,6 +235,7 @@ async function refreshMedia(): Promise<void> {
   mediaEnabled = reply.enabled;
   mediaExcludedBy = reply.excludedBy;
   mediaItems = reply.items;
+  mediaPage = reply.page;
   renderMedia();
   if (mediaEnabled) mediaTimer = setTimeout(() => void refreshMedia(), MEDIA_POLL_MS);
 }
@@ -209,6 +250,16 @@ async function sendMedia(mediaId: string): Promise<void> {
   mediaResults.set(mediaId, overlayResultText(reply));
   renderMedia();
   // The Downloads list below now has it.
+  void refresh();
+}
+
+async function sendPage(): Promise<void> {
+  if (!page) return;
+  mediaResults.set(PAGE_RESULT, "sending");
+  renderMedia();
+  const reply: unknown = await ext.runtime.sendMessage({ kind: "send_page", tabId: page.tabId }).catch(() => null);
+  mediaResults.set(PAGE_RESULT, overlayResultText(reply));
+  renderMedia();
   void refresh();
 }
 
@@ -236,7 +287,11 @@ async function refresh(): Promise<void> {
   try {
     const reply: unknown = await ext.runtime.sendMessage({ kind: "status" });
     const status = isStatusReply(reply) ? reply : null;
-    if (status) streams = status.bridge.state !== "connected" || status.bridge.media;
+    if (status) {
+      streams = status.bridge.state !== "connected" || status.bridge.media;
+      pages = status.bridge.state !== "connected" || status.bridge.pages;
+      renderMedia();
+    }
     renderStatus(
       status ?? {
         bridge: { state: "error", message: "The extension did not answer." },

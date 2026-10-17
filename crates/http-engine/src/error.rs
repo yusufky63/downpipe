@@ -75,6 +75,20 @@ pub enum DownloadError {
     #[error("this stream is not supported: {0}")]
     UnsupportedMedia(String),
 
+    /// A program a site provider needs (yt-dlp, FFmpeg) is not set up. The
+    /// message says which and where to set it up.
+    #[error("{0}")]
+    ToolMissing(String),
+
+    /// The site will not serve this video to anyone without an account:
+    /// private, removed, age or region restricted.
+    #[error("{0}")]
+    Unavailable(String),
+
+    /// An external extractor (yt-dlp) failed for a reason of its own.
+    #[error("{0}")]
+    Extractor(String),
+
     #[error("gave up after {attempts} attempts: {last}")]
     RetriesExhausted {
         attempts: u32,
@@ -125,6 +139,9 @@ impl DownloadError {
             Self::LiveStream => "live_stream",
             Self::InvalidManifest(_) => "invalid_manifest",
             Self::UnsupportedMedia(_) => "unsupported_media",
+            Self::ToolMissing(_) => "tool_missing",
+            Self::Unavailable(_) => "unavailable",
+            Self::Extractor(_) => "extractor",
             Self::RetriesExhausted { last, .. } => last.kind(),
         }
     }

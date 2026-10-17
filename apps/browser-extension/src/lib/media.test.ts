@@ -50,6 +50,14 @@ describe("classifyResponse", () => {
     expect(classifyResponse(response({ url: "https://v.example.net/a/index.m3u8", type: "media" }))?.kind).toBe("hls");
   });
 
+  it("leaves YouTube's video servers to the page entry", () => {
+    const url = "https://rr1---sn-4g5e6nsz.googlevideo.com/videoplayback?expire=1&mime=video%2Fmp4&range=0-100000";
+    expect(classifyResponse(response({ url, type: "media", headers: { "Content-Type": "video/mp4" } }))).toBeNull();
+    expect(
+      classifyResponse(response({ url: "https://manifest.googlevideo.com/api/manifest/hls_playlist/id/1/index.m3u8" })),
+    ).toBeNull();
+  });
+
   it("finds DASH manifests", () => {
     expect(classifyResponse(response({ url: "https://v.example.net/a/manifest.mpd" }))?.kind).toBe("dash");
     expect(

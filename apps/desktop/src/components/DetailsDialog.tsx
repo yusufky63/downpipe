@@ -141,6 +141,13 @@ export function DetailsDialog({
           <Row label="Source">
             <CopyValue value={task.url} />
           </Row>
+          {task.site && (
+            <Row label="Video">
+              <span className="num font-mono text-[12px] text-ink-secondary">
+                {[task.site.site, task.site.quality ?? "Best quality", "yt-dlp"].join(" · ")}
+              </span>
+            </Row>
+          )}
           {task.media && (
             <Row label="Stream">
               <span className="num font-mono text-[12px] text-ink-secondary">

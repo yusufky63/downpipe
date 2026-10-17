@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use downpipe_http::media::{MediaKind, MediaOptions, MediaSelection};
+use downpipe_http::media::{AudioOption, MediaKind, MediaOptions, MediaSelection, VideoOption};
 use downpipe_http::{Phase, Progress, SegmentView};
 use serde::{Deserialize, Serialize};
 
@@ -120,6 +120,9 @@ pub struct TaskRecord {
     /// Set when the URL is a stream manifest (HLS, DASH) rather than a file.
     #[serde(default)]
     pub media: Option<MediaInfo>,
+    /// Set when the URL is a video page a site provider downloads (YouTube).
+    #[serde(default)]
+    pub site: Option<SiteInfo>,
     pub created_at: i64,
     pub updated_at: i64,
     pub completed_at: Option<i64>,
@@ -146,6 +149,54 @@ impl MediaInfo {
             quality: None,
         }
     }
+}
+
+/// What a site download remembers between sessions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SiteInfo {
+    /// The site, as people name it ("YouTube").
+    pub site: String,
+    /// The formats to download, in the stream chooser's shape (the "video"
+    /// of an Audio only choice is the sound format). `None` takes the best,
+    /// which is then stored here so a resume takes the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<MediaSelection>,
+    /// "1080p", "Audio only" and the like, once known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<String>,
+}
+
+impl SiteInfo {
+    pub fn new(site: impl Into<String>) -> Self {
+        Self {
+            site: site.into(),
+            selection: None,
+            quality: None,
+        }
+    }
+}
+
+/// What a video page offers, for the quality chooser.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SiteChoices {
+    pub site: String,
+    /// The page's title, which the dialog offers as the file name.
+    pub title: Option<String>,
+    pub options: SiteOptions,
+    /// The choice made so far, if any.
+    pub selection: Option<MediaSelection>,
+    /// FFmpeg is available to join separate video and sound.
+    pub ffmpeg: bool,
+}
+
+/// The qualities of a page, in the same shape as a stream's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SiteOptions {
+    /// Video qualities best first, then "Audio only" entries.
+    pub videos: Vec<VideoOption>,
+    pub audios: Vec<AudioOption>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
 }
 
 /// Fragments of a stream download.
@@ -191,10 +242,15 @@ impl Live {
             segments: p.segments.clone(),
             notices: p.notices.clone(),
             awaiting_confirmation: false,
-            fragments: p.media.as_ref().map(|m| Fragments {
-                done: m.fragments_done,
-                total: m.fragments,
-            }),
+            // Site downloads report whole formats, not fragments.
+            fragments: p
+                .media
+                .as_ref()
+                .filter(|m| m.fragments > 0)
+                .map(|m| Fragments {
+                    done: m.fragments_done,
+                    total: m.fragments,
+                }),
         }
     }
 }

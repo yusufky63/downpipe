@@ -31,6 +31,12 @@ describe("buildMenu", () => {
     expect(menu.get("pause")?.disabled).toBe(true);
   });
 
+  it("offers no new link for a video page, whose address does not expire", () => {
+    const menu = items(buildMenu([task("y", { state: "failed", site: { site: "YouTube" } })], queues));
+    expect(menu.has("relink")).toBe(false);
+    expect(menu.get("resume")).toMatchObject({ label: "Retry", disabled: false });
+  });
+
   it("offers a new link for a failed download and calls resuming a retry", () => {
     const menu = items(buildMenu([task("a", { state: "failed" })], queues));
     expect(menu.has("relink")).toBe(true);

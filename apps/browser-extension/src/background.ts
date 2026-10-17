@@ -32,6 +32,7 @@ import {
   type MediaCandidate,
 } from "./lib/media";
 import {
+  PAGE_ITEM_ID,
   addActivity,
   parseActivity,
   parseOverlayRequest,
@@ -43,6 +44,7 @@ import {
   type MediaReply,
   type OverlayItem,
   type OverlayRequest,
+  type PageItem,
   type PingReply,
   type PopupRequest,
   type Settings,
@@ -55,17 +57,37 @@ import {
   fileNameHint,
   mediaMessage,
   newMessageId,
+  pageMessage,
   pingMessage,
   tasksMessage,
   type TaskStatus,
 } from "./lib/protocol";
 import { isOwnContentScript, isTrustedSender } from "./lib/sender";
-import { bridgeDown, bridgeStatus, downloadOutcome, keptMessage, streamOutcome, type HandOver } from "./lib/status";
+import { isSiteMedia, pageTitle, sitePage } from "./lib/sites";
+import {
+  bridgeDown,
+  bridgeStatus,
+  downloadOutcome,
+  keptMessage,
+  pageOutcome,
+  streamOutcome,
+  type HandOver,
+} from "./lib/status";
 import { linkLabel, referrerFor } from "./lib/url";
 
 const MENU_ID = "downpipe-download-link";
 const PAGE_MENU_ID = "downpipe-page-links";
 const SELECTION_MENU_ID = "downpipe-selected-links";
+const VIDEO_MENU_ID = "downpipe-video-page";
+/** Pages `lib/sites.ts` recognizes, as match patterns for the page menu. */
+const VIDEO_PAGES = [
+  "*://*.youtube.com/watch*",
+  "*://*.youtube.com/shorts/*",
+  "*://*.youtube.com/embed/*",
+  "*://*.youtube.com/live/*",
+  "*://*.youtube-nocookie.com/embed/*",
+  "*://youtu.be/*",
+];
 const WEB_PAGES = ["http://*/*", "https://*/*"];
 const LINK_TIMEOUT_MS = 10_000;
 /** A captured download waits for this answer, so it is kept short. */
@@ -102,6 +124,14 @@ function createMenu(): void {
       contexts: ["page", "frame"],
       documentUrlPatterns: WEB_PAGES,
     });
+    // On a video page the page itself is the download: Downpipe's site
+    // provider (yt-dlp) gets its address and picks the video out.
+    ext.contextMenus.create({
+      id: VIDEO_MENU_ID,
+      title: "Download this video with Downpipe",
+      contexts: ["page", "frame"],
+      documentUrlPatterns: VIDEO_PAGES,
+    });
     ext.contextMenus.create({
       id: SELECTION_MENU_ID,
       title: "Download selected links with Downpipe…",
@@ -119,6 +149,13 @@ ext.contextMenus.onClicked.addListener((info, tab) => {
     void sendLink(info);
     return;
   }
+  if (info.menuItemId === VIDEO_MENU_ID) {
+    // The frame first: a video embedded in another site's page.
+    const url = sitePage(info.frameUrl) ? info.frameUrl : info.pageUrl;
+    const title = url === tab?.url ? pageTitle(cleanTitle(tab?.title)) : undefined;
+    if (url) void sendVideoPage(url, title, "link");
+    return;
+  }
   // Choosing the item grants `activeTab` for this tab, which is what lets
   // the collector run there.
   if ((info.menuItemId === PAGE_MENU_ID || info.menuItemId === SELECTION_MENU_ID) && tab) {
@@ -127,6 +164,11 @@ ext.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 async function sendLink(info: chrome.contextMenus.OnClickData): Promise<void> {
+  // A link to a video page goes to the site provider, not as a file.
+  if (sitePage(info.linkUrl) && info.linkUrl) {
+    await sendVideoPage(info.linkUrl, undefined, "link");
+    return;
+  }
   const label = linkLabel(info.linkUrl ?? "");
   const fields = linkFields(info);
   const message = fields && downloadMessage(fields, newMessageId());
@@ -191,7 +233,54 @@ async function openLinks(tab: chrome.tabs.Tab, frameId: number | undefined, only
     .catch(() => undefined);
 }
 
+/**
+ * Hand a video page (YouTube) to Downpipe's site provider. Only the page's
+ * address and title go over the bridge; yt-dlp in the app reads the page.
+ */
+async function sendVideoPage(
+  url: string,
+  title: string | undefined,
+  source: Activity["source"],
+  options: { quiet?: boolean } = {},
+): Promise<LinkResult> {
+  const page = sitePage(url);
+  const message = page && pageMessage({ pageUrl: page.url, title }, newMessageId());
+  if (!page || !message) {
+    return { outcome: "failed", message: "Downpipe does not download videos from this page.", stop: false };
+  }
+  const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+  const outcome = pageOutcome(result);
+  await report(
+    {
+      source,
+      label: outcome.fileName ?? title ?? `${page.site} video`,
+      outcome: outcome.outcome,
+      message: outcome.message,
+      taskId: outcome.taskId,
+      awaitingConfirmation: outcome.awaitingConfirmation,
+    },
+    options,
+  );
+  return { ...outcome, stop: bridgeDown(result) };
+}
+
+/**
+ * The video page a tab or frame shows, if the site provider takes it: the
+ * tab's own page first, else the frame's (a video embedded in another
+ * site). The title only comes with the tab's page.
+ */
+async function videoPageOf(tabId: number, frameUrl?: string): Promise<{ url: string; item: PageItem } | null> {
+  const tab = await ext.tabs.get(tabId).catch(() => undefined);
+  const fromTab = sitePage(tab?.url);
+  if (fromTab && tab?.url) {
+    return { url: tab.url, item: { site: fromTab.site, title: pageTitle(cleanTitle(tab.title)) } };
+  }
+  const fromFrame = sitePage(frameUrl);
+  return fromFrame && frameUrl ? { url: frameUrl, item: { site: fromFrame.site } } : null;
+}
+
 async function sendPageLink(url: string, pageUrl: string | undefined): Promise<LinkResult> {
+  if (sitePage(url)) return sendVideoPage(url, undefined, "link", { quiet: true });
   const label = linkLabel(url);
   const fields = linkFields({ linkUrl: url, pageUrl });
   const message = fields && downloadMessage(fields, newMessageId());
@@ -514,6 +603,14 @@ function overlayItem(c: MediaCandidate): OverlayItem {
   return { mediaId: c.id, label: mediaName(c.url), detail: `${kindLabel(c)}${size}` };
 }
 
+function pageOverlayItem(page: PageItem): OverlayItem {
+  return {
+    mediaId: PAGE_ITEM_ID,
+    label: page.title ?? `This ${page.site} video`,
+    detail: `${page.site} video · quality chosen in Downpipe`,
+  };
+}
+
 async function overlayAnswer(
   request: OverlayRequest,
   tabId: number,
@@ -525,15 +622,22 @@ async function overlayAnswer(
       const src = request.src;
       const found = src ? classifySource(src) : null;
       const items =
-        src && found
+        src && found && !isSiteMedia(src)
           ? await changeTabMedia(tabId, (list) =>
               addCandidate(list, { ...found, url: src, frameUrl }, crypto.randomUUID(), Date.now()),
             )
           : await tabMedia(tabId);
-      return { items: items.map(overlayItem) };
+      const page = await videoPageOf(tabId, frameUrl);
+      const listed = items.filter((c) => !isSiteMedia(c.url)).map(overlayItem);
+      return { items: page ? [pageOverlayItem(page.item), ...listed] : listed };
     }
     case "overlay_send":
       return sendMedia(tabId, request.mediaId);
+    case "overlay_page": {
+      const page = await videoPageOf(tabId, frameUrl);
+      if (!page) return { outcome: "failed", message: "This is not a video page Downpipe knows.", stop: false };
+      return sendVideoPage(page.url, page.item.title, "media");
+    }
   }
 }
 
@@ -715,16 +819,27 @@ async function answer(request: PopupRequest): Promise<Reply> {
     case "send_link":
       return sendPageLink(request.url, request.pageUrl);
     case "media_list": {
+      // A video page is offered whether detection is on or not: opening the
+      // popup grants `activeTab`, which is enough to read the tab's address.
+      const page = (await videoPageOf(request.tabId))?.item;
+      const withPage = (reply: MediaReply): MediaReply => (page ? { ...reply, page } : reply);
       const enabled = await mediaEnabled();
-      if (!enabled) return { enabled, items: [] };
+      if (!enabled) return withPage({ enabled, items: [] });
       const tab = await ext.tabs.get(request.tabId).catch(() => undefined);
       const excludedBy = matchingSite([hostOf(tab?.url)], (await cachedSettings()).excludedSites);
-      return excludedBy ? { enabled, items: [], excludedBy } : { enabled, items: await tabMedia(request.tabId) };
+      if (excludedBy) return withPage({ enabled, items: [], excludedBy });
+      const items = (await tabMedia(request.tabId)).filter((c) => !isSiteMedia(c.url));
+      return withPage({ enabled, items });
     }
     case "save_media":
       return changeSettings((s) => ({ ...s, ...request.media }));
     case "send_media":
       return sendMedia(request.tabId, request.mediaId);
+    case "send_page": {
+      const page = await videoPageOf(request.tabId);
+      if (!page) return { outcome: "failed", message: "This is not a video page Downpipe knows.", stop: false };
+      return sendVideoPage(page.url, page.item.title, "media");
+    }
   }
 }
 

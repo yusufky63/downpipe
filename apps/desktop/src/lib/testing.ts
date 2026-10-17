@@ -30,6 +30,7 @@ export function makeTask(id: string, patch: Partial<Task> = {}): Task {
     notices: [],
     awaiting_confirmation: false,
     media: null,
+    site: null,
     fragments: null,
     eta_secs: null,
     ...patch,

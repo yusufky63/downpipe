@@ -10,6 +10,8 @@ use downpipe_http::{
     Checksum, DownloadControl, DownloadError, DownloadHandle, DownloadRequest, Engine,
     EngineConfig, Outcome, RateLimiter, filename, meta,
 };
+use downpipe_providers::install::{self, Tool};
+use downpipe_providers::{SiteRequest, ToolConfig, Tools, ToolsStatus, files as site_files, pages};
 use parking_lot::Mutex;
 use serde::Serialize;
 use tokio::sync::broadcast;
@@ -18,11 +20,14 @@ use tokio::task::JoinHandle;
 use crate::settings::{MAIN_QUEUE, Settings};
 use crate::store::Store;
 use crate::task::{
-    AddOptions, ConfirmOptions, Live, MediaChoices, MediaInfo, QueueMove, TaskId, TaskRecord,
-    TaskSnapshot, TaskState,
+    AddOptions, ConfirmOptions, Live, MediaChoices, MediaInfo, QueueMove, SiteChoices, SiteInfo,
+    SiteOptions, TaskId, TaskRecord, TaskSnapshot, TaskState,
 };
 
 const DB_FILE: &str = "downpipe.db";
+/// Folder in the data folder where yt-dlp and Deno go when the user has
+/// Downpipe download them.
+const TOOLS_DIR: &str = "tools";
 /// Progress is written to SQLite at most this often while a task runs; the
 /// meta file next to the download is the precise record anyway.
 const PERSIST_EVERY: Duration = Duration::from_secs(5);
@@ -94,6 +99,8 @@ struct Inner {
     runtime: tokio::runtime::Handle,
     state: Mutex<State>,
     events: broadcast::Sender<ManagerEvent>,
+    /// Downpipe's own copies of the site provider's tools.
+    tools_dir: PathBuf,
 }
 
 #[derive(Debug)]
@@ -196,6 +203,7 @@ impl Manager {
                     shutting_down: false,
                 }),
                 events,
+                tools_dir: data_dir.join(TOOLS_DIR),
             }),
         };
         manager.inner.schedule();
@@ -235,11 +243,19 @@ impl Manager {
             None => None,
         };
         downpipe_http::build_headers(&opts.headers)?;
+        // A video page (YouTube) goes to the site provider under one link
+        // per video, whatever tracking or timestamp the link carried.
+        let page = pages::recognize(&url);
+        let url = page.as_ref().map_or(url, |p| p.url.clone());
         let key = downpipe_http::redact_url(&url);
-        let media = opts
-            .media
-            .or_else(|| MediaKind::from_url(&url))
-            .map(MediaInfo::new);
+        let site = page.as_ref().map(|p| SiteInfo::new(p.site));
+        let media = match site {
+            Some(_) => None,
+            None => opts
+                .media
+                .or_else(|| MediaKind::from_url(&url))
+                .map(MediaInfo::new),
+        };
 
         let snapshot = {
             let mut st = self.inner.state.lock();
@@ -261,10 +277,14 @@ impl Manager {
             // from the URL or the browser is good enough to pick a folder,
             // and the finished file moves if it turns out to be different.
             let hint = file_name.clone().or_else(|| filename::from_url(&url));
-            // A stream ends up as a video whatever its manifest is called.
-            let hint = match (&media, hint) {
-                (Some(_), hint) => Some(video_name(hint.as_deref().unwrap_or("video"))),
-                (None, hint) => hint,
+            // A stream ends up as a video whatever its manifest is called,
+            // and so does a video page (until its title names it).
+            let hint = if site.is_some() {
+                Some(video_name(file_name.as_deref().unwrap_or("video")))
+            } else if media.is_some() {
+                Some(video_name(hint.as_deref().unwrap_or("video")))
+            } else {
+                hint
             };
             let category = hint
                 .as_deref()
@@ -304,6 +324,7 @@ impl Manager {
                 updated_at: now,
                 completed_at: None,
                 media,
+                site,
             };
             st.store.upsert(&record)?;
             let entry = Entry {
@@ -406,33 +427,41 @@ impl Manager {
     pub fn change_url(&self, id: &str, new_url: &str) -> Result<(), CoreError> {
         let url = parse_web_url(new_url)?;
         let key = downpipe_http::redact_url(&url);
-        let snapshot =
+        let snapshot = {
+            let mut st = self.inner.state.lock();
+            if let Some(dup) = st
+                .tasks
+                .iter()
+                .find(|e| e.record.id != id && e.record.url == key && !e.record.state.is_finished())
             {
-                let mut st = self.inner.state.lock();
-                if let Some(dup) = st.tasks.iter().find(|e| {
-                    e.record.id != id && e.record.url == key && !e.record.state.is_finished()
-                }) {
-                    return Err(CoreError::Duplicate(dup.record.id.clone()));
-                }
-                let State { store, tasks, .. } = &mut *st;
-                let entry = tasks
-                    .iter_mut()
-                    .find(|e| e.record.id == id)
-                    .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
-                if entry.control.is_some() || entry.record.state == TaskState::Completed {
-                    return Err(invalid("change the link of", entry.record.state));
-                }
-                entry.url = url.to_string();
-                entry.record.url = key;
-                // Without a file name the engine never started, so there is no
-                // partial data to protect.
-                entry.relink = entry.record.file_name.is_some();
-                entry.record.error = None;
-                entry.record.error_kind = None;
-                entry.set_state(TaskState::Queued);
-                store.upsert(&entry.record)?;
-                entry.snapshot()
-            };
+                return Err(CoreError::Duplicate(dup.record.id.clone()));
+            }
+            let State { store, tasks, .. } = &mut *st;
+            let entry = tasks
+                .iter_mut()
+                .find(|e| e.record.id == id)
+                .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
+            if entry.control.is_some() || entry.record.state == TaskState::Completed {
+                return Err(invalid("change the link of", entry.record.state));
+            }
+            // A video page's address does not expire; another page is
+            // another download.
+            if entry.record.site.is_some() {
+                return Err(CoreError::InvalidUrl(
+                    "a video page keeps its address; add the other page as a new download".into(),
+                ));
+            }
+            entry.url = url.to_string();
+            entry.record.url = key;
+            // Without a file name the engine never started, so there is no
+            // partial data to protect.
+            entry.relink = entry.record.file_name.is_some();
+            entry.record.error = None;
+            entry.record.error_kind = None;
+            entry.set_state(TaskState::Queued);
+            store.upsert(&entry.record)?;
+            entry.snapshot()
+        };
         self.inner.emit(ManagerEvent::Updated {
             task: Box::new(snapshot),
         });
@@ -534,10 +563,15 @@ impl Manager {
             if let Some(queue) = choice.queue.filter(|q| st.settings.queue(q).is_some()) {
                 entry.record.queue = queue;
             }
-            if let (Some(info), Some(selection)) = (entry.record.media.as_mut(), choice.media) {
-                info.selection = Some(selection);
-                // Named again once the stream is read.
-                info.quality = None;
+            if let Some(selection) = choice.media {
+                // Named again once the stream or page is read.
+                if let Some(info) = entry.record.media.as_mut() {
+                    info.selection = Some(selection);
+                    info.quality = None;
+                } else if let Some(site) = entry.record.site.as_mut() {
+                    site.selection = Some(selection);
+                    site.quality = None;
+                }
             }
             entry.live.awaiting_confirmation = false;
             entry.set_state(if start {
@@ -615,6 +649,64 @@ impl Manager {
     pub fn ffmpeg(&self) -> Option<PathBuf> {
         let configured = self.inner.state.lock().settings.ffmpeg_path.clone();
         find_ffmpeg(&configured)
+    }
+
+    /// What a video page offers, read by yt-dlp (which fetches the page and
+    /// its player data, no video). For the quality chooser.
+    pub async fn inspect_site(&self, id: &str) -> Result<SiteChoices, CoreError> {
+        let (url, site, settings) = {
+            let st = self.inner.state.lock();
+            let entry = st
+                .tasks
+                .iter()
+                .find(|e| e.record.id == id)
+                .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
+            let site = entry
+                .record
+                .site
+                .clone()
+                .ok_or_else(|| invalid("inspect the page of", entry.record.state))?;
+            (entry.url.clone(), site, st.settings.clone())
+        };
+        let tools = downpipe_providers::tools::find(&self.inner.tool_config(&settings));
+        let proxy = (!settings.proxy.is_empty()).then_some(settings.proxy.as_str());
+        let info = downpipe_providers::info::inspect(&tools, &url, proxy).await?;
+        Ok(SiteChoices {
+            site: site.site,
+            title: info.title,
+            options: SiteOptions {
+                videos: info.videos,
+                audios: info.audios,
+                duration_ms: info.duration_ms,
+            },
+            selection: site.selection,
+            ffmpeg: tools.ffmpeg.is_some(),
+        })
+    }
+
+    /// The site provider's tools as the settings find them, with versions.
+    pub async fn site_tools(&self) -> ToolsStatus {
+        let settings = self.settings();
+        downpipe_providers::tools::status(&self.inner.tool_config(&settings)).await
+    }
+
+    /// Download the latest official yt-dlp and/or Deno into Downpipe's tools
+    /// folder, checked against their published SHA-256. Only ever called
+    /// when the user asks for it.
+    pub async fn install_site_tools(&self, tools: &[Tool]) -> Result<ToolsStatus, CoreError> {
+        let client = self.inner.engine.lock().client().clone();
+        let base = url::Url::parse(install::GITHUB).expect("a valid URL");
+        for &tool in tools {
+            let installed = install::install(&client, &base, &self.inner.tools_dir, tool).await?;
+            tracing::info!(
+                tool = tool.name(),
+                release = installed.release,
+                sha256 = installed.sha256,
+                "installed into {}",
+                installed.path.display()
+            );
+        }
+        Ok(self.site_tools().await)
     }
 
     /// Reorder downloads inside their queues. Several ids move together and
@@ -803,6 +895,15 @@ impl Inner {
         let _ = self.events.send(event);
     }
 
+    fn tool_config(&self, settings: &Settings) -> ToolConfig {
+        ToolConfig {
+            yt_dlp: PathBuf::from(&settings.yt_dlp_path),
+            deno: PathBuf::from(&settings.deno_path),
+            ffmpeg: PathBuf::from(&settings.ffmpeg_path),
+            managed_dir: Some(self.tools_dir.clone()),
+        }
+    }
+
     fn with_entry(
         &self,
         id: &str,
@@ -843,6 +944,7 @@ impl Inner {
             let engine = self.engine.lock().clone();
             // Looked up once per pass, and only when a stream starts.
             let mut ffmpeg: Option<Option<PathBuf>> = None;
+            let mut site_tools: Option<Tools> = None;
             let State {
                 store,
                 tasks,
@@ -867,13 +969,22 @@ impl Inner {
                     continue;
                 }
                 *busy += 1;
-                let tool = match &entry.record.media {
-                    Some(_) => ffmpeg
-                        .get_or_insert_with(|| find_ffmpeg(&settings.ffmpeg_path))
-                        .clone(),
-                    None => None,
+                let handle = if entry.record.site.is_some() {
+                    let tools = site_tools
+                        .get_or_insert_with(|| {
+                            downpipe_providers::tools::find(&self.tool_config(settings))
+                        })
+                        .clone();
+                    downpipe_providers::job::start(entry.site_request(settings, tools))
+                } else {
+                    let tool = match &entry.record.media {
+                        Some(_) => ffmpeg
+                            .get_or_insert_with(|| find_ffmpeg(&settings.ffmpeg_path))
+                            .clone(),
+                        None => None,
+                    };
+                    engine.start(entry.request(per_download, tool))
                 };
-                let handle = engine.start(entry.request(per_download, tool));
                 entry.control = Some(handle.control());
                 entry.after_stop = AfterStop::Pause;
                 entry.record.error = None;
@@ -945,6 +1056,14 @@ impl Inner {
             {
                 info.quality = Some(m.quality.clone());
                 info.selection = Some(m.selection.clone());
+                media_changed = true;
+            }
+            if let (Some(site), Some(m)) = (r.site.as_mut(), p.media.as_ref())
+                && (site.quality.as_deref() != Some(m.quality.as_str())
+                    || site.selection.as_ref() != Some(&m.selection))
+            {
+                site.quality = Some(m.quality.clone());
+                site.selection = Some(m.selection.clone());
                 media_changed = true;
             }
             entry.live = Live::from_progress(p);
@@ -1079,6 +1198,18 @@ impl Entry {
             ffmpeg,
         });
         req
+    }
+
+    fn site_request(&self, settings: &Settings, tools: Tools) -> SiteRequest {
+        SiteRequest {
+            url: self.url.clone(),
+            dir: self.record.dir.clone(),
+            file_name: self.record.file_name.clone(),
+            selection: self.record.site.as_ref().and_then(|s| s.selection.clone()),
+            tools,
+            proxy: (!settings.proxy.is_empty()).then(|| settings.proxy.clone()),
+            rate_limit: settings.speed_limit,
+        }
     }
 }
 
@@ -1233,6 +1364,12 @@ fn final_path(record: &TaskRecord) -> Option<PathBuf> {
 }
 
 fn remove_partial(record: &TaskRecord) {
+    if record.site.is_some() {
+        if let Some(name) = &record.file_name {
+            site_files::remove_partials(&record.dir, &site_files::stem_of(name));
+        }
+        return;
+    }
     if let Some(path) = final_path(record) {
         if record.media.is_some() {
             media::remove_work_dir(&path);
@@ -1267,7 +1404,8 @@ fn video_name(hint: &str) -> String {
 
 /// Bring the displayed progress in line with what is actually on disk.
 fn refresh_from_meta(record: &mut TaskRecord) {
-    if record.state.is_finished() {
+    // Site downloads keep no meta file; yt-dlp finds its own parts again.
+    if record.state.is_finished() || record.site.is_some() {
         return;
     }
     let Some(path) = final_path(record) else {

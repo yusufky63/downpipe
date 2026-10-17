@@ -114,6 +114,10 @@ pub fn respond(bytes: &[u8], link: &impl AppLink, origin: Option<&str>) -> Respo
             let request = AppRequest::media(request, origin.map(str::to_string));
             Response::new(id, added(link.call(&request), "a stream"))
         }
+        RequestKind::Page(request) => {
+            let request = AppRequest::page(request, origin.map(str::to_string));
+            Response::new(id, added(link.call(&request), "a page"))
+        }
         RequestKind::Tasks(task_ids) => {
             let body = match link.call(&AppRequest::tasks(task_ids)) {
                 Ok(AppResponse::Tasks { tasks }) => ResponseBody::Tasks { tasks },
@@ -132,7 +136,8 @@ pub fn respond(bytes: &[u8], link: &impl AppLink, origin: Option<&str>) -> Respo
     }
 }
 
-/// The answer to a `download` or `media` request: the app took it, or why not.
+/// The answer to a `download`, `media` or `page` request: the app took it,
+/// or why not.
 fn added(answer: Result<AppResponse, IpcError>, what: &str) -> ResponseBody {
     match answer {
         Ok(AppResponse::Accepted {
@@ -222,7 +227,7 @@ mod tests {
                 Ok(match &request.action {
                     ipc::AppAction::Ping => AppResponse::Pong {
                         app_version: "9.9.9".into(),
-                        features: vec!["media".into(), "from-the-future".into()],
+                        features: vec!["media".into(), "page".into(), "from-the-future".into()],
                     },
                     ipc::AppAction::Download { request, .. } => AppResponse::Accepted {
                         task_id: "task-1".into(),
@@ -231,6 +236,11 @@ mod tests {
                     },
                     ipc::AppAction::Media { request, .. } => AppResponse::Accepted {
                         task_id: "stream-1".into(),
+                        file_name: request.title.as_ref().map(|t| format!("{t}.mp4")),
+                        awaiting_confirmation: true,
+                    },
+                    ipc::AppAction::Page { request, .. } => AppResponse::Accepted {
+                        task_id: "page-1".into(),
                         file_name: request.title.as_ref().map(|t| format!("{t}.mp4")),
                         awaiting_confirmation: true,
                     },
@@ -303,7 +313,7 @@ mod tests {
         assert_eq!(out[0]["app_running"], true);
         assert_eq!(out[0]["app_version"], "9.9.9");
         // Only features this host knows how to forward.
-        assert_eq!(out[0]["features"], json!(["media"]));
+        assert_eq!(out[0]["features"], json!(["media", "page"]));
         assert_eq!(out[1]["type"], "accepted");
         assert_eq!(out[1]["task_id"], "task-1");
         assert_eq!(out[1]["file_name"], "f.zip");
@@ -452,7 +462,9 @@ mod tests {
                         awaiting_confirmation: true,
                     }],
                 },
-                ipc::AppAction::Ping | ipc::AppAction::Media { .. } => unreachable!(),
+                ipc::AppAction::Ping
+                | ipc::AppAction::Media { .. }
+                | ipc::AppAction::Page { .. } => unreachable!(),
             })
         });
         let input = frames(&[
@@ -537,6 +549,64 @@ mod tests {
         let r = respond(&fixture, &old_app, None);
         assert!(
             matches!(r.body, ResponseBody::Error { ref code, .. } if code == code::INVALID_MESSAGE)
+        );
+    }
+
+    #[test]
+    fn pages_are_validated_and_forwarded() {
+        let app = FakeApp::running();
+        let fixture = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/page-youtube.json"),
+        )
+        .unwrap();
+        let r = respond(&fixture, &app, Some("chrome-extension://abc/"));
+        assert_eq!(r.id.as_deref(), Some("y1"));
+        assert_eq!(
+            r.body,
+            ResponseBody::Accepted {
+                task_id: "page-1".into(),
+                file_name: Some("Me at the zoo.mp4".into()),
+                awaiting_confirmation: true,
+            }
+        );
+        match &app.seen.borrow()[0].action {
+            ipc::AppAction::Page { request, origin } => {
+                assert_eq!(
+                    request.page_url,
+                    "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+                );
+                assert_eq!(origin.as_deref(), Some("chrome-extension://abc/"));
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // Sites without a provider, and media fields, never reach the app.
+        for bad in [
+            json!({"protocol_version": 1, "type": "page", "page_url": "https://example.org/watch?v=1"}),
+            json!({"protocol_version": 1, "type": "page", "page_url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+                   "manifest_url": "https://rr1.googlevideo.com/videoplayback"}),
+            json!({"protocol_version": 1, "type": "page", "page_url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+                   "referrer": "https://www.youtube.com/"}),
+            json!({"protocol_version": 1, "type": "page"}),
+        ] {
+            let r = respond(bad.to_string().as_bytes(), &app, None);
+            assert!(matches!(r.body, ResponseBody::Error { .. }), "{bad}");
+        }
+        let r = respond(
+            json!({"protocol_version": 1, "type": "page", "page_url": "https://example.org/watch?v=1"})
+                .to_string()
+                .as_bytes(),
+            &app,
+            None,
+        );
+        assert!(
+            matches!(r.body, ResponseBody::Error { ref code, .. } if code == code::UNSUPPORTED_PAGE)
+        );
+        assert_eq!(
+            app.seen.borrow().len(),
+            1,
+            "refused before reaching the app"
         );
     }
 

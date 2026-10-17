@@ -1,18 +1,35 @@
 import { FolderOpen } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
-import { api, errorMessage, isCommandError, type ConfirmOptions, type MediaChoices, type Queue, type Task } from "../lib/api";
+import { api, errorMessage, isCommandError, type Choices, type ConfirmOptions, type Queue, type Task } from "../lib/api";
 import { hostOf, sentence } from "../lib/format";
 import { REFUSED_STREAM, audioName, audiosFor, initialChoice, kindName, needsMerge, qualityOption, selectionFor } from "../lib/media";
 import { displayName } from "../lib/tasks";
 import { Banner, Button, Dialog, Field, inputClass } from "./primitives";
 
-/** What reading a stream's qualities came to. */
+/** What reading a stream's or a video page's qualities came to. */
 type Inspection =
   | { state: "loading" }
-  | { state: "ready"; choices: MediaChoices }
-  /** `refused`: the stream itself cannot be downloaded (DRM, live). */
-  | { state: "failed"; message: string; refused: boolean };
+  | { state: "ready"; choices: Choices }
+  /**
+   * `refused`: it cannot be downloaded at all (DRM, live, unavailable).
+   * `setup`: yt-dlp is missing, which Settings can fix.
+   */
+  | { state: "failed"; message: string; refused: boolean; setup: boolean };
+
+const UNSAFE_IN_NAMES = '<>:"/\\|?*';
+
+/**
+ * A page title as a file name, made safe the way the app does it (the app
+ * checks it again); yt-dlp replaces the extension with the real one.
+ */
+function titleName(title: string): string {
+  const safe = [...title]
+    .map((ch) => ((ch.codePointAt(0) ?? 0) < 0x20 || UNSAFE_IN_NAMES.includes(ch) ? "_" : ch))
+    .join("")
+    .trim();
+  return safe ? `${safe}.mp4` : "";
+}
 
 /**
  * IDM's "Download File Info": a download caught in the browser waits here
@@ -26,6 +43,7 @@ export function ConfirmDialog({
   onConfirm,
   onDiscard,
   onStopAsking,
+  onOpenSettings,
 }: {
   task: Task;
   /** More downloads waiting after this one. */
@@ -35,6 +53,8 @@ export function ConfirmDialog({
   /** Cancel: remove it from the list. */
   onDiscard: () => void;
   onStopAsking: () => void;
+  /** Settings, Media: where yt-dlp and FFmpeg are set up. */
+  onOpenSettings: () => void;
 }) {
   const [name, setName] = useState(displayName(task));
   const [dir, setDir] = useState(task.dir);
@@ -42,7 +62,10 @@ export function ConfirmDialog({
   const [stopAsking, setStopAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const stream = task.media !== null;
+  // A video page (YouTube) is chosen like a stream, with yt-dlp's formats.
+  const site = task.site !== null;
+  const stream = task.media !== null || site;
+  const initialName = displayName(task);
   const [inspection, setInspection] = useState<Inspection>({ state: "loading" });
   const [videoId, setVideoId] = useState("");
   const [audioId, setAudioId] = useState("");
@@ -50,11 +73,21 @@ export function ConfirmDialog({
   useEffect(() => {
     if (!stream) return;
     let current = true;
-    api
-      .inspectMedia(task.id)
+    const read: Promise<Choices> = site
+      ? api.inspectSite(task.id).then((choices) => {
+          // The page's real title names the file unless the user typed one;
+          // the tab's title the browser sent can be stale on a page that
+          // changes videos without loading.
+          const title = choices.title ? titleName(choices.title) : "";
+          if (current && title) setName((now) => (now === initialName ? title : now));
+          return choices;
+        })
+      : api.inspectMedia(task.id);
+    read
       .then((choices) => {
         if (!current) return;
-        const initial = initialChoice(choices);
+        // Without FFmpeg a page's separate video and sound cannot be joined.
+        const initial = initialChoice(choices, { avoidMerge: site && !choices.ffmpeg });
         setVideoId(initial.videoId);
         setAudioId(initial.audioId);
         setInspection({ state: "ready", choices });
@@ -62,21 +95,25 @@ export function ConfirmDialog({
       .catch((err: unknown) => {
         if (!current) return;
         const refused = isCommandError(err) && REFUSED_STREAM.has(err.code);
-        setInspection({ state: "failed", message: sentence(errorMessage(err)), refused });
+        const setup = isCommandError(err) && err.code === "tool_missing";
+        setInspection({ state: "failed", message: sentence(errorMessage(err)), refused, setup });
       });
     return () => {
       current = false;
     };
-  }, [stream, task.id]);
+  }, [stream, site, task.id, initialName]);
 
   const refused = inspection.state === "failed" && inspection.refused;
   const choices = inspection.state === "ready" ? inspection.choices : null;
   const video = choices?.options.videos.find((v) => v.id === videoId);
   const audios = choices ? audiosFor(choices.options, video) : [];
+  // yt-dlp cannot save separate video and sound without FFmpeg; a stream's
+  // tracks are then saved as two files instead.
+  const blocked = site && choices !== null && !choices.ffmpeg && needsMerge(choices, videoId);
 
   const answer = async (start: boolean, e?: FormEvent) => {
     e?.preventDefault();
-    if (refused) return;
+    if (refused || (start && blocked)) return;
     setBusy(true);
     setError(null);
     try {
@@ -102,7 +139,11 @@ export function ConfirmDialog({
     if (picked) setDir(picked);
   };
 
-  const from = stream && task.media ? `From the browser · ${kindName(task.media.kind)} stream` : "From the browser";
+  const from = task.site
+    ? `From the browser · ${task.site.site}`
+    : task.media
+      ? `From the browser · ${kindName(task.media.kind)} stream`
+      : "From the browser";
 
   return (
     <Dialog
@@ -129,7 +170,7 @@ export function ConfirmDialog({
           <Button onClick={() => void answer(false)} disabled={busy || refused}>
             Download later
           </Button>
-          <Button variant="primary" onClick={() => void answer(true)} disabled={busy || refused}>
+          <Button variant="primary" onClick={() => void answer(true)} disabled={busy || refused || blocked}>
             Start download
           </Button>
         </>
@@ -145,6 +186,8 @@ export function ConfirmDialog({
         {stream && (
           <StreamChoice
             inspection={inspection}
+            site={site}
+            onOpenSettings={onOpenSettings}
             videoId={videoId}
             audioId={audioId}
             audioCount={audios.length}
@@ -164,9 +207,11 @@ export function ConfirmDialog({
           label="File name"
           error={error}
           hint={
-            stream
-              ? "The stream decides the extension: .mp4 in most cases, .ts or .webm for some."
-              : "The server may suggest another name; this one is kept."
+            site
+              ? "yt-dlp decides the extension: .mp4 in most cases, .mkv or .webm for some formats, .m4a for audio only."
+              : stream
+                ? "The stream decides the extension: .mp4 in most cases, .ts or .webm for some."
+                : "The server may suggest another name; this one is kept."
           }
         >
           {(id) => (
@@ -208,9 +253,11 @@ export function ConfirmDialog({
   );
 }
 
-/** The quality and audio of a stream, once its manifest is read. */
+/** The quality and audio of a stream or a video page, once it is read. */
 function StreamChoice({
   inspection,
+  site,
+  onOpenSettings,
   videoId,
   audioId,
   audioCount,
@@ -218,6 +265,8 @@ function StreamChoice({
   onAudio,
 }: {
   inspection: Inspection;
+  site: boolean;
+  onOpenSettings: () => void;
   videoId: string;
   audioId: string;
   audioCount: number;
@@ -225,10 +274,21 @@ function StreamChoice({
   onAudio: (id: string) => void;
 }) {
   if (inspection.state === "failed") {
-    return inspection.refused ? (
-      <Banner tone="danger">{inspection.message}</Banner>
-    ) : (
-      <Banner tone="warning">Could not read the stream: {inspection.message} It is downloaded in the best quality when it starts.</Banner>
+    if (inspection.refused) return <Banner tone="danger">{inspection.message}</Banner>;
+    if (inspection.setup) {
+      return (
+        <Banner tone="warning">
+          <span>{inspection.message} </span>
+          <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={onOpenSettings}>
+            Open Settings, Media
+          </button>
+        </Banner>
+      );
+    }
+    return (
+      <Banner tone="warning">
+        Could not read the {site ? "page" : "stream"}: {inspection.message} It is downloaded in the best quality when it starts.
+      </Banner>
     );
   }
   const choices = inspection.state === "ready" ? inspection.choices : null;
@@ -245,7 +305,7 @@ function StreamChoice({
             onChange={(e) => onVideo(e.target.value)}
             className={`${inputClass} h-9 disabled:opacity-70`}
           >
-            {!options && <option value="">Reading the stream…</option>}
+            {!options && <option value="">{site ? "Asking yt-dlp…" : "Reading the stream…"}</option>}
             {options?.videos.map((v) => (
               <option key={v.id} value={v.id}>
                 {qualityOption(v)}
@@ -268,10 +328,22 @@ function StreamChoice({
           )}
         </Field>
       )}
-      {separate && !choices.ffmpeg && (
+      {separate && !choices.ffmpeg && !site && (
         <Banner tone="warning">
           Video and sound come separately and FFmpeg was not found, so they are saved as two files. Settings, Media explains how to
           have them merged.
+        </Banner>
+      )}
+      {separate && !choices.ffmpeg && site && (
+        <Banner tone="danger">
+          <span>
+            This quality comes as separate video and sound, and joining them needs FFmpeg, which was not found. Choose Audio only or a
+            quality with its own sound (H.264 + AAC), or{" "}
+          </span>
+          <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={onOpenSettings}>
+            set up FFmpeg
+          </button>
+          <span>.</span>
         </Banner>
       )}
     </div>

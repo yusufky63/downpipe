@@ -54,7 +54,9 @@ pub struct MediaProgress {
 }
 
 impl Progress {
-    pub(crate) fn starting() -> Self {
+    /// Nothing known yet: the state a download reports before its first
+    /// answer.
+    pub fn starting() -> Self {
         Self {
             phase: Phase::Starting,
             file_name: None,

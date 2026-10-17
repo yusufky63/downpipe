@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { MediaChoices, VideoOption } from "./api";
+import type { AudioOption, MediaChoices, SiteChoices, VideoOption } from "./api";
 import {
   audioName,
   audiosFor,
+  codecName,
   initialChoice,
   needsMerge,
   qualityDetail,
@@ -10,6 +11,7 @@ import {
   qualityOption,
   selectionFor,
   sizeIsEstimate,
+  sourceName,
   streamLabel,
 } from "./media";
 import { makeTask } from "./testing";
@@ -99,5 +101,65 @@ describe("stream rows", () => {
     expect(sizeIsEstimate(stream)).toBe(true);
     expect(sizeIsEstimate({ ...stream, state: "completed" })).toBe(false);
     expect(sizeIsEstimate(makeTask("f"))).toBe(false);
+  });
+});
+
+// What the app makes of `yt-dlp -J` for a YouTube video (crates/providers/src/info.rs).
+const hd = video({ id: "137", width: 1920, height: 1080, codecs: "avc1.640028", bandwidth: 4_400_000, estimated_size: 50_000_000 });
+const progressive = video({ id: "18", width: 640, height: 360, codecs: "avc1.42001E, mp4a.40.2", has_audio: true });
+const soundOnly = video({ id: "140", codecs: "mp4a.40.2", bandwidth: 129_796, audio_only: true, has_audio: true });
+const opus: AudioOption = { id: "251", codecs: "opus", bandwidth: 106_000, default: false };
+const page: SiteChoices = {
+  site: "YouTube",
+  title: "Me at the zoo",
+  options: {
+    videos: [hd, progressive, soundOnly],
+    audios: [{ id: "140", codecs: "mp4a.40.2", bandwidth: 129_796, default: true }, opus],
+    duration_ms: 19_000,
+  },
+  selection: null,
+  ffmpeg: true,
+};
+
+describe("video pages", () => {
+  it("names codecs in words", () => {
+    expect(codecName("avc1.42001E, mp4a.40.2")).toBe("H.264 + AAC");
+    expect(codecName("vp09.00.40.08")).toBe("VP9");
+    expect(codecName("av01.0.08M.08, opus")).toBe("AV1 + Opus");
+    expect(codecName("unknown")).toBe("");
+    expect(codecName(undefined)).toBe("");
+    expect(qualityOption(progressive)).toBe("360p · 640×360 · H.264 + AAC");
+    expect(qualityOption(soundOnly)).toBe("Audio only · AAC · 130 kbit/s");
+    expect(audioName(opus)).toBe("Audio · Opus · 106 kbit/s");
+  });
+
+  it("joins the best quality with the default sound", () => {
+    expect(initialChoice(page)).toEqual({ videoId: "137", audioId: "140" });
+    expect(needsMerge(page, "137")).toBe(true);
+    expect(selectionFor(page, "137", "251")).toEqual({
+      video: { id: "137", height: 1080, bandwidth: 4_400_000 },
+      audio: { id: "251", bandwidth: 106_000, language: undefined },
+    });
+  });
+
+  it("starts with a quality that has its own sound when nothing can join tracks", () => {
+    const noFfmpeg = { ...page, ffmpeg: false };
+    expect(initialChoice(noFfmpeg, { avoidMerge: true })).toEqual({ videoId: "18", audioId: "" });
+    expect(needsMerge(noFfmpeg, "18")).toBe(false);
+    // Audio only is downloaded as it comes.
+    expect(needsMerge(noFfmpeg, "140")).toBe(false);
+    expect(selectionFor(noFfmpeg, "140", "")).toEqual({
+      video: { id: "140", height: undefined, bandwidth: 129_796 },
+      audio: undefined,
+    });
+  });
+
+  it("labels site downloads in the list", () => {
+    const yt = makeTask("y", { site: { site: "YouTube", quality: "1080p" }, state: "downloading" });
+    expect(streamLabel(yt)).toBe("YouTube · 1080p");
+    expect(streamLabel(makeTask("y2", { site: { site: "YouTube" } }))).toBe("YouTube");
+    expect(sourceName(yt)).toBe("YouTube");
+    expect(sizeIsEstimate(yt)).toBe(true);
+    expect(sizeIsEstimate({ ...yt, state: "completed" })).toBe(false);
   });
 });

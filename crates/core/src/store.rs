@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::settings::Settings;
-use crate::task::{MediaInfo, TaskRecord, TaskState};
+use crate::task::{MediaInfo, SiteInfo, TaskRecord, TaskState};
 
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 #[derive(Debug)]
 pub struct Store {
@@ -81,6 +81,11 @@ impl Store {
         if version < 4 {
             // Stream downloads: kind, chosen tracks and quality, as JSON.
             conn.execute_batch("ALTER TABLE downloads ADD COLUMN media TEXT;")?;
+            conn.pragma_update(None, "user_version", 4)?;
+        }
+        if version < 5 {
+            // Site downloads (YouTube): site, chosen formats and quality, as JSON.
+            conn.execute_batch("ALTER TABLE downloads ADD COLUMN site TEXT;")?;
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         Ok(Self { conn })
@@ -91,9 +96,9 @@ impl Store {
             "INSERT INTO downloads (id, url, dir, file_name, path, state, total, downloaded,
                                     error, error_kind, checksum, max_connections,
                                     created_at, updated_at, completed_at, category, auto_dir,
-                                    queue, position, media)
+                                    queue, position, media, site)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                     ?18, ?19, ?20)
+                     ?18, ?19, ?20, ?21)
              ON CONFLICT(id) DO UPDATE SET
                 url = excluded.url, dir = excluded.dir, file_name = excluded.file_name,
                 path = excluded.path, state = excluded.state, total = excluded.total,
@@ -102,7 +107,8 @@ impl Store {
                 max_connections = excluded.max_connections,
                 updated_at = excluded.updated_at, completed_at = excluded.completed_at,
                 category = excluded.category, auto_dir = excluded.auto_dir,
-                queue = excluded.queue, position = excluded.position, media = excluded.media",
+                queue = excluded.queue, position = excluded.position, media = excluded.media,
+                site = excluded.site",
             params![
                 r.id,
                 r.url,
@@ -124,6 +130,7 @@ impl Store {
                 r.queue,
                 r.position,
                 media_json(r.media.as_ref()),
+                site_json(r.site.as_ref()),
             ],
         )?;
         Ok(())
@@ -139,7 +146,7 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT id, url, dir, file_name, path, state, total, downloaded, error, error_kind,
                     checksum, max_connections, created_at, updated_at, completed_at,
-                    category, auto_dir, queue, position, media
+                    category, auto_dir, queue, position, media, site
              FROM downloads ORDER BY created_at, rowid",
         )?;
         let rows = stmt.query_map([], row_to_record)?;
@@ -199,11 +206,18 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<TaskRecord> {
         media: row
             .get::<_, Option<String>>(19)?
             .and_then(|json| serde_json::from_str(&json).ok()),
+        site: row
+            .get::<_, Option<String>>(20)?
+            .and_then(|json| serde_json::from_str(&json).ok()),
     })
 }
 
 fn media_json(media: Option<&MediaInfo>) -> Option<String> {
     media.and_then(|m| serde_json::to_string(m).ok())
+}
+
+fn site_json(site: Option<&SiteInfo>) -> Option<String> {
+    site.and_then(|s| serde_json::to_string(s).ok())
 }
 
 fn path_str(p: &Path) -> String {
@@ -241,6 +255,7 @@ mod tests {
             queue: "night".into(),
             position: created * 10,
             media: None,
+            site: None,
             created_at: created,
             updated_at: created,
             completed_at: None,
@@ -284,6 +299,31 @@ mod tests {
                 audio: None,
             }),
             quality: Some("720p".into()),
+        });
+        store.upsert(&r).unwrap();
+        assert_eq!(store.all().unwrap(), vec![r]);
+    }
+
+    #[test]
+    fn site_records_round_trip() {
+        use downpipe_http::media::{MediaSelection, TrackRef};
+        let store = Store::in_memory().unwrap();
+        let mut r = record("y", 1);
+        r.url = "https://www.youtube.com/watch?v=jNQXAC9IVRw".into();
+        r.site = Some(SiteInfo {
+            site: "YouTube".into(),
+            selection: Some(MediaSelection {
+                video: Some(TrackRef {
+                    id: "137".into(),
+                    height: Some(1080),
+                    ..TrackRef::default()
+                }),
+                audio: Some(TrackRef {
+                    id: "140".into(),
+                    ..TrackRef::default()
+                }),
+            }),
+            quality: Some("1080p".into()),
         });
         store.upsert(&r).unwrap();
         assert_eq!(store.all().unwrap(), vec![r]);
@@ -338,6 +378,7 @@ mod tests {
         assert_eq!(old.queue, "main");
         assert_eq!(old.position, 0);
         assert_eq!(old.media, None);
+        assert_eq!(old.site, None);
         store.upsert(&record("new", 2)).unwrap();
         assert_eq!(store.all().unwrap().len(), 2);
     }

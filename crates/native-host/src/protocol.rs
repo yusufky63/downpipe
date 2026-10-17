@@ -17,6 +17,9 @@
 //!  "referrer": "https://example.org/",
 //!  "origin": "https://example.org",
 //!  "title": "Clip of the week"}
+//! {"protocol_version": 1, "type": "page", "id": "y1",
+//!  "page_url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+//!  "title": "Me at the zoo"}
 //! {"protocol_version": 1, "type": "tasks", "id": "t1",
 //!  "task_ids": ["8e48dd86-5481-41af-a2fc-edf3044e29b8"]}
 //! ```
@@ -27,6 +30,7 @@
 //! bug cannot quietly start shipping session data into the app.
 
 use downpipe_core::http::media::MediaKind;
+use downpipe_core::providers::pages;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
@@ -53,10 +57,12 @@ pub const MAX_TITLE_LEN: usize = 200;
 pub mod feature {
     /// The `media` message: HLS and DASH streams.
     pub const MEDIA: &str = "media";
+    /// The `page` message: a video page (YouTube) for the site provider.
+    pub const PAGE: &str = "page";
 }
 
 /// Every feature this build supports.
-pub const FEATURES: &[&str] = &[feature::MEDIA];
+pub const FEATURES: &[&str] = &[feature::MEDIA, feature::PAGE];
 
 /// Stable error codes. The extension branches on these; `message` is for people.
 pub mod code {
@@ -69,6 +75,8 @@ pub mod code {
     pub const APP_UNAVAILABLE: &str = "app_unavailable";
     pub const VERSION_MISMATCH: &str = "version_mismatch";
     pub const DUPLICATE: &str = "duplicate";
+    /// A `page` message for a site Downpipe has no provider for.
+    pub const UNSUPPORTED_PAGE: &str = "unsupported_page";
     pub const INTERNAL: &str = "internal";
 }
 
@@ -86,6 +94,8 @@ pub enum ProtocolError {
     Cookies,
     #[error("{field}: {reason}")]
     InvalidUrl { field: &'static str, reason: String },
+    #[error("Downpipe does not download videos from this page")]
+    UnsupportedPage,
 }
 
 impl ProtocolError {
@@ -95,6 +105,7 @@ impl ProtocolError {
             Self::UnsupportedVersion(_) => code::UNSUPPORTED_VERSION,
             Self::Cookies => code::COOKIES_NOT_ACCEPTED,
             Self::InvalidUrl { .. } => code::INVALID_URL,
+            Self::UnsupportedPage => code::UNSUPPORTED_PAGE,
         }
     }
 }
@@ -114,6 +125,8 @@ pub enum RequestKind {
     Download(DownloadRequest),
     /// A stream (HLS or DASH) the page played.
     Media(MediaRequest),
+    /// A video page, downloaded by a site provider (yt-dlp).
+    Page(PageRequest),
     /// Progress of downloads the extension added, by the ids `accepted` gave it.
     Tasks(Vec<String>),
 }
@@ -238,6 +251,42 @@ impl MediaRequest {
             referrer: referrer.map(String::from),
             title,
             origin,
+        })
+    }
+}
+
+/// A video page whose video a site provider downloads: only the page's
+/// address and title, never the media URLs the player used (YouTube's need
+/// work only yt-dlp does) and never cookies. Validated by both ends like
+/// [`DownloadRequest`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PageRequest {
+    pub page_url: String,
+    /// The page title, which names the file; the app sanitizes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+impl PageRequest {
+    pub fn new(page_url: impl Into<String>) -> Self {
+        Self {
+            page_url: page_url.into(),
+            title: None,
+        }
+    }
+
+    /// A web URL without credentials or fragment, of a page a provider
+    /// takes ([`pages::recognize`]), and a title as for [`MediaRequest`].
+    pub fn validate(self) -> Result<Self, ProtocolError> {
+        let page = without_secrets(web_url("page_url", &self.page_url)?);
+        if pages::recognize(&page).is_none() {
+            return Err(ProtocolError::UnsupportedPage);
+        }
+        let title = present(self.title).map(|t| title(&t)).transpose()?;
+        Ok(Self {
+            page_url: page.to_string(),
+            title,
         })
     }
 }
@@ -440,6 +489,32 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Rejected> {
                 kind: RequestKind::Media(request),
             })
         }
+        "page" => {
+            if envelope.task_ids.is_some()
+                || envelope.has_file_fields()
+                || envelope.manifest_url.is_some()
+                || envelope.stream_kind.is_some()
+                || envelope.origin.is_some()
+                || envelope.referrer.is_some()
+            {
+                return Err(fail(ProtocolError::Invalid(
+                    "a `page` message carries page_url and title only".into(),
+                )));
+            }
+            let Some(page_url) = present(envelope.page_url) else {
+                return Err(fail(ProtocolError::Invalid("page_url is required".into())));
+            };
+            let request = PageRequest {
+                page_url,
+                title: envelope.title,
+            }
+            .validate()
+            .map_err(fail)?;
+            Ok(Request {
+                id,
+                kind: RequestKind::Page(request),
+            })
+        }
         "tasks" => {
             if envelope.has_download_fields() {
                 return Err(fail(ProtocolError::Invalid(
@@ -456,7 +531,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Rejected> {
             })
         }
         _ => Err(fail(ProtocolError::Invalid(
-            "unknown message type; expected `ping`, `download`, `media` or `tasks`".into(),
+            "unknown message type; expected `ping`, `download`, `media`, `page` or `tasks`".into(),
         ))),
     }
 }
@@ -1257,6 +1332,16 @@ mod tests {
         };
         assert_eq!(m.kind, MediaKind::Hls);
         assert_eq!(m.clone().validate().unwrap(), m, "fixture is normalized");
+        let page = std::fs::read(dir.join("page-youtube.json")).unwrap();
+        let Request {
+            kind: RequestKind::Page(p),
+            id,
+        } = parse_request(&page).unwrap()
+        else {
+            panic!("not a page request");
+        };
+        assert_eq!(id.as_deref(), Some("y1"));
+        assert_eq!(p.clone().validate().unwrap(), p, "fixture is normalized");
         let cookies = std::fs::read(dir.join("rejected-cookies.json")).unwrap();
         assert_eq!(
             parse_request(&cookies).unwrap_err().error,

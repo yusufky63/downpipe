@@ -2,7 +2,7 @@
 
 Downpipe is licensed under Apache-2.0. It depends on the open-source projects below, each under its own license. This file covers the dependencies of the code in this repository; it was generated from `cargo metadata` and `pnpm licenses list --prod` on 2026-10-17 and must be regenerated before each release (a release build will also ship an SPDX SBOM).
 
-No external programs (yt-dlp, FFmpeg, aria2) are bundled. Stream downloads use an FFmpeg the user installed, when there is one, as a separate process; see [docs/LEGAL.md](docs/LEGAL.md).
+No external programs (yt-dlp, Deno, FFmpeg, aria2) are bundled. Stream downloads use an FFmpeg the user installed, when there is one, as a separate process. YouTube downloads use yt-dlp and Deno as separate processes: copies the user installed, or the official builds the app downloads from the projects' GitHub releases into its tools folder when the user presses **Download yt-dlp and Deno** in Settings. Those copies are not part of Downpipe's distribution and come under their own licenses: yt-dlp is in the public domain ([Unlicense](https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE); its standalone builds bundle Python and other components, listed with each release), Deno is [MIT](https://github.com/denoland/deno/blob/main/LICENSE.md). See [docs/LEGAL.md](docs/LEGAL.md).
 
 ## Rust: direct dependencies
 
@@ -47,6 +47,7 @@ No external programs (yt-dlp, FFmpeg, aria2) are bundled. Stream downloads use a
 | url | 2.5.8 | MIT OR Apache-2.0 |
 | uuid | 1.28.0 | Apache-2.0 OR MIT |
 | windows-sys | 0.61.2 | MIT OR Apache-2.0 |
+| zip (reads the Deno archive the tool installer downloads) | 9.0.5 | MIT |
 
 ## Rust: all transitive dependencies by license
 

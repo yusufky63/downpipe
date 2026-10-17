@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Activity } from "./messages";
 import type { TaskStatus } from "./protocol";
-import { isRunning, itemView, mayChange, mediaEmptyText, mediaRowView } from "./view";
+import { isRunning, itemView, mayChange, mediaEmptyText, mediaRowView, pageRowView } from "./view";
 
 const sent: Activity = {
   at: 0,
@@ -121,6 +121,19 @@ describe("mediaRowView", () => {
     expect(mediaRowView(stream, false)).toMatchObject({ sendable: false, detail: "Update Downpipe to download streams" });
     // Files go through the ordinary download message, which every version knows.
     expect(mediaRowView(file, false).sendable).toBe(true);
+  });
+
+  it("offers a video page by its title", () => {
+    expect(pageRowView({ site: "YouTube", title: "Me at the zoo" }, true)).toEqual({
+      label: "Me at the zoo",
+      detail: "YouTube video",
+      sendable: true,
+    });
+    expect(pageRowView({ site: "YouTube" }, true).label).toBe("This YouTube video");
+    expect(pageRowView({ site: "YouTube" }, false)).toMatchObject({
+      sendable: false,
+      detail: "Update Downpipe to download videos from pages",
+    });
   });
 
   it("explains an empty list", () => {

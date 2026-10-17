@@ -8,6 +8,7 @@
 // and Origin, and list the result per tab. No code is taken from them.
 import { normalizeType, parseTypeList, type ListParse } from "./filters";
 import { mimeEssence } from "./protocol";
+import { isSiteMedia } from "./sites";
 import { MAX_URL_LENGTH, baseName, webUrl, withoutSecrets } from "./url";
 
 export type MediaKind = "hls" | "dash" | "direct";
@@ -228,6 +229,9 @@ export function classifyResponse(r: ResponseLike, filters: MediaFilters = defaul
   if (r.url.length > MAX_URL_LENGTH) return null;
   const url = webUrl(r.url);
   if (!url) return null;
+  // YouTube's video servers only serve pieces its own player can use; the
+  // page itself is offered instead (lib/sites.ts).
+  if (isSiteMedia(r.url)) return null;
   const mime = mimeEssence(header(r, "content-type"));
   const ext = extension(url);
   if (ext === "m3u8" || (mime !== undefined && HLS_TYPES.has(mime))) return { kind: "hls", url: r.url };

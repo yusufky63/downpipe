@@ -1,8 +1,11 @@
 import type { BridgeFailure, HostResult } from "./host";
 
 export type BridgeStatus =
-  /** `media`: both the bridge and the app can take streams (HLS, DASH). */
-  | { state: "connected"; appVersion: string; hostVersion: string; media: boolean }
+  /**
+   * `media`: both the bridge and the app can take streams (HLS, DASH).
+   * `pages`: they can take video pages for the site provider (YouTube).
+   */
+  | { state: "connected"; appVersion: string; hostVersion: string; media: boolean; pages: boolean }
   | { state: "app_not_running"; hostVersion: string }
   | { state: "host_missing" }
   | { state: "host_forbidden" }
@@ -27,6 +30,7 @@ const ERROR_TEXT: Record<string, string> = {
     "Downpipe and its browser bridge are different versions. Restart Downpipe so it registers its own bridge.",
   unsupported_version: "This extension is newer than the installed Downpipe. Update Downpipe.",
   message_too_large: "The link is too long to hand over.",
+  unsupported_page: "Downpipe does not download videos from this site.",
 };
 
 export function failureText(failure: BridgeFailure): string {
@@ -47,7 +51,13 @@ export function bridgeStatus(result: HostResult): BridgeStatus {
   const r = result.response;
   if (r.type === "pong") {
     return r.appRunning
-      ? { state: "connected", appVersion: r.appVersion ?? "", hostVersion: r.hostVersion, media: r.features.includes("media") }
+      ? {
+          state: "connected",
+          appVersion: r.appVersion ?? "",
+          hostVersion: r.hostVersion,
+          media: r.features.includes("media"),
+          pages: r.features.includes("page"),
+        }
       : { state: "app_not_running", hostVersion: r.hostVersion };
   }
   if (r.type === "error") return { state: "error", message: errorText(r.code, r.message) };
@@ -91,6 +101,17 @@ export const STREAMS_UNSUPPORTED = "This version of Downpipe cannot download str
 export function streamOutcome(result: HostResult): HandOver {
   if (result.ok && result.response.type === "error" && result.response.code === "invalid_message") {
     return { outcome: "failed", message: STREAMS_UNSUPPORTED };
+  }
+  return downloadOutcome(result);
+}
+
+/** An app or bridge from before the site provider refuses the message type. */
+export const PAGES_UNSUPPORTED = "This version of Downpipe cannot download videos from pages. Update Downpipe.";
+
+/** Like `downloadOutcome`, for a `page` message. */
+export function pageOutcome(result: HostResult): HandOver {
+  if (result.ok && result.response.type === "error" && result.response.code === "invalid_message") {
+    return { outcome: "failed", message: PAGES_UNSUPPORTED };
   }
   return downloadOutcome(result);
 }

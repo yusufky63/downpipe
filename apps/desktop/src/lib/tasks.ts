@@ -79,7 +79,10 @@ export function sortForDisplay(tasks: Task[]): Task[] {
 }
 
 export function displayName(task: Task): string {
-  return task.file_name ?? nameFromUrl(task.url);
+  if (task.file_name) return task.file_name;
+  // A page's address names nothing ("watch"); its title arrives later.
+  if (task.site) return `${task.site.site} video`;
+  return nameFromUrl(task.url);
 }
 
 export const canPause = (t: Task) => isRunning(t.state) || t.state === "queued";

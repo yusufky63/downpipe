@@ -1,9 +1,19 @@
 import { FolderOpen, Plus, Trash2 } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
 
-import { MAIN_QUEUE, api, errorMessage, type BridgeRegistration, type Category, type Queue, type Settings } from "../lib/api";
+import {
+  MAIN_QUEUE,
+  api,
+  errorMessage,
+  type BridgeRegistration,
+  type Category,
+  type Queue,
+  type Settings,
+  type ToolsStatus,
+} from "../lib/api";
 import { BROWSER_NAMES, bridgeStateInfo, canRegister } from "../lib/bridge";
 import { bytesToRate, rateToBytes, type RateUnit } from "../lib/format";
+import { installButtonLabel, toolRows, toolsToInstall } from "../lib/tools";
 import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } from "./primitives";
 
 export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "media" | "schedule" | "app";
@@ -85,6 +95,8 @@ export function SettingsDialog({
   const [keepAwake, setKeepAwake] = useState(settings.keep_awake);
   const [confirmBrowser, setConfirmBrowser] = useState(settings.confirm_browser_downloads);
   const [ffmpegPath, setFfmpegPath] = useState(settings.ffmpeg_path);
+  const [ytDlpPath, setYtDlpPath] = useState(settings.yt_dlp_path);
+  const [denoPath, setDenoPath] = useState(settings.deno_path);
   const [error, setError] = useState<string | null>(null);
   const tabIds = useId();
 
@@ -109,6 +121,8 @@ export function SettingsDialog({
         confirm_browser_downloads: confirmBrowser,
         queues: queues.map(fromQueueDraft).filter((q) => q.id === MAIN_QUEUE || q.name),
         ffmpeg_path: ffmpegPath.trim(),
+        yt_dlp_path: ytDlpPath.trim(),
+        deno_path: denoPath.trim(),
       });
       onSaved(saved);
       onClose();
@@ -359,6 +373,13 @@ export function SettingsDialog({
               Streams come from the browser extension&apos;s media detection, or from .m3u8 and .mpd links added here.
               DRM-protected and live streams are not downloaded.
             </Banner>
+            <SiteTools
+              ytDlpPath={ytDlpPath}
+              denoPath={denoPath}
+              onYtDlpPath={setYtDlpPath}
+              onDenoPath={setDenoPath}
+              denoConfigured={settings.deno_path !== ""}
+            />
           </>
         )}
 
@@ -511,6 +532,126 @@ function FfmpegStatus() {
         path to ffmpeg above, then save.
       </p>
     </div>
+  );
+}
+
+/**
+ * Videos on pages (YouTube): yt-dlp and Deno, found or downloaded on request.
+ * The status describes the saved settings, like FFmpeg's above.
+ */
+function SiteTools({
+  ytDlpPath,
+  denoPath,
+  onYtDlpPath,
+  onDenoPath,
+  denoConfigured,
+}: {
+  ytDlpPath: string;
+  denoPath: string;
+  onYtDlpPath: (v: string) => void;
+  onDenoPath: (v: string) => void;
+  /** A Deno path is saved in the settings, so a download would not be used. */
+  denoConfigured: boolean;
+}) {
+  const headingId = useId();
+  const [status, setStatus] = useState<ToolsStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    api
+      .siteTools()
+      .then((s) => live && setStatus(s))
+      .catch((err: unknown) => live && setError(errorMessage(err)));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const wanted = status ? toolsToInstall(status, denoConfigured) : [];
+  const install = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await api.installSiteTools(wanted));
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-4 border-t border-line pt-5">
+      <h3 id={headingId} className="label">
+        Videos on pages
+      </h3>
+      <p className="text-[13px] text-ink-secondary">
+        On a YouTube page, Download with Downpipe hands the page to yt-dlp, which picks the video out. yt-dlp needs Deno for
+        YouTube and FFmpeg to join video and sound above 360p.
+      </p>
+      <Field label="yt-dlp" hint="Empty uses the copy downloaded below, else yt-dlp from PATH.">
+        {(id) => (
+          <input
+            id={id}
+            value={ytDlpPath}
+            placeholder="Downloaded copy, else yt-dlp on PATH"
+            spellCheck={false}
+            onChange={(e) => onYtDlpPath(e.target.value)}
+            className={`${inputClass} h-9 font-mono text-[13px]`}
+          />
+        )}
+      </Field>
+      <Field label="Deno" hint="Version 2.3.0 or newer. Empty uses the copy downloaded below, else deno from PATH, else Node 22 or newer.">
+        {(id) => (
+          <input
+            id={id}
+            value={denoPath}
+            placeholder="Downloaded copy, else deno on PATH"
+            spellCheck={false}
+            onChange={(e) => onDenoPath(e.target.value)}
+            className={`${inputClass} h-9 font-mono text-[13px]`}
+          />
+        )}
+      </Field>
+
+      {error && <Banner tone="danger">{error}</Banner>}
+      {!status && !error && <p className="text-[13px] text-ink-muted">Looking for yt-dlp and Deno…</p>}
+      {status && (
+        <ul aria-label="Tools for videos on pages" className="divide-y divide-line rounded-md border border-line">
+          {toolRows(status).map((row) => (
+            <li key={row.name} className="flex flex-col gap-1 px-3 py-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[13px] text-ink">{row.name}</span>
+                <Badge tone={row.tone}>{row.badge}</Badge>
+              </div>
+              {row.detail && <p className="font-mono text-[12px] break-all text-ink-muted select-text">{row.detail}</p>}
+              {row.problem && <p className="text-[12px] text-warning-fg">{row.problem}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {status && wanted.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div>
+            <Button size="sm" onClick={() => void install()} disabled={busy}>
+              {busy ? "Downloading…" : installButtonLabel(status, wanted)}
+            </Button>
+          </div>
+          <p className="text-[12px] text-ink-muted">
+            Only when you press it: the official builds from github.com/yt-dlp/yt-dlp and github.com/denoland/deno, each checked
+            against the SHA-256 its release publishes, go into{" "}
+            <span className="font-mono break-all">{status.managed_dir ?? "Downpipe's tools folder"}</span>. YouTube changes
+            often; press it again for the latest yt-dlp.
+          </p>
+        </div>
+      )}
+      <Banner tone="neutral">
+        Downpipe sends yt-dlp no cookies, so private, members-only and age-restricted videos are not downloaded, nor are
+        protected (DRM) and live ones. Following YouTube&apos;s terms is up to you.
+      </Banner>
+    </section>
   );
 }
 

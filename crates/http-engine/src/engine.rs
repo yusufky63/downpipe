@@ -132,6 +132,55 @@ impl DownloadHandle {
             .await
             .map_err(|e| DownloadError::Io(std::io::Error::other(e)))?
     }
+
+    /// Run a download the engine does not perform itself (a site provider
+    /// driving an external program) behind the same handle, so queues and
+    /// UIs treat it like any other. `job` publishes its progress on the
+    /// context and returns when it finished or was stopped. Must be called
+    /// inside a Tokio runtime.
+    pub fn spawn<F, Fut>(job: F) -> Self
+    where
+        F: FnOnce(JobContext) -> Fut,
+        Fut: std::future::Future<Output = Result<Outcome, DownloadError>> + Send + 'static,
+    {
+        let (tx, rx) = watch::channel(Progress::starting());
+        let control = Arc::new(Control::default());
+        let task = tokio::spawn(job(JobContext {
+            progress: tx,
+            control: control.clone(),
+        }));
+        DownloadHandle {
+            progress: rx,
+            control,
+            task,
+        }
+    }
+}
+
+/// What a job started with [`DownloadHandle::spawn`] reports through and
+/// listens to.
+#[derive(Debug)]
+pub struct JobContext {
+    /// Publish snapshots here; the handle's watchers see them.
+    pub progress: watch::Sender<Progress>,
+    control: Arc<Control>,
+}
+
+impl JobContext {
+    /// Resolves once a pause or cancel was asked for.
+    pub async fn stopped(&self) {
+        self.control.stop.cancelled().await;
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.control.stop.is_cancelled()
+    }
+
+    /// The stop was a cancel: the job should delete its partial data and
+    /// return [`Outcome::Canceled`].
+    pub fn is_cancel(&self) -> bool {
+        self.control.cancel.load(Ordering::SeqCst)
+    }
 }
 
 impl Engine {
@@ -160,6 +209,13 @@ impl Engine {
 
     pub fn limiter(&self) -> &Arc<RateLimiter> {
         &self.inner.limiter
+    }
+
+    /// The HTTP client with this engine's proxy and user agent, for helper
+    /// downloads that are not user downloads (a site provider fetching its
+    /// tools).
+    pub fn client(&self) -> &Client {
+        &self.inner.client
     }
 
     /// Start (or resume) a download on the current Tokio runtime.

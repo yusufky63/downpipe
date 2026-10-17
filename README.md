@@ -2,7 +2,7 @@
 
 An open-source download manager for Windows, macOS and Linux. Downpipe splits a file across several HTTP connections when that makes it faster, survives pauses, restarts and crashes without starting over, and never publishes a file under its real name until every byte is in place.
 
-It is built as a Rust engine with a desktop app (Tauri), a command-line tool and a browser extension on top. The extension also finds the videos a web page plays, including HLS and DASH streams, and hands them to the app. Site-specific providers are next; see [Roadmap](#roadmap).
+It is built as a Rust engine with a desktop app (Tauri), a command-line tool and a browser extension on top. The extension also finds the videos a web page plays, including HLS and DASH streams, and hands them to the app; YouTube pages go to [yt-dlp](https://github.com/yt-dlp/yt-dlp), which Downpipe runs for them. See [Roadmap](#roadmap).
 
 > Status: early development (0.3). The HTTP engine, queue, CLI, desktop app and browser bridge work and are tested. Windows installers and the browser extension are on the [Releases](https://github.com/yusufky63/downpipe/releases) page; they are not code-signed yet, and macOS and Linux builds are built from source for now.
 
@@ -32,6 +32,7 @@ It is built as a Rust engine with a desktop app (Tauri), a command-line tool and
 | CLI | `downpipe get`, `downpipe resume`, `downpipe probe`. Ctrl+C pauses cleanly. |
 | Media detection | With **Media on this page** switched on (the extension then asks for access to all sites), the extension notes the HLS and DASH manifests and media files a page plays and lists them in its popup, and a **Download** button appears on playing videos, as IDM's download panel does. Media file types, a minimum size and the button can be set under Filters; excluded sites are left alone. The player's own Referer and Origin go with the download; cookies never do. |
 | Streams | HLS (master and media playlists, AES-128 segments, transport streams and fragmented MP4, separate audio) and static DASH (separate video and audio). Pick the quality and audio when the download is confirmed. Fragments download in parallel and survive pauses, restarts and crashes. A user-installed FFmpeg merges separate video and audio without re-encoding; without one they are saved as two files. DRM-protected and live streams are refused. |
+| YouTube | On a YouTube video page, **Download with Downpipe** (in the popup, on the video's Download button, in the page's context menu, or on a link to a video) sends the page to the app, which runs yt-dlp for it: the confirmation dialog lists the qualities (H.264 first, so the file plays everywhere), the sound tracks and **Audio only**, and FFmpeg joins video and sound into one MP4. Pause and resume work like any download. Pasting a YouTube link into the Add dialog works too. yt-dlp and Deno (which yt-dlp needs for YouTube) are found on `PATH`, set in **Settings → Media**, or downloaded there with one button from their official releases, checked by SHA-256; nothing is downloaded without that press. No cookies are sent, so private, members-only and age-restricted videos are not downloaded, and neither are protected or live ones. Following YouTube's terms is up to you; see [Legal](docs/LEGAL.md). |
 | Browser bridge | Chrome, Edge and Firefox extension: **Download with Downpipe** on any link, optional capture of the downloads the browser starts (the browser keeps them if Downpipe is closed), a dialog in the app for the file name, folder and queue before a sent download starts (can be switched off), a notification for every hand-over, and a toolbar popup with the connection status and the live progress of what the browser sent. Talks to the app through Native Messaging and a local pipe, never a network port; the desktop app ships the native host and registers it for your user account when it starts. |
 
 What Downpipe does **not** do: it does not bypass DRM, paywalls or logins, it does not read browser cookies (the extension refuses to pass them), and it does not send your downloads or links to any server of ours. See [Legal](docs/LEGAL.md).
@@ -104,6 +105,8 @@ Exit codes: `0` finished, `1` failed, `2` paused or canceled.
 
 Streams take a different path: the manifest lists fragments, several download at once into a work folder (`name.part/`, one file per finished fragment), and at the end they are joined per track and merged or moved into place.
 
+YouTube pages are downloaded by yt-dlp, run as a separate process with `--ignore-config`, no cookies and Downpipe's own progress lines; pausing ends it and resuming passes `--continue`.
+
 Details: [docs/DOWNLOAD_ENGINE.md](docs/DOWNLOAD_ENGINE.md). Component overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Browser bridge: [docs/BROWSER_BRIDGE.md](docs/BROWSER_BRIDGE.md). Security model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
 
 ## Repository layout
@@ -113,6 +116,7 @@ crates/http-engine   downpipe-http   probe, segments, workers, resume meta, chec
 crates/core          downpipe-core   queue, state machine, SQLite catalog, settings
 crates/cli           downpipe        command-line interface
 crates/native-host   downpipe-native-host   browser bridge: Native Messaging host, protocol, local pipe
+crates/providers     downpipe-providers     site providers: YouTube pages through yt-dlp, tool lookup and download
 apps/desktop         Tauri 2 + React desktop app (src-tauri is the Rust side)
 apps/browser-extension   Manifest V3 extension for Chrome, Edge and Firefox
 tools/test-server    fault-injection HTTP server used by tests and for benchmarks
@@ -127,7 +131,7 @@ All checks:
 cargo fmt --all --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace; pnpm check; pnpm --filter @downpipe/desktop build; pnpm extension
 ```
 
-Tests run against `tools/test-server`, a local server that can ignore ranges, drop connections, return 429/503 with `Retry-After`, change the file between requests, throttle one region of a file and more. Nothing in the test suite touches the internet. To try the app or CLI against it:
+Tests run against `tools/test-server`, a local server that can ignore ranges, drop connections, return 429/503 with `Retry-After`, change the file between requests, throttle one region of a file and more. The YouTube provider's tests start a fake yt-dlp and Deno (the test binary itself, copied under their names, see `tools/test-server/src/fake_tools.rs`). Nothing in the test suite touches the internet. To try the app or CLI against it:
 
 ```powershell
 cargo run -p downpipe-test-server
@@ -142,7 +146,7 @@ The order follows one rule: each step has to work end to end before the next one
 1. **HTTP engine, resume, adaptive segmentation, queue, CLI, desktop shell** — done (0.1).
 2. **Browser bridge.** Chrome/Edge/Firefox extension that hands downloads to the app through Native Messaging (no local HTTP port), with origin checks and no cookies in messages, registered by the desktop app itself — done (0.2). Still to come for the bridge: store-signed extension builds, and a per-site cookie opt-in for downloads that need a signed-in session.
 3. **Media detection.** Find the real manifest or media request behind a page instead of `blob:` URLs; HLS and DASH downloads with fragment concurrency, a quality chooser, and a user-installed FFmpeg for merging separate audio and video — done (next release). DRM-protected and live streams are refused.
-4. **Site providers.** Optional, separately updated adapter around yt-dlp for sites whose players need site-specific extraction (YouTube among them), feeding the same quality chooser. Downloads of DRM-protected media are refused.
+4. **Site providers.** yt-dlp for sites whose players need site-specific extraction, feeding the same quality chooser: YouTube (watch, Shorts, embedded and `youtu.be` pages), with yt-dlp and Deno found on the machine or downloaded on request and checked by SHA-256 — done (next release). DRM-protected and live videos are refused. Still to come: more sites yt-dlp supports, each after a look at its terms, and playlists.
 5. **Local API and web UI**, then a plugin SDK.
 
 ## Legal

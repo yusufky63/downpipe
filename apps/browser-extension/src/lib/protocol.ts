@@ -2,6 +2,7 @@
 // again (crates/native-host/src/protocol.rs); these builders make sure the
 // extension never even asks for something the host would refuse, and that
 // optional hints which do not fit are dropped instead of failing the request.
+import { sitePage } from "./sites";
 import { MAX_URL_LENGTH, baseName, webUrl, withoutSecrets } from "./url";
 
 export const HOST_NAME = "dev.downpipe.native_host";
@@ -44,6 +45,18 @@ export interface MediaMessage {
   origin?: string;
 }
 
+/**
+ * A video page (YouTube) for Downpipe's site provider: the page and its
+ * title only, never the media requests its player made, and never cookies.
+ */
+export interface PageMessage {
+  protocol_version: typeof PROTOCOL_VERSION;
+  type: "page";
+  id: string;
+  page_url: string;
+  title?: string;
+}
+
 /** Streams the `media` message carries. Single media files go as `download`. */
 export type StreamKind = "hls" | "dash";
 
@@ -55,7 +68,7 @@ export interface TasksMessage {
   task_ids: string[];
 }
 
-export type HostMessage = PingMessage | DownloadMessage | MediaMessage | TasksMessage;
+export type HostMessage = PingMessage | DownloadMessage | MediaMessage | PageMessage | TasksMessage;
 
 /** What the extension knows about a download before it is sent. */
 export interface DownloadFields {
@@ -137,6 +150,16 @@ export function mediaMessage(fields: MediaFields, id: string): MediaMessage | nu
   if (title) message.title = title;
   const origin = webUrl(fields.origin);
   if (origin) message.origin = origin.origin;
+  return message;
+}
+
+/** Null unless the page is one the site provider takes (`sitePage`). */
+export function pageMessage(fields: { pageUrl: string; title?: string }, id: string): PageMessage | null {
+  const page = sitePage(fields.pageUrl);
+  if (!page) return null;
+  const message: PageMessage = { protocol_version: PROTOCOL_VERSION, type: "page", id, page_url: page.url };
+  const title = titleHint(fields.title);
+  if (title) message.title = title;
   return message;
 }
 

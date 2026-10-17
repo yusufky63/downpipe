@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import capturedFixture from "../../../../crates/native-host/tests/fixtures/download-captured.json";
 import linkFixture from "../../../../crates/native-host/tests/fixtures/download-link.json";
 import mediaFixture from "../../../../crates/native-host/tests/fixtures/media-hls.json";
+import pageFixture from "../../../../crates/native-host/tests/fixtures/page-youtube.json";
 import pingFixture from "../../../../crates/native-host/tests/fixtures/ping.json";
 import tasksFixture from "../../../../crates/native-host/tests/fixtures/tasks.json";
 import rustProtocol from "../../../../crates/native-host/src/protocol.rs?raw";
@@ -18,6 +19,7 @@ import {
   fileNameHint,
   mediaMessage,
   mimeEssence,
+  pageMessage,
   parseResponse,
   pingMessage,
   tasksMessage,
@@ -49,6 +51,14 @@ describe("messages match the host's fixtures", () => {
       "m2",
     );
     expect(message).toEqual(capturedFixture);
+  });
+
+  it("video page from the popup or the overlay", () => {
+    const message = pageMessage(
+      { pageUrl: "https://www.youtube.com/watch?v=jNQXAC9IVRw&list=PL1&t=4s", title: "Me at the zoo" },
+      "y1",
+    );
+    expect(message).toEqual(pageFixture);
   });
 
   it("stream from the media list", () => {
@@ -277,5 +287,24 @@ describe("mediaMessage", () => {
       features: ["media", 3, "x".repeat(40)],
     });
     expect(pong?.type === "pong" && pong.features).toEqual(["media"]);
+  });
+});
+
+describe("pageMessage", () => {
+  it("only for pages the site provider takes, as their plain address", () => {
+    expect(pageMessage({ pageUrl: "https://example.org/watch?v=jNQXAC9IVRw" }, "x")).toBeNull();
+    expect(pageMessage({ pageUrl: "https://www.youtube.com/playlist?list=PL1" }, "x")).toBeNull();
+    expect(pageMessage({ pageUrl: "https://youtu.be/jNQXAC9IVRw?si=a" }, "x")).toEqual({
+      protocol_version: 1,
+      type: "page",
+      id: "x",
+      page_url: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+    });
+  });
+
+  it("drops a title the host would refuse", () => {
+    const message = pageMessage({ pageUrl: "https://youtu.be/jNQXAC9IVRw", title: "a\u0007b" }, "x");
+    expect(message?.title).toBeUndefined();
+    expect(Object.keys(message ?? {})).not.toContain("title");
   });
 });

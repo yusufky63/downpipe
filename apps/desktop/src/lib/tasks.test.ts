@@ -56,5 +56,9 @@ describe("display", () => {
     expect(sorted.map((t) => t.id)).toEqual(["new", "old"]);
     expect(displayName(task("x"))).toBe("x.bin");
     expect(displayName(task("x", { file_name: "real.iso" }))).toBe("real.iso");
+    // A page's address says nothing; its title replaces this once known.
+    expect(displayName(task("y", { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw", site: { site: "YouTube" } }))).toBe(
+      "YouTube video",
+    );
   });
 });

@@ -46,6 +46,13 @@ pub struct Settings {
     /// FFmpeg used to merge separate video and audio of streams. Empty:
     /// `ffmpeg` on `PATH`, if there is one. Downpipe does not ship FFmpeg.
     pub ffmpeg_path: String,
+    /// yt-dlp for videos on pages such as YouTube. Empty: the copy in
+    /// Downpipe's tools folder (downloaded when the user asks), else
+    /// `yt-dlp` on `PATH`.
+    pub yt_dlp_path: String,
+    /// Deno, which yt-dlp needs for YouTube. Empty: the tools folder, then
+    /// `PATH` (and Node 22 or newer when there is no Deno at all).
+    pub deno_path: String,
 }
 
 /// The queue every download belongs to unless moved.
@@ -132,6 +139,8 @@ impl Default for Settings {
             confirm_browser_downloads: true,
             queues: default_queues(),
             ffmpeg_path: String::new(),
+            yt_dlp_path: String::new(),
+            deno_path: String::new(),
         }
     }
 }
@@ -148,6 +157,8 @@ impl Settings {
         self.user_agent = self.user_agent.trim().to_string();
         // Pasted paths often come quoted from a file manager.
         self.ffmpeg_path = self.ffmpeg_path.trim().trim_matches('"').to_string();
+        self.yt_dlp_path = self.yt_dlp_path.trim().trim_matches('"').to_string();
+        self.deno_path = self.deno_path.trim().trim_matches('"').to_string();
         self.categories = self
             .categories
             .into_iter()
@@ -373,6 +384,7 @@ mod tests {
             speed_limit: 7,
             register_browser_host: false,
             proxy: "  socks5://127.0.0.1:1080 ".into(),
+            yt_dlp_path: r#" "C:\Tools\yt-dlp.exe" "#.into(),
             categories: vec![
                 Category {
                     name: " Books ".into(),
@@ -394,6 +406,7 @@ mod tests {
         assert!(!s.download_dir.as_os_str().is_empty());
         assert_eq!(s.speed_limit, 7);
         assert_eq!(s.proxy, "socks5://127.0.0.1:1080");
+        assert_eq!(s.yt_dlp_path, r"C:\Tools\yt-dlp.exe");
         assert_eq!(s.categories.len(), 1, "unnamed categories are dropped");
         assert_eq!(s.categories[0].name, "Books");
         assert_eq!(s.categories[0].extensions, ["epub", "mobi"]);

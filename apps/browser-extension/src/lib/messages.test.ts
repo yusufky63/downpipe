@@ -3,8 +3,10 @@ import { DEFAULT_CAPTURE_TYPES, defaultFilters } from "./filters";
 import { defaultMediaFilters } from "./media";
 import {
   MAX_ACTIVITY,
+  PAGE_ITEM_ID,
   addActivity,
   isLinkResult,
+  isMediaReply,
   isOverlayItems,
   isSettings,
   overlayResultText,
@@ -198,6 +200,9 @@ describe("media requests", () => {
     expect(parsePopupRequest({ kind: "media_list", tabId: 1.5 })).toBeNull();
     expect(parsePopupRequest({ kind: "send_media", tabId: 3, mediaId: "../x" })).toBeNull();
     expect(parsePopupRequest({ kind: "send_media", tabId: 3, mediaId: "m", url: "https://a.org/" })).toBeNull();
+    expect(parsePopupRequest({ kind: "send_page", tabId: 3 })).toEqual({ kind: "send_page", tabId: 3 });
+    // The page is the tab's own; no URL is taken from the message.
+    expect(parsePopupRequest({ kind: "send_page", tabId: 3, url: "https://youtu.be/jNQXAC9IVRw" })).toBeNull();
   });
 
   it("lets the overlay ask about its own tab only", () => {
@@ -207,7 +212,10 @@ describe("media requests", () => {
       src: "https://a.org/v.mp4",
     });
     expect(parseOverlayRequest({ kind: "overlay_send", mediaId: "m-1" })).toEqual({ kind: "overlay_send", mediaId: "m-1" });
+    expect(parseOverlayRequest({ kind: "overlay_page" })).toEqual({ kind: "overlay_page" });
     for (const bad of [
+      { kind: "overlay_page", pageUrl: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
+      { kind: "send_page", tabId: 4 },
       { kind: "overlay_list", src: "blob:https://a.org/1" },
       { kind: "overlay_list", tabId: 4 },
       { kind: "overlay_send", mediaId: "m-1", tabId: 4 },
@@ -225,6 +233,7 @@ describe("media requests", () => {
   it("checks what the overlay gets back", () => {
     expect(isOverlayItems({ items: [{ mediaId: "a", label: "x.m3u8", detail: "HLS stream" }] })).toBe(true);
     expect(isOverlayItems({ items: [{ mediaId: "a b", label: "x", detail: "y" }] })).toBe(false);
+    expect(isOverlayItems({ items: [{ mediaId: PAGE_ITEM_ID, label: "Me at the zoo", detail: "YouTube" }] })).toBe(true);
     expect(isOverlayItems(null)).toBe(false);
     expect(overlayResultText({ outcome: "added", message: "Added to Downpipe", stop: false })).toEqual({
       text: "Sent to Downpipe",
@@ -238,6 +247,12 @@ describe("media requests", () => {
       failed: true,
     });
     expect(overlayResultText("nope").failed).toBe(true);
+  });
+
+  it("checks the page entry of a media list", () => {
+    expect(isMediaReply({ enabled: false, items: [], page: { site: "YouTube", title: "Me at the zoo" } })).toBe(true);
+    expect(isMediaReply({ enabled: false, items: [], page: { site: "YouTube" } })).toBe(true);
+    expect(isMediaReply({ enabled: false, items: [], page: { title: "x" } })).toBe(false);
   });
 
   it("keeps media hand-overs in the activity list", () => {

@@ -1,6 +1,6 @@
 import { formatBytes, formatSpeed, percent, sentence } from "./format";
 import { kindLabel, mediaName, type MediaCandidate } from "./media";
-import type { Activity } from "./messages";
+import type { Activity, PageItem } from "./messages";
 import type { TaskState, TaskStatus } from "./protocol";
 import type { BridgeStatus } from "./status";
 
@@ -174,6 +174,19 @@ export function mediaRowView(c: MediaCandidate, streams: boolean): MediaRowView 
     label: mediaName(c.url),
     detail: sendable ? parts.join(" · ") : "Update Downpipe to download streams",
     sendable,
+  };
+}
+
+/**
+ * The row for a video page (YouTube) in the media list. `pages`: whether
+ * the connected Downpipe has the site provider.
+ */
+export function pageRowView(page: PageItem, pages: boolean): MediaRowView {
+  return {
+    label: page.title ?? `This ${page.site} video`,
+    // Short: the row leaves the detail little room. The quality is chosen in the app.
+    detail: pages ? `${page.site} video` : "Update Downpipe to download videos from pages",
+    sendable: pages,
   };
 }
 

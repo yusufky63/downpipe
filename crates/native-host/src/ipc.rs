@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::frame::{self, FrameError};
-use crate::protocol::{DownloadRequest, MediaRequest, TaskStatus, code};
+use crate::protocol::{DownloadRequest, MediaRequest, PageRequest, TaskStatus, code};
 
 /// Bumped whenever host and app stop understanding each other. They ship
 /// together, but a user can update one without re-registering the other.
@@ -104,6 +104,13 @@ pub enum AppAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         origin: Option<String>,
     },
+    /// A video page for the site provider. An app from before it answers
+    /// `invalid_message`, and its `pong` does not list the `page` feature.
+    Page {
+        request: PageRequest,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<String>,
+    },
     Tasks {
         task_ids: Vec<String>,
     },
@@ -128,6 +135,13 @@ impl AppRequest {
         Self {
             ipc_version: IPC_VERSION,
             action: AppAction::Media { request, origin },
+        }
+    }
+
+    pub fn page(request: PageRequest, origin: Option<String>) -> Self {
+        Self {
+            ipc_version: IPC_VERSION,
+            action: AppAction::Page { request, origin },
         }
     }
 

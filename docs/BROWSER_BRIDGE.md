@@ -148,6 +148,16 @@ The filters are stored with the other extension settings in `storage.local`. Set
 - In the app, the confirmation dialog of a stream offers its qualities and, when there is a choice, its audio tracks. It reads only the manifest for that. If FFmpeg is not available and video and sound come separately, the dialog says they will be saved as two files. A DRM-protected or live stream is reported there and can only be removed.
 - With an app or bridge from before streams, the `pong` has no `media` feature: the popup marks streams **Update Downpipe to download streams** (files still work), and a stream sent anyway is refused with that message.
 
+**Video pages (YouTube)** go to the app's site provider instead, which runs [yt-dlp](https://github.com/yt-dlp/yt-dlp). YouTube's player no longer fetches files a download manager could take over: it streams over SABR and its links need tokens and answers to JavaScript challenges that only an extractor like yt-dlp produces. So on such a page the extension sends the page's address, not the media requests it sees.
+
+- The pages are listed in `apps/browser-extension/src/lib/sites.ts` and, with the same test cases (`crates/providers/tests/fixtures/pages.json`), in `crates/providers/src/pages.rs`: `youtube.com/watch?v=…`, `/shorts/…`, `/embed/…`, `/live/…`, `m.youtube.com`, `music.youtube.com`, `youtube-nocookie.com/embed/…` and `youtu.be/…`. Playlists, channels and search pages are not video pages. The link is sent as `https://www.youtube.com/watch?v=<id>`, without timestamps, playlists or tracking, so the same video sent twice is a duplicate.
+- The popup shows the page as the first row of **Media on this page**, titled after the tab, with **Download**. This works with media detection off: opening the popup grants `activeTab`, which is enough to read the tab's address.
+- With detection on, the Download button over the playing video offers the page as well (on an embedded player, the embed's video). The requests YouTube's player makes to its video servers (`*.googlevideo.com`) are never listed, since they cannot be downloaded on their own.
+- **Download this video with Downpipe** in the page's context menu on YouTube, and **Download with Downpipe** on a link to a video page, send the page the same way.
+- The message is `page`: the page address and the tab's title (without " - YouTube"), nothing else. No cookies: yt-dlp in the app reads the page signed out, so private, members-only and age-restricted videos fail with YouTube's reason.
+- In the app, the confirmation dialog asks yt-dlp for the formats (`yt-dlp -J`, which fetches the page and its player data, no video) and offers them in the same **Quality** and **Audio** lists as a stream: one entry per resolution and frame rate, the separate sound tracks, and **Audio only**. Protected and live videos are reported there and can only be removed.
+- With an app or bridge from before the site provider, `pong` has no `page` feature: the popup's page row says **Update Downpipe to download videos from pages**, and a page sent anyway is refused with that message.
+
 While **Ask before downloads from the browser start** is on in the app (Settings → App, on by default), the app still answers `accepted` at once, so the browser never waits for a person. The download is created paused and the app's window comes forward with a dialog for its file name, folder and queue: **Start download** queues it, **Download later** keeps it paused, and **Cancel** removes it. Nothing is requested from the server before the answer. The `accepted` answer says so with `awaiting_confirmation: true`, so the extension's notification reads "Waiting for your answer in Downpipe" instead of "Downloading in Downpipe". Until the dialog is answered the popup lists the download as **Waiting in Downpipe** (not Paused) and keeps asking the app every second, so the row turns into Downloading, or Paused after **Download later**, while the popup is open. After **Cancel** the app no longer knows the download, and the row falls back to what was recorded when it was sent.
 
 Every hand-over from the link menu or capture is confirmed in three places:
@@ -230,6 +240,9 @@ Requests:
  "referrer": "https://example.org/",
  "origin": "https://example.org",
  "title": "Clip of the week"}
+{"protocol_version": 1, "type": "page", "id": "y1",
+ "page_url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+ "title": "Me at the zoo"}
 {"protocol_version": 1, "type": "tasks", "id": "t1",
  "task_ids": ["8e48dd86-5481-41af-a2fc-edf3044e29b8"]}
 ```
@@ -237,24 +250,24 @@ Requests:
 | Field | Rules |
 |---|---|
 | `protocol_version` | Required, must be `1`. Other numbers get `unsupported_version`. |
-| `type` | `ping`, `download`, `media` or `tasks`. |
+| `type` | `ping`, `download`, `media`, `page` or `tasks`. |
 | `id` | Optional, 1 to 64 letters, digits, `-` or `_`. Echoed in the response. |
 | `resource_url` | Required for `download`. http or https, at most 8 KiB, no control characters. The fragment is dropped. |
-| `page_url`, `referrer` | Optional, for `download` and `media`, same URL rules. Credentials and fragments are removed. The referrer is sent as `Referer` (with a stream: with the manifest, every fragment and the key); the page URL is not stored. |
+| `page_url`, `referrer` | Optional, for `download` and `media`, same URL rules. Credentials and fragments are removed. The referrer is sent as `Referer` (with a stream: with the manifest, every fragment and the key); the page URL is not stored. For `page`, `page_url` is required and is what is downloaded: it must be a video page the site provider takes (see above), or the answer is `unsupported_page`; a `page` message carries no referrer. |
 | `manifest_url` | Required for `media`, allowed nowhere else. The HLS playlist or DASH manifest, with the same rules as `resource_url`. |
 | `kind` | Required for `media`: `hls` or `dash`. |
-| `title` | Optional, for `media`: the page title, at most 200 characters, no control characters. The app names the file after it. |
+| `title` | Optional, for `media` and `page`: the page title, at most 200 characters, no control characters. The app names the file after it. |
 | `origin` | Optional, for `media`: the `Origin` the player sent, exactly `scheme://host[:port]`. Sent as `Origin` with the manifest and every fragment. |
 | `mime_type` | Optional, reduced to `type/subtype`. |
 | `file_name` | Optional hint, at most 255 characters, no folders and no control characters. The app sanitizes it like a server-supplied name. |
 | `task_ids` | Required for `tasks`, allowed nowhere else. 1 to 20 ids as returned in `accepted` (or `duplicate`). |
 
-`resource_url`, `mime_type` and `file_name` are `download` fields and `manifest_url`, `kind`, `origin` and `title` are `media` fields; each message type refuses the other's. Unknown fields, duplicate fields and any field whose name contains `cookie` are rejected. A message over 64 KiB is answered with `message_too_large`, after which the host exits, because the rest of the stream can no longer be framed reliably.
+`resource_url`, `mime_type` and `file_name` are `download` fields and `manifest_url`, `kind`, `origin` and `title` are `media` fields; each message type refuses the other's. A `page` message carries only `page_url` and `title`. Unknown fields, duplicate fields and any field whose name contains `cookie` are rejected. A message over 64 KiB is answered with `message_too_large`, after which the host exits, because the rest of the stream can no longer be framed reliably.
 
 Responses carry `protocol_version`, the request's `id` and a `type`:
 
 ```json
-{"protocol_version": 1, "id": "p1", "type": "pong", "host_version": "0.3.0", "app_running": true, "app_version": "0.3.0", "features": ["media"]}
+{"protocol_version": 1, "id": "p1", "type": "pong", "host_version": "0.3.0", "app_running": true, "app_version": "0.3.0", "features": ["media", "page"]}
 {"protocol_version": 1, "id": "m1", "type": "accepted", "task_id": "8e48dd86-..."}
 {"protocol_version": 1, "id": "m2", "type": "accepted", "task_id": "68b6ffff-...", "awaiting_confirmation": true}
 {"protocol_version": 1, "id": "m1", "type": "error", "code": "duplicate", "message": "This link is already in Downpipe", "task_id": "8e48dd86-..."}
@@ -267,7 +280,7 @@ Responses carry `protocol_version`, the request's `id` and a `type`:
 
 | Field | In | Meaning |
 |---|---|---|
-| `features` | `pong` | What the host and the running app both support beyond the first messages of version 1. `media`: the `media` message. Left out when there is none (the app is closed, or one of them predates it). |
+| `features` | `pong` | What the host and the running app both support beyond the first messages of version 1. `media`: the `media` message; `page`: the `page` message. Left out when there is none (the app is closed, or one of them predates it). |
 | `task_id` | `accepted`, `tasks`, `duplicate` errors | The app's id for the download. |
 | `file_name` | `accepted`, `tasks` | The hint or the name the app chose; in `tasks`, the final name once the server has answered. |
 | `state` | `tasks` | One of `queued`, `starting`, `downloading`, `waiting`, `verifying`, `paused`, `completed`, `failed` and `canceled`. |
@@ -277,7 +290,7 @@ Responses carry `protocol_version`, the request's `id` and a `type`:
 
 Ids the app does not know in a `tasks` query, for example removed downloads, are left out of the answer.
 
-Messages may also gain types within version 1, as `media` did: a host or app that predates one answers `invalid_message` ("unknown message type"), which an extension can tell from a broken bridge, and `pong` lists the ones both ends know in `features`, so the extension can check before sending. The pipe between host and app gained the `media` action the same way, without a new `ipc_version`, since older actions are unchanged.
+Messages may also gain types within version 1, as `media` and `page` did: a host or app that predates one answers `invalid_message` ("unknown message type"), which an extension can tell from a broken bridge, and `pong` lists the ones both ends know in `features`, so the extension can check before sending. The pipe between host and app gained the `media` and `page` actions the same way, without a new `ipc_version`, since older actions are unchanged.
 
 Answers may gain optional fields within version 1; the extension ignores fields it does not know, and the host and the app accept each other's answers with or without them. That is why the confirmation is a flag and not a tenth `state`: the download really is paused in the app's catalog, and extensions from before the flag drop task entries with a state outside their fixed list, which would cost them that row's live state. With the flag they keep showing Paused, which is still true.
 
@@ -292,6 +305,7 @@ Answers may gain optional fields within version 1; the extension ignores fields 
 | `app_unavailable` | The app did not answer within 10 seconds or answered something unexpected. |
 | `version_mismatch` | The host and the app speak different pipe versions; run `install` from the same build as the app. |
 | `duplicate` | An unfinished download with this URL already exists; `task_id` names it. |
+| `unsupported_page` | A `page` message for a site Downpipe has no provider for. |
 
 Other codes come from the download queue (for example `invalid_header`) and carry a readable `message`.
 

@@ -5,6 +5,7 @@ members = [
     "crates/core",
     "crates/cli",
     "crates/native-host",
+    "crates/providers",
     "tools/test-server",
     "apps/desktop/src-tauri",
 ]
@@ -15,6 +16,7 @@ default-members = [
     "crates/core",
     "crates/cli",
     "crates/native-host",
+    "crates/providers",
     "tools/test-server",
 ]
 
@@ -30,6 +32,7 @@ authors = ["Downpipe contributors"]
 downpipe-http = { path = "crates/http-engine" }
 downpipe-core = { path = "crates/core" }
 downpipe-native-host = { path = "crates/native-host" }
+downpipe-providers = { path = "crates/providers" }
 downpipe-test-server = { path = "tools/test-server" }
 
 aes = "0.8.4"
@@ -62,7 +65,9 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 uuid = { version = "1.28.0", features = ["v4", "serde"] }
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Ioctl", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_System_DataExchange"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_System_DataExchange"] }
+# Deno ships as a zip; only reading deflated entries is needed.
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

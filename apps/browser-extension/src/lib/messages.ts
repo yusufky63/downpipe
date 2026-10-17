@@ -31,7 +31,9 @@ export type PopupRequest =
   /** The media detected in this tab. */
   | { kind: "media_list"; tabId: number }
   /** Send one of them to Downpipe. */
-  | { kind: "send_media"; tabId: number; mediaId: string };
+  | { kind: "send_media"; tabId: number; mediaId: string }
+  /** Send the tab's video page (YouTube) to Downpipe's site provider. */
+  | { kind: "send_page"; tabId: number };
 
 /**
  * What the overlay button in a page may ask. The tab is never part of the
@@ -41,7 +43,12 @@ export type PopupRequest =
 export type OverlayRequest =
   /** The tab's media; `src` is the playing element's own http(s) source, if it has one. */
   | { kind: "overlay_list"; src?: string }
-  | { kind: "overlay_send"; mediaId: string };
+  | { kind: "overlay_send"; mediaId: string }
+  /** Send this frame's or tab's video page; its item has `PAGE_ITEM_ID`. */
+  | { kind: "overlay_page" };
+
+/** The overlay menu's entry for the page itself, next to detected media ids. */
+export const PAGE_ITEM_ID = "page";
 
 const SIMPLE_KINDS = ["status", "tasks", "ping", "get_settings"] as const;
 
@@ -88,6 +95,7 @@ export function parsePopupRequest(value: unknown): PopupRequest | null {
     }
     case "collect_links":
     case "media_list":
+    case "send_page":
       return hasKeys(v, "kind", "tabId") && isTabId(v.tabId) ? { kind: v.kind, tabId: v.tabId } : null;
     case "send_media":
       return hasKeys(v, "kind", "tabId", "mediaId") && isTabId(v.tabId) && isMediaId(v.mediaId)
@@ -115,9 +123,18 @@ export function parseOverlayRequest(value: unknown): OverlayRequest | null {
       return hasKeys(v, "kind", "src") && isWebUrl(v.src) ? { kind: "overlay_list", src: v.src } : null;
     case "overlay_send":
       return hasKeys(v, "kind", "mediaId") && isMediaId(v.mediaId) ? { kind: "overlay_send", mediaId: v.mediaId } : null;
+    case "overlay_page":
+      return hasKeys(v, "kind") ? { kind: "overlay_page" } : null;
     default:
       return null;
   }
+}
+
+/** The tab's video page, which the site provider can download. */
+export interface PageItem {
+  site: string;
+  /** The tab's title without the site's name, when there is one. */
+  title?: string;
 }
 
 /** The answer to `media_list`. */
@@ -128,6 +145,14 @@ export interface MediaReply {
   items: MediaCandidate[];
   /** The tab's site is on the excluded sites list, by this entry. */
   excludedBy?: string;
+  /** Set on a video page (YouTube), whether detection is on or not. */
+  page?: PageItem;
+}
+
+function isPageItem(value: unknown): value is PageItem {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.site === "string" && (v.title === undefined || typeof v.title === "string");
 }
 
 export function isMediaReply(value: unknown): value is MediaReply {
@@ -137,7 +162,8 @@ export function isMediaReply(value: unknown): value is MediaReply {
     typeof v.enabled === "boolean" &&
     Array.isArray(v.items) &&
     parseTabMedia(v.items).length === v.items.length &&
-    (v.excludedBy === undefined || typeof v.excludedBy === "string")
+    (v.excludedBy === undefined || typeof v.excludedBy === "string") &&
+    (v.page === undefined || isPageItem(v.page))
   );
 }
 
@@ -156,7 +182,9 @@ export function isOverlayItems(value: unknown): value is { items: OverlayItem[] 
     items.every((i) => {
       if (typeof i !== "object" || i === null) return false;
       const v = i as Record<string, unknown>;
-      return isMediaId(v.mediaId) && typeof v.label === "string" && typeof v.detail === "string";
+      return (
+        (isMediaId(v.mediaId) || v.mediaId === PAGE_ITEM_ID) && typeof v.label === "string" && typeof v.detail === "string"
+      );
     })
   );
 }

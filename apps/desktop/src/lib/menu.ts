@@ -67,7 +67,9 @@ export const SHORTCUTS = {
 
 const SEPARATOR: MenuEntry = { kind: "separator" };
 
-export const canRelink = (t: Task) => t.state === "paused" || t.state === "failed" || t.state === "canceled" || t.state === "queued";
+/** A video page's address does not expire, so only file and stream links can be replaced. */
+export const canRelink = (t: Task) =>
+  t.site === null && (t.state === "paused" || t.state === "failed" || t.state === "canceled" || t.state === "queued");
 
 export function buildMenu(selected: readonly Task[], queues: readonly Queue[]): MenuEntry[] {
   if (selected.length === 0) return [];

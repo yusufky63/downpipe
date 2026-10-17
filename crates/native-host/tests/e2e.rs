@@ -466,7 +466,7 @@ async fn streams_from_the_browser_are_offered_with_their_qualities() {
     let mut host = Host::spawn(&app.endpoint);
 
     let pong = host.ask(&json!({"protocol_version": 1, "type": "ping"}));
-    assert_eq!(pong["features"], json!(["media"]), "{pong}");
+    assert_eq!(pong["features"], json!(["media", "page"]), "{pong}");
 
     let q = "segments=3&size=4000&split=1";
     let page = web.url("/watch/clip");
@@ -538,4 +538,51 @@ async fn streams_from_the_browser_are_offered_with_their_qualities() {
     let answer = host.ask(&json!({"protocol_version": 1, "type": "tasks", "task_ids": [id]}));
     assert_eq!(answer["tasks"][0]["state"], "completed", "{answer}");
     assert!(host.finish().success());
+}
+
+/// A video page: the app takes the page address and title only, holds it
+/// for the quality dialog, and keeps one link per video.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn video_pages_go_to_the_site_provider() {
+    let app = App::start_with(true).await;
+    let mut host = Host::spawn(&app.endpoint);
+    let fixture: Value = serde_json::from_slice(
+        &std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/page-youtube.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let accepted = host.ask(&fixture);
+    assert_eq!(accepted["type"], "accepted", "{accepted}");
+    assert_eq!(accepted["id"], "y1");
+    assert_eq!(accepted["awaiting_confirmation"], true, "{accepted}");
+    assert_eq!(accepted["file_name"], "Me at the zoo.mp4", "{accepted}");
+    let id = accepted["task_id"].as_str().unwrap().to_string();
+
+    // The same video from a share link is a duplicate of it.
+    let again = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "page",
+        "page_url": "https://youtu.be/jNQXAC9IVRw?si=share",
+    }));
+    assert_eq!(again["code"], "duplicate", "{again}");
+    assert_eq!(again["task_id"], id.as_str());
+
+    let other = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "page",
+        "page_url": "https://example.org/watch?v=jNQXAC9IVRw",
+    }));
+    assert_eq!(other["code"], "unsupported_page", "{other}");
+    assert!(host.finish().success());
+
+    let task = app.manager.get(&id).unwrap();
+    assert_eq!(
+        task.record.url,
+        "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+    );
+    assert_eq!(task.record.site.unwrap().site, "YouTube");
+    assert_eq!(task.record.state, TaskState::Paused);
+    assert_eq!(app.manager.list().len(), 1);
 }

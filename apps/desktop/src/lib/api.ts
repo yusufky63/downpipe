@@ -55,6 +55,8 @@ export interface Task {
   awaiting_confirmation: boolean;
   /** Set when the link is a stream (HLS or DASH) rather than a file. */
   media: MediaInfo | null;
+  /** Set when the link is a video page (YouTube) downloaded with yt-dlp. */
+  site: SiteInfo | null;
   /** Stream downloads while they run: fragments done and in all. */
   fragments: { done: number; total: number } | null;
   eta_secs: number | null;
@@ -80,6 +82,15 @@ export interface MediaInfo {
   /** Missing: the best quality is taken when it starts. */
   selection?: MediaSelection;
   /** "1080p" and the like, once the stream was read. */
+  quality?: string;
+}
+
+export interface SiteInfo {
+  /** "YouTube". */
+  site: string;
+  /** Missing: the best quality is taken when it starts. */
+  selection?: MediaSelection;
+  /** "1080p", "Audio only" and the like, once known. */
   quality?: string;
 }
 
@@ -109,21 +120,60 @@ export interface AudioOption {
   group?: string;
 }
 
-export interface MediaOptions {
-  kind: MediaKind;
-  /** Best first. */
+/** The qualities to choose from, whether a stream's or a video page's. */
+export interface ChoiceOptions {
+  /** Best first; a page's "Audio only" entries last. */
   videos: VideoOption[];
   audios: AudioOption[];
   duration_ms?: number;
 }
 
-/** What a stream offers, for the quality chooser. */
-export interface MediaChoices {
-  options: MediaOptions;
+export interface MediaOptions extends ChoiceOptions {
+  kind: MediaKind;
+}
+
+/** What a stream or a video page offers, for the quality chooser. */
+export interface Choices {
+  options: ChoiceOptions;
   selection: MediaSelection | null;
   /** FFmpeg can merge separate video and audio into one file. */
   ffmpeg: boolean;
 }
+
+/** What a stream offers, for the quality chooser. */
+export interface MediaChoices extends Choices {
+  options: MediaOptions;
+}
+
+/** What a video page offers, read by yt-dlp. */
+export interface SiteChoices extends Choices {
+  site: string;
+  /** The page's title, offered as the file name. */
+  title: string | null;
+}
+
+export type ToolSource = "settings" | "managed" | "path";
+
+export interface ToolStatus {
+  path: string | null;
+  source: ToolSource | null;
+  version: string | null;
+  /** Found but not usable, or a set path that does not exist. */
+  problem: string | null;
+}
+
+/** yt-dlp, its JavaScript runtime and FFmpeg as the settings find them. */
+export interface ToolsStatus {
+  yt_dlp: ToolStatus;
+  /** Deno, or Node when no Deno is found (`js_kind`). */
+  js: ToolStatus;
+  js_kind: "deno" | "node" | null;
+  ffmpeg: ToolStatus;
+  /** Where the download button puts yt-dlp and Deno. */
+  managed_dir: string | null;
+}
+
+export type SiteTool = "yt_dlp" | "deno";
 
 export interface Settings {
   download_dir: string;
@@ -153,6 +203,10 @@ export interface Settings {
   queues: Queue[];
   /** FFmpeg for merging the video and sound of streams. Empty: `ffmpeg` on PATH. */
   ffmpeg_path: string;
+  /** yt-dlp for video pages. Empty: Downpipe's tools folder, then PATH. */
+  yt_dlp_path: string;
+  /** Deno for yt-dlp. Empty: the tools folder, then PATH, then Node 22+. */
+  deno_path: string;
 }
 
 export const MAIN_QUEUE = "main";
@@ -229,7 +283,7 @@ export interface ConfirmOptions {
   queue: string | null;
   /** False: keep it paused ("Download later"). */
   start: boolean;
-  /** Streams: the quality and audio to download. */
+  /** Streams and video pages: the quality and audio to download. */
   media?: MediaSelection | null;
 }
 
@@ -269,6 +323,11 @@ export const api = {
   inspectMedia: (id: string) => invoke<MediaChoices>("inspect_media", { id }),
   /** The FFmpeg streams would use now, or null when there is none. */
   ffmpegStatus: () => invoke<string | null>("ffmpeg_status"),
+  /** Asks yt-dlp what a video page offers; downloads no video. */
+  inspectSite: (id: string) => invoke<SiteChoices>("inspect_site", { id }),
+  siteTools: () => invoke<ToolsStatus>("site_tools"),
+  /** Downloads yt-dlp and/or Deno from their official releases, checked by SHA-256. */
+  installSiteTools: (tools: SiteTool[]) => invoke<ToolsStatus>("install_site_tools", { tools }),
   /** With `replace`, the old file is deleted first and the new one takes its name. */
   redownload: (id: string, replace: boolean) => invoke<null>("redownload", { id, replace }),
   move: (ids: string[], to: QueueMove) => invoke<null>("move_downloads", { ids, to }),

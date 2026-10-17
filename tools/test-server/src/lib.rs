@@ -23,7 +23,9 @@
 //!
 //! HLS and DASH streams with checkable fragments are under `/hls/` and
 //! `/dash/`; see [`streams`]. `/files/...` serves a folder set with
-//! [`TestServer::serve_files`], for real media made by FFmpeg in tests.
+//! [`TestServer::serve_files`], for real media made by FFmpeg in tests, and
+//! `/releases/...` lays the same folder out like GitHub's release downloads
+//! (see `releases.rs`). [`fake_tools`] has stand-ins for yt-dlp and Deno.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -44,6 +46,8 @@ use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
+pub mod fake_tools;
+mod releases;
 pub mod streams;
 
 const CHUNK: usize = 16 * 1024;
@@ -213,6 +217,7 @@ pub const SAMPLES: &[(&str, &str)] = &[
 pub fn router(state: Arc<ServerState>) -> Router {
     streams::routes(Router::new())
         .route("/files/{*path}", get(static_file))
+        .route("/releases/{*path}", get(releases::release))
         .route("/", get(index))
         .route("/file/{size}", get(file))
         // Same content; the trailing name only gives clients a file name in
