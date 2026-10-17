@@ -56,6 +56,12 @@ export interface Task {
    * or a video page added here whose quality is still to be chosen.
    */
   awaiting_confirmation: boolean;
+  /**
+   * Added in this window (Add dialog, paste, drag, clipboard) rather than
+   * sent by the browser. While it waits, the main window asks for it; the
+   * confirmation window asks for the rest. Resets once it runs.
+   */
+  from_app: boolean;
   /** Set when the link is a stream (HLS or DASH) rather than a file. */
   media: MediaInfo | null;
   /** Set when the link is a video page (YouTube) downloaded with yt-dlp. */
@@ -278,6 +284,8 @@ export interface AddOptions {
   queue?: string | null;
   /** Hold it in the confirmation dialog (a video page's quality) before it starts. */
   confirm?: boolean;
+  /** Added in the main window, which then asks itself (`Task.from_app`). */
+  from_app?: boolean;
 }
 
 /** What the user chose for a download from the browser. */
@@ -345,6 +353,14 @@ export const api = {
   whenDone: () => invoke<WhenDoneView>("get_when_done"),
   setWhenDone: (action: WhenDone) => invoke<WhenDoneView>("set_when_done", { action }),
   whenDoneNow: () => invoke<null>("when_done_now"),
+  /** The confirmation window drew a question and may be shown. */
+  confirmWindowDrawn: () => invoke<null>("confirm_window_drawn"),
+  /** The confirmation window's content needs this height, in CSS pixels. */
+  fitConfirmWindow: (height: number) => invoke<null>("fit_confirm_window", { height }),
+  /** From the confirmation window: the main window opens on Settings, Media. */
+  openMediaSettings: () => invoke<null>("open_media_settings"),
+  /** The main window's Settings closed; a question waiting for them returns. */
+  settingsClosed: () => invoke<null>("settings_closed"),
 };
 
 export function onWhenDone(cb: (view: WhenDoneView) => void): Promise<UnlistenFn> {
@@ -358,6 +374,21 @@ export function onManagerEvent(cb: (event: ManagerEvent) => void): Promise<Unlis
 /** A download link was copied to the clipboard (when watching is on). */
 export function onClipboardLink(cb: (url: string) => void): Promise<UnlistenFn> {
   return listen<{ url: string }>("downpipe://clipboard", (e) => cb(e.payload.url));
+}
+
+/** To the main window: open Settings, Media (asked from the confirmation window). */
+export function onMediaSettings(cb: () => void): Promise<UnlistenFn> {
+  return listen("downpipe://media-settings", () => cb());
+}
+
+/** To the confirmation window: its close button was clicked. */
+export function onConfirmClose(cb: () => void): Promise<UnlistenFn> {
+  return listen("downpipe://confirm-close", () => cb());
+}
+
+/** To the confirmation window: back from Settings, read the download again. */
+export function onConfirmAgain(cb: () => void): Promise<UnlistenFn> {
+  return listen("downpipe://confirm-again", () => cb());
 }
 
 /** The event stream fell behind; the full list should be reloaded. */

@@ -1,5 +1,5 @@
 import type { ManagerEvent, Task, TaskState } from "./api";
-import { nameFromUrl } from "./format";
+import { formatBytes, nameFromUrl } from "./format";
 
 export type Filter = "all" | "active" | "queued" | "completed" | "failed";
 
@@ -83,6 +83,35 @@ export function displayName(task: Task): string {
   // A page's address names nothing ("watch"); its title arrives later.
   if (task.site) return `${task.site.site} video`;
   return nameFromUrl(task.url);
+}
+
+/**
+ * Where a download waiting for its answer is asked: a video page added in
+ * the app in the main window, where the user already is; whatever the
+ * browser sent in the confirmation window, over the browser.
+ */
+export type AskedIn = "main" | "window";
+
+/**
+ * The downloads waiting for their answer in that place, in the order they
+ * came: `created_at` counts seconds, and a page often sends several in one,
+ * so their place in the queue (given as they are added) decides then.
+ */
+export function awaitingIn(tasks: Task[], place: AskedIn): Task[] {
+  return tasks
+    .filter((t) => t.awaiting_confirmation && t.from_app === (place === "main"))
+    .sort((a, b) => a.created_at - b.created_at || a.position - b.position);
+}
+
+/**
+ * The size to show before a download starts: the real one once known, else
+ * a stream's or video's estimate for the chosen quality. Nothing is fetched
+ * for it, so a plain file has none yet.
+ */
+export function knownSize(total: number | null, estimate: number | undefined): string | null {
+  if (total !== null && total > 0) return formatBytes(total);
+  if (estimate !== undefined && estimate > 0) return `~${formatBytes(estimate)}`;
+  return null;
 }
 
 export const canPause = (t: Task) => isRunning(t.state) || t.state === "queued";

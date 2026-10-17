@@ -16,6 +16,7 @@ import {
   inTauri,
   onClipboardLink,
   onManagerEvent,
+  onMediaSettings,
   onResync,
   onWhenDone,
   type QueueMove,
@@ -28,12 +29,12 @@ import { parseUrls } from "./lib/format";
 import { buildMenu, linksText, type MenuAction } from "./lib/menu";
 import { linksFromList } from "./lib/patterns";
 import { EMPTY_SELECTION, clickSelect, contextSelect, edge, focusOf, prune, selectAll, step, type Selection } from "./lib/selection";
-import { isBrowserShortcut, isTextField, listKey, type ListKey } from "./lib/shortcuts";
+import { isTextField, listKey, type ListKey } from "./lib/shortcuts";
 import { DEFAULT_SORT, formatSort, matchesSearch, nextSort, parseSort, sortTasks, type Sort, type SortKey } from "./lib/sort";
-import { applyEvent, canPause, canResume, countByFilter, isRunning, matchesFilter, totals, type Filter } from "./lib/tasks";
+import { applyEvent, awaitingIn, canPause, canResume, countByFilter, isRunning, matchesFilter, totals, type Filter } from "./lib/tasks";
+import { THEME_KEY, type Theme } from "./lib/theme";
+import { useAppWindow } from "./lib/window";
 
-type Theme = "light" | "dark";
-const THEME_KEY = "downpipe:theme";
 const SORT_KEY = "downpipe:sort";
 const QUEUE_ORDER: Sort = { key: "order", dir: "asc" };
 
@@ -83,9 +84,6 @@ export function App() {
   const [menu, setMenu] = useState<{ x: number; y: number; keyboard: boolean } | null>(null);
   const [details, setDetails] = useState<{ id: string; relink: boolean } | null>(null);
   const [addText, setAddText] = useState<string | null>(null);
-  // Video pages added here wait for their quality in the confirmation
-  // dialog, which then speaks of them rather than of the browser.
-  const [askedHere, setAskedHere] = useState<ReadonlySet<string>>(() => new Set());
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const [removingIds, setRemovingIds] = useState<string[]>([]);
   const [redownloadId, setRedownloadId] = useState<string | null>(null);
@@ -139,6 +137,8 @@ export function App() {
     void onResync(reload).then(keep);
     void onWhenDone((view) => !disposed && setWhenDone(view)).then(keep);
     void onClipboardLink((url) => !disposed && setAddText((text) => withLink(text, url))).then(keep);
+    // The confirmation window's Settings links.
+    void onMediaSettings(() => !disposed && setSettingsTab("media")).then(keep);
     void reload();
     api
       .settings()
@@ -175,23 +175,7 @@ export function App() {
     return () => window.removeEventListener("paste", onPaste);
   }, []);
 
-  // An app, not a web page: no browser menu (Back, Reload, Inspect) and no
-  // browser keys. Text fields keep their own menu for cut, copy and paste.
-  useEffect(() => {
-    const onContextMenu = (e: MouseEvent) => {
-      if (!isTextField(e.target)) e.preventDefault();
-    };
-    // Capture: runs before any handler can stop the key from reaching the window.
-    const onKey = (e: KeyboardEvent) => {
-      if (isBrowserShortcut(e, import.meta.env.DEV)) e.preventDefault();
-    };
-    window.addEventListener("contextmenu", onContextMenu);
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("contextmenu", onContextMenu);
-      window.removeEventListener("keydown", onKey, true);
-    };
-  }, []);
+  useAppWindow();
 
   // Follow the system theme until the user picks one explicitly.
   useEffect(() => {
@@ -283,7 +267,8 @@ export function App() {
   // One dialog at a time; the others wait their turn.
   const busyDialog = counted || settingsTab !== null || detailsTask !== undefined || removing.length > 0 || redownloading !== undefined;
   const showAdd = addText !== null && settings !== null && !busyDialog;
-  const awaiting = useMemo(() => tasks.filter((t) => t.awaiting_confirmation).sort((a, b) => a.created_at - b.created_at), [tasks]);
+  // What the browser sent is asked in the confirmation window, over the browser.
+  const awaiting = useMemo(() => awaitingIn(tasks, "main"), [tasks]);
   const asking = !busyDialog && !showAdd ? awaiting[0] : undefined;
   const menuEntries = useMemo(() => buildMenu(selectedTasks, queues), [selectedTasks, queues]);
   const showMenu = menu !== null && menuEntries.length > 0;
@@ -613,13 +598,11 @@ export function App() {
             setQuery("");
             setCategory("");
             setQueue("");
-            const asked = added.filter((t) => t.awaiting_confirmation).map((t) => t.id);
-            if (asked.length > 0) setAskedHere((ids) => new Set([...ids, ...asked]));
             const first = added[0];
             if (first) {
               setSelection({ ids: added.map((t) => t.id), anchor: first.id });
               // The confirmation dialog that follows keeps the focus.
-              if (asked.length === 0) focusRow(first.id);
+              if (!added.some((t) => t.awaiting_confirmation)) focusRow(first.id);
             }
           }}
           onDuplicate={(id) => {
@@ -636,24 +619,26 @@ export function App() {
         <ConfirmDialog
           key={asking.id}
           task={asking}
-          fromApp={askedHere.has(asking.id)}
           waiting={awaiting.length - 1}
           queues={queues}
           onConfirm={async (options) => {
             await api.confirm(asking.id, options);
           }}
           onDiscard={() => run(() => api.remove(asking.id, true))}
-          onStopAsking={() =>
-            run(async () => {
-              setSettings(await api.updateSettings({ ...settings, confirm_browser_downloads: false }));
-              toast("Downloads from the browser now start at once. Settings, App turns the question back on.", "neutral");
-            })
-          }
           onOpenSettings={() => setSettingsTab("media")}
         />
       )}
       {settingsTab !== null && settings && (
-        <SettingsDialog settings={settings} initialTab={settingsTab} onClose={() => setSettingsTab(null)} onSaved={setSettings} />
+        <SettingsDialog
+          settings={settings}
+          initialTab={settingsTab}
+          onClose={() => {
+            setSettingsTab(null);
+            // A question in the confirmation window may have waited for them.
+            api.settingsClosed().catch(() => undefined);
+          }}
+          onSaved={setSettings}
+        />
       )}
       {removing.length > 0 && (
         <RemoveDialog

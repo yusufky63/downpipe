@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Task } from "./api";
-import { applyEvent, canPause, canResume, countByFilter, displayName, sortForDisplay, totals } from "./tasks";
+import { applyEvent, awaitingIn, canPause, canResume, countByFilter, displayName, knownSize, sortForDisplay, totals } from "./tasks";
 import { makeTask as task } from "./testing";
 
 describe("applyEvent", () => {
@@ -60,5 +60,43 @@ describe("display", () => {
     expect(displayName(task("y", { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw", site: { site: "YouTube" } }))).toBe(
       "YouTube video",
     );
+  });
+});
+
+describe("awaitingIn", () => {
+  const list = [
+    task("browser-new", { state: "paused", awaiting_confirmation: true, created_at: 3, position: 1 }),
+    task("page-here", { state: "paused", awaiting_confirmation: true, from_app: true, created_at: 2 }),
+    // Sent in the same second as the next one, but after it.
+    task("browser-second", { state: "paused", awaiting_confirmation: true, created_at: 1, position: 5 }),
+    task("browser-first", { state: "paused", awaiting_confirmation: true, created_at: 1, position: 4 }),
+    task("answered", { state: "paused", from_app: true }),
+    task("running", { state: "downloading" }),
+  ];
+
+  it("asks for what the browser sent in the confirmation window, in the order it came", () => {
+    expect(awaitingIn(list, "window").map((t) => t.id)).toEqual(["browser-first", "browser-second", "browser-new"]);
+  });
+
+  it("asks for what was added in the app in the main window", () => {
+    expect(awaitingIn(list, "main").map((t) => t.id)).toEqual(["page-here"]);
+  });
+
+  it("asks nowhere once nothing waits", () => {
+    const answered = list.map((t) => ({ ...t, awaiting_confirmation: false }));
+    expect(awaitingIn(answered, "main")).toEqual([]);
+    expect(awaitingIn(answered, "window")).toEqual([]);
+  });
+});
+
+describe("knownSize", () => {
+  it("shows the real size once known, else the estimate", () => {
+    expect(knownSize(1536, 99)).toBe("1.5 KiB");
+    expect(knownSize(null, 10 * 1024 * 1024)).toBe("~10.0 MiB");
+  });
+
+  it("shows nothing for a file nobody asked yet", () => {
+    expect(knownSize(null, undefined)).toBeNull();
+    expect(knownSize(0, 0)).toBeNull();
   });
 });

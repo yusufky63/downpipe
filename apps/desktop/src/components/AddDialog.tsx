@@ -100,6 +100,8 @@ export function AddDialog({
             paused,
             queue,
             confirm: page,
+            // A video page then asks for its quality here, not in the confirmation window.
+            from_app: true,
           }),
         );
       } catch (err) {

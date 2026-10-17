@@ -340,6 +340,7 @@ impl Manager {
             };
             let mut entry = entry;
             entry.live.awaiting_confirmation = opts.confirm;
+            entry.live.from_app = opts.from_app;
             let snapshot = entry.snapshot();
             st.tasks.push(entry);
             snapshot

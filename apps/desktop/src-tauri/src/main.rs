@@ -3,6 +3,7 @@
 
 mod background;
 mod clipboard;
+mod confirm;
 mod power;
 mod tray;
 
@@ -310,6 +311,33 @@ fn primary_button_down() -> bool {
     true
 }
 
+/// The confirmation page drew a download's question: show its window.
+/// Async, as every confirmation window command: a missing window is built
+/// again, which must not happen on the main thread.
+#[tauri::command]
+async fn confirm_window_drawn(app: AppHandle) {
+    confirm::drawn(&app);
+}
+
+/// The confirmation page's question needs this height, in CSS pixels.
+#[tauri::command]
+async fn fit_confirm_window(app: AppHandle, height: f64) {
+    confirm::fit(&app, height);
+}
+
+/// The confirmation page's Settings links: the main window opens on
+/// Settings, Media, and the question waits until those close.
+#[tauri::command]
+async fn open_media_settings(app: AppHandle) {
+    confirm::to_settings(&app);
+}
+
+/// The main window's Settings closed; a question waiting for them returns.
+#[tauri::command]
+async fn settings_closed(app: AppHandle) {
+    confirm::back_from_settings(&app);
+}
+
 #[tauri::command]
 fn get_when_done(background: State<'_, Background>) -> WhenDoneView {
     background.when_done()
@@ -347,9 +375,15 @@ fn sync_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
 
 /// Native folder picker. Returns `None` when the user closes it.
 #[tauri::command]
-async fn pick_folder(app: AppHandle, initial: Option<String>) -> Option<String> {
+async fn pick_folder(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    initial: Option<String>,
+) -> Option<String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
-    let mut dialog = app.dialog().file();
+    // Owned by the window that asked, so it opens in front of it: the
+    // confirmation window stays on top of everything else.
+    let mut dialog = app.dialog().file().set_parent(&window);
     if let Some(dir) = initial.map(PathBuf::from).filter(|d| d.is_dir()) {
         dialog = dialog.set_directory(dir);
     }
@@ -585,6 +619,7 @@ fn main() {
             }
             start_browser_bridge(manager.clone());
             app.manage(Background::default());
+            app.manage(confirm::ConfirmWindow::default());
             background::spawn(app.handle().clone(), manager.clone());
             clipboard::spawn(app.handle().clone(), manager.clone());
             if let Err(err) = tray::create(app.handle()) {
@@ -604,10 +639,22 @@ fn main() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
-                if app.state::<Manager>().settings().close_to_tray {
+                if window.label() == confirm::LABEL {
+                    // Kept for the next question; the page decides what
+                    // closing means for the download shown.
+                    api.prevent_close();
+                    confirm::close_requested(app);
+                } else if app.state::<Manager>().settings().close_to_tray {
                     api.prevent_close();
                     let _ = window.hide();
                     app.state::<Background>().closed_to_tray(app);
+                    // Settings left open in the hidden window would keep
+                    // a question waiting for them out of sight.
+                    confirm::back_from_settings(app);
+                } else {
+                    // The hidden confirmation window would otherwise keep
+                    // Downpipe running without a window.
+                    app.exit(0);
                 }
             }
         })
@@ -645,6 +692,10 @@ fn main() {
             get_when_done,
             set_when_done,
             when_done_now,
+            confirm_window_drawn,
+            fit_confirm_window,
+            open_media_settings,
+            settings_closed,
         ])
         .build(tauri::generate_context!());
 

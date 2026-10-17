@@ -489,7 +489,7 @@ export function SettingsDialog({
             />
             <Switch
               label="Ask before downloads from the browser start"
-              hint="Choose the file name, folder and queue first. Off: they start at once with the automatic folder."
+              hint="Choose the file name, folder and queue first, in a small window over the browser. Off: they start at once with the automatic folder."
               checked={confirmBrowser}
               onChange={setConfirmBrowser}
             />

@@ -229,6 +229,13 @@ pub struct Live {
     /// stream's or video page's quality) before it starts: sent by the
     /// browser, or a video page added in the app.
     pub awaiting_confirmation: bool,
+    /// Added in the app's own window (Add dialog, paste, drag, clipboard)
+    /// rather than sent by the browser. Read while the download awaits
+    /// confirmation: the app's main window asks then, where the user already
+    /// is, and the confirmation window asks for everything else. Like the
+    /// other live fields it is not stored, and it resets once the download
+    /// runs.
+    pub from_app: bool,
     /// Stream downloads: fragments done and in all.
     pub fragments: Option<Fragments>,
 }
@@ -243,6 +250,7 @@ impl Live {
             segments: p.segments.clone(),
             notices: p.notices.clone(),
             awaiting_confirmation: false,
+            from_app: false,
             // Site downloads report whole formats, not fragments.
             fragments: p
                 .media
@@ -302,6 +310,10 @@ pub struct AddOptions {
     /// Hold the download until the user confirms it (see
     /// [`crate::Manager::confirm`]).
     pub confirm: bool,
+    /// Added in the app's own window, which then also asks for the
+    /// confirmation (see [`Live::from_app`]). The browser bridge leaves it
+    /// unset.
+    pub from_app: bool,
     /// The URL is a stream manifest. Without it, `.m3u8` and `.mpd` links
     /// are recognized by their extension.
     pub media: Option<MediaKind>,

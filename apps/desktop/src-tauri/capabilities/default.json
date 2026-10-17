@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window may call Downpipe's own commands and listen to its events. File dialogs and opening files happen in Rust, so the web view gets no file-system or shell permissions.",
-  "windows": ["main"],
+  "description": "The main window and the confirmation window may call Downpipe's own commands and listen to its events. File dialogs, opening files and showing or hiding windows happen in Rust, so the web views get no file-system or shell permissions and cannot show, move or close a window themselves.",
+  "windows": ["main", "confirm"],
   "permissions": ["core:default"]
 }

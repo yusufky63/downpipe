@@ -646,6 +646,7 @@ async fn browser_downloads_wait_for_confirmation() {
         .unwrap();
     assert_eq!(held.record.state, TaskState::Paused);
     assert!(held.live.awaiting_confirmation);
+    assert!(!held.live.from_app, "the browser sent it");
     manager.resume_all();
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(
@@ -698,6 +699,21 @@ async fn browser_downloads_wait_for_confirmation() {
     let t = manager.get(&later.record.id).unwrap();
     assert_eq!(t.record.state, TaskState::Paused);
     assert!(!t.live.awaiting_confirmation);
+
+    // Added in the app's own window, which asks itself: every window reads
+    // that from the snapshot.
+    let here = manager
+        .add(AddOptions {
+            url: server.url("/file/1000?here"),
+            confirm: true,
+            from_app: true,
+            ..AddOptions::default()
+        })
+        .unwrap();
+    assert!(here.live.awaiting_confirmation && here.live.from_app);
+    let json = serde_json::to_value(manager.get(&here.record.id).unwrap()).unwrap();
+    assert_eq!(json["from_app"], true);
+    assert_eq!(json["awaiting_confirmation"], true);
 }
 
 #[tokio::test]

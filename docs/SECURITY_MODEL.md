@@ -28,7 +28,7 @@ A download manager handles untrusted data from servers and, through the browser 
 ## Desktop app
 
 - The web view runs local, bundled content under a strict CSP (`script-src 'self'`, no remote origins).
-- It holds only Tauri's `core:default` capability. Folder pickers and "open" / "show in folder" run in Rust, and those commands take a download id, not a path, so a compromised web view still cannot open arbitrary files.
+- It holds only Tauri's `core:default` capability, and so does the confirmation window's web view; neither can show, move or close a window itself. Folder pickers and "open" / "show in folder" run in Rust, and those commands take a download id, not a path, so a compromised web view still cannot open arbitrary files.
 - No network port is opened, including for the browser bridge.
 - Dragging a finished file out of the list (`start_drag`), like opening or revealing it, takes a download id; the path comes from the catalog.
 - **When done** runs fixed commands with argument arrays (`rundll32 powrprof.dll,SetSuspendState`, `shutdown /s /t 0` from `System32` by absolute path; `pmset`/`osascript` on macOS; `systemctl` on Linux). Nothing from the web view or a server reaches them, and they run only after a visible 60-second countdown with Cancel. There is no "run a program" action.

@@ -17,6 +17,14 @@ export default defineConfig({
   build: {
     target: "es2022",
     sourcemap: false,
+    rolldownOptions: {
+      // The main window, and the confirmation window that asks about
+      // downloads from the browser (src-tauri/src/confirm.rs).
+      input: {
+        main: "index.html",
+        confirm: "confirm.html",
+      },
+    },
   },
   test: {
     environment: "node",

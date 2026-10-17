@@ -1,14 +1,14 @@
 //! Everything that reacts to the queue while the window may be hidden:
 //! forwarding events to the web view, finish notifications, the tray
 //! tooltip, taskbar progress, keeping the computer awake, the time-of-day
-//! schedule and "when all downloads finish".
+//! schedule, "when all downloads finish" and the confirmation window.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use downpipe_core::schedule::{DoneWatcher, LocalStamp, ScheduleAction, due};
-use downpipe_core::{Manager, ManagerEvent, TaskSnapshot, TaskState};
+use downpipe_core::{Live, Manager, ManagerEvent, TaskSnapshot, TaskState};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::window::{ProgressBarState, ProgressBarStatus};
@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager as _};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::broadcast::error::RecvError;
 
-use crate::{power, tray};
+use crate::{confirm, power, tray};
 
 /// Engine events are re-emitted to the web view under this name.
 pub const EVENT: &str = "downpipe://event";
@@ -63,6 +63,14 @@ struct Seen {
     speed: u64,
     downloaded: u64,
     total: Option<u64>,
+    asks_in_window: bool,
+}
+
+/// Waits for its answer in the confirmation window: a download the browser
+/// sent. A video page added in the app is asked in the main window, where
+/// the user already is.
+fn asks_in_window(live: &Live) -> bool {
+    live.awaiting_confirmation && !live.from_app
 }
 
 impl Seen {
@@ -72,6 +80,7 @@ impl Seen {
             speed: task.live.speed,
             downloaded: task.record.downloaded,
             total: task.record.total,
+            asks_in_window: asks_in_window(&task.live),
         }
     }
 }
@@ -151,6 +160,11 @@ impl Background {
             .values()
             .filter(|s| s.state.is_running() || s.state == TaskState::Queued)
             .count()
+    }
+
+    /// Some download waits for its answer in the confirmation window.
+    fn asking_in_window(&self) -> bool {
+        self.tasks.lock().values().any(|s| s.asks_in_window)
     }
 
     fn running(&self) -> usize {
@@ -284,7 +298,13 @@ pub fn spawn(app: AppHandle, manager: Manager) {
                 event = events.recv() => match event {
                     Ok(event) => on_event(&app, &manager, &event),
                     Err(RecvError::Lagged(_)) => {
-                        app.state::<Background>().seed(&manager.list());
+                        let bg = app.state::<Background>();
+                        bg.seed(&manager.list());
+                        if bg.asking_in_window() {
+                            confirm::question(&app);
+                        } else {
+                            confirm::settled(&app);
+                        }
                         let _ = app.emit(RESYNC, ());
                     }
                     Err(RecvError::Closed) => break,
@@ -315,24 +335,25 @@ pub fn spawn(app: AppHandle, manager: Manager) {
 }
 
 fn on_event(app: &AppHandle, manager: &Manager, event: &ManagerEvent) {
-    let _ = app.emit(EVENT, event);
     let bg = app.state::<Background>();
     match event {
         ManagerEvent::Updated { task } => {
-            let state = task.record.state;
-            let prev = bg
-                .tasks
-                .lock()
-                .insert(task.record.id.clone(), Seen::of(task))
-                .map(|s| s.state);
+            let seen = Seen::of(task);
+            let prev = bg.tasks.lock().insert(task.record.id.clone(), seen);
+            let state = seen.state;
             let finished_now = matches!(state, TaskState::Completed | TaskState::Failed)
-                && prev.is_some_and(|p| p != state);
+                && prev.is_some_and(|p| p.state != state);
             if finished_now && manager.settings().notify_on_finish && !window_in_front(app) {
                 notify_finished(app, task);
             }
-            // A download from the browser waits for its name and folder;
-            // the question must be visible to be answered.
-            if task.live.awaiting_confirmation && prev.is_none() {
+            // A download waits for its name and folder; the question must
+            // be visible to be answered. One from the browser is asked in
+            // the confirmation window, over the browser, and the main window
+            // stays as it was; a video page added in the main window is
+            // asked there.
+            if seen.asks_in_window && !prev.is_some_and(|p| p.asks_in_window) {
+                confirm::question(app);
+            } else if task.live.awaiting_confirmation && prev.is_none() {
                 tray::show_main(app);
             }
         }
@@ -341,6 +362,12 @@ fn on_event(app: &AppHandle, manager: &Manager, event: &ManagerEvent) {
         }
         ManagerEvent::Settings { .. } => {}
     }
+    if !bg.asking_in_window() {
+        confirm::settled(app);
+    }
+    // Forwarded once the confirmation window knows about the question, so
+    // the page never draws one the window would not show.
+    let _ = app.emit(EVENT, event);
     bg.check_when_done(app);
 }
 
@@ -478,6 +505,7 @@ mod tests {
             speed,
             downloaded,
             total,
+            asks_in_window: false,
         }
     }
 
@@ -524,6 +552,35 @@ mod tests {
             .lock()
             .insert("c".into(), seen(TaskState::Starting, 0, 0, None));
         assert_eq!(bg.taskbar(), Taskbar::Busy, "a size is still unknown");
+    }
+
+    #[test]
+    fn only_downloads_from_the_browser_are_asked_in_the_window() {
+        let browser = Live {
+            awaiting_confirmation: true,
+            ..Live::default()
+        };
+        let here = Live {
+            from_app: true,
+            ..browser.clone()
+        };
+        assert!(asks_in_window(&browser));
+        assert!(!asks_in_window(&here), "the main window asks");
+        assert!(!asks_in_window(&Live::default()), "nothing to ask");
+
+        let bg = Background::default();
+        bg.tasks
+            .lock()
+            .insert("a".into(), seen(TaskState::Paused, 0, 0, None));
+        assert!(!bg.asking_in_window());
+        bg.tasks.lock().insert(
+            "b".into(),
+            Seen {
+                asks_in_window: true,
+                ..seen(TaskState::Paused, 0, 0, None)
+            },
+        );
+        assert!(bg.asking_in_window());
     }
 
     #[test]

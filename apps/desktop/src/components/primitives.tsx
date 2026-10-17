@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, useEffectEvent, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 import type { Tone } from "../lib/tasks";
 
@@ -163,7 +163,10 @@ export function Dialog({
   footer,
   aside,
   size = "md",
+  compact = false,
   focusFirstField = true,
+  frame = "modal",
+  onFit,
 }: {
   title: string;
   eyebrow: string;
@@ -172,11 +175,25 @@ export function Dialog({
   footer: ReactNode;
   /** Shown next to the title, e.g. a status badge. */
   aside?: ReactNode;
-  size?: "md" | "lg";
+  size?: "sm" | "md" | "lg";
+  /** Tighter header, padding and title, for a dialog of a few rows. */
+  compact?: boolean;
   /** Forms focus their first field; read-only dialogs focus themselves so no stray button looks selected. */
   focusFirstField?: boolean;
+  /**
+   * `window`: the dialog is a whole window of its own (the confirmation
+   * window), so it fills it, and the window's title bar has the close button.
+   */
+  frame?: "modal" | "window";
+  /** `window` frame: the height in CSS pixels the dialog needs, to size its window to. */
+  onFit?: (height: number) => void;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const header = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
+  const fitted = useRef(0);
   const titleId = useId();
   // Callers pass a new onClose on every render (the list updates every
   // second); focus must be set once, not each time.
@@ -202,6 +219,65 @@ export function Dialog({
     };
   }, [focusFirstField]);
 
+  // The height the content needs, measured after every render (a quality
+  // list or a warning arriving changes it). Read from layout rather than a
+  // ResizeObserver: the window is measured while still hidden, where no
+  // frame is drawn and observers stay silent.
+  const fit = useEffectEvent(() => {
+    if (frame !== "window" || !onFit || !header.current || !body.current || !inner.current || !footerRef.current) return;
+    const style = getComputedStyle(body.current);
+    const needed = Math.ceil(
+      header.current.offsetHeight +
+        inner.current.offsetHeight +
+        Number.parseFloat(style.paddingTop) +
+        Number.parseFloat(style.paddingBottom) +
+        footerRef.current.offsetHeight,
+    );
+    if (needed !== fitted.current) {
+      fitted.current = needed;
+      onFit(needed);
+    }
+  });
+  useLayoutEffect(() => fit());
+  useEffect(() => {
+    // Text measured before the fonts arrived can wrap differently after.
+    void document.fonts.ready.then(() => fit());
+  }, []);
+
+  const content = (
+    <>
+      <div ref={header} className={`flex items-start justify-between gap-4 border-b border-line ${compact ? "px-4 py-2.5" : "px-5 py-4"}`}>
+        <div className={`flex min-w-0 flex-col ${compact ? "gap-0.5" : "gap-1"}`}>
+          <span className="eyebrow">{eyebrow}</span>
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 id={titleId} className={`display-medium truncate leading-tight ${compact ? "text-[16px]" : "text-[20px]"}`} title={title}>
+              {title}
+            </h2>
+            {aside}
+          </div>
+        </div>
+        {frame === "modal" && (
+          <IconButton label="Close" data-close onClick={onClose}>
+            <X size={18} strokeWidth={1.75} />
+          </IconButton>
+        )}
+      </div>
+      <div ref={body} className={`min-h-0 flex-1 overflow-y-auto ${compact ? "px-4 py-3" : "px-5 py-5"}`}>
+        <div ref={inner}>{children}</div>
+      </div>
+      <div ref={footerRef} className={`flex flex-wrap items-center justify-end gap-2 border-t border-line ${compact ? "px-4 py-2.5" : "px-5 py-4"}`}>
+        {footer}
+      </div>
+    </>
+  );
+
+  if (frame === "window") {
+    return (
+      <div ref={panel} role="dialog" aria-labelledby={titleId} tabIndex={-1} className="flex h-full flex-col bg-canvas outline-none">
+        {content}
+      </div>
+    );
+  }
   return (
     <div className="fixed inset-0 z-100 flex items-end justify-center md:items-center md:p-6">
       <div className="anim-fade absolute inset-0 bg-scrim" onClick={onClose} aria-hidden="true" />
@@ -212,25 +288,10 @@ export function Dialog({
         aria-labelledby={titleId}
         tabIndex={-1}
         className={`anim-rise relative flex max-h-[92vh] w-full flex-col rounded-t-xl border border-line bg-canvas shadow-overlay outline-none md:rounded-xl ${
-          size === "lg" ? "md:max-w-[720px]" : "md:max-w-[560px]"
+          size === "lg" ? "md:max-w-[720px]" : size === "sm" ? "md:max-w-[520px]" : "md:max-w-[560px]"
         }`}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
-          <div className="flex min-w-0 flex-col gap-1">
-            <span className="eyebrow">{eyebrow}</span>
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 id={titleId} className="display-medium truncate text-[20px] leading-tight" title={title}>
-                {title}
-              </h2>
-              {aside}
-            </div>
-          </div>
-          <IconButton label="Close" data-close onClick={onClose}>
-            <X size={18} strokeWidth={1.75} />
-          </IconButton>
-        </div>
-        <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-4">{footer}</div>
+        {content}
       </div>
     </div>
   );
