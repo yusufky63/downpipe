@@ -4,7 +4,7 @@ An open-source download manager for Windows, macOS and Linux. Downpipe splits a 
 
 It is built as a Rust engine with a desktop app (Tauri), a command-line tool and a browser extension on top. Web-media support is next; see [Roadmap](#roadmap).
 
-> Status: early development (0.2). The HTTP engine, queue, CLI, desktop app and browser bridge work and are tested; there are no signed releases yet.
+> Status: early development (0.3). The HTTP engine, queue, CLI, desktop app and browser bridge work and are tested. Windows installers and the browser extension are on the [Releases](https://github.com/yusufky63/downpipe/releases) page; they are not code-signed yet, and macOS and Linux builds are built from source for now.
 
 ## What works today
 

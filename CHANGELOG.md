@@ -2,9 +2,9 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
-## 0.3.0 — unreleased
+## 0.3.0 — 2026-10-17
 
-The IDM features that save the most time day to day.
+The first published release: the IDM features that save the most time day to day, plus everything listed under 0.2.0 and 0.1.0, which were never released on their own.
 
 ### New
 
@@ -41,7 +41,7 @@ The IDM features that save the most time day to day.
 - Pausing a download in the moment it was resuming (before the server answered) deleted the partial file from earlier sessions. It is now kept.
 - Dialogs moved the keyboard focus back to their first field whenever the list updated, so typing in a later field of the Add dialog jumped while downloads ran.
 
-## 0.2.0 — unreleased
+## 0.2.0 — not released on its own
 
 Second milestone: a link clicked in the browser downloads in the desktop app.
 
@@ -70,7 +70,7 @@ Second milestone: a link clicked in the browser downloads in the desktop app.
 
 - The extension popup no longer collapses into a narrow column when Chrome first opens it.
 
-## 0.1.0 — unreleased
+## 0.1.0 — not released on its own
 
 First milestone: a reliable HTTP download from start to finish, including pause, restart and crash recovery.
 
