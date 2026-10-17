@@ -355,8 +355,8 @@ export const api = {
   whenDoneNow: () => invoke<null>("when_done_now"),
   /** The confirmation window drew a question and may be shown. */
   confirmWindowDrawn: () => invoke<null>("confirm_window_drawn"),
-  /** The confirmation window's content needs this height, in CSS pixels. */
-  fitConfirmWindow: (height: number) => invoke<null>("fit_confirm_window", { height }),
+  /** The confirmation window's content needs this height, in CSS pixels at this `devicePixelRatio`. */
+  fitConfirmWindow: (height: number) => invoke<null>("fit_confirm_window", { height, scale: window.devicePixelRatio }),
   /** From the confirmation window: the main window opens on Settings, Media. */
   openMediaSettings: () => invoke<null>("open_media_settings"),
   /** The main window's Settings closed; a question waiting for them returns. */

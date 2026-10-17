@@ -226,14 +226,15 @@ export function Dialog({
   const fit = useEffectEvent(() => {
     if (frame !== "window" || !onFit || !header.current || !body.current || !inner.current || !footerRef.current) return;
     const style = getComputedStyle(body.current);
-    const needed = Math.ceil(
-      header.current.offsetHeight +
-        inner.current.offsetHeight +
-        Number.parseFloat(style.paddingTop) +
-        Number.parseFloat(style.paddingBottom) +
-        footerRef.current.offsetHeight,
-    );
-    if (needed !== fitted.current) {
+    // Fractional heights: rounding each part could add up to a pixel short.
+    const height = (el: HTMLElement) => el.getBoundingClientRect().height;
+    const needed =
+      height(header.current) +
+      height(inner.current) +
+      Number.parseFloat(style.paddingTop) +
+      Number.parseFloat(style.paddingBottom) +
+      height(footerRef.current);
+    if (Math.abs(needed - fitted.current) > 0.01) {
       fitted.current = needed;
       onFit(needed);
     }

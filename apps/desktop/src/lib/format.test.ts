@@ -12,6 +12,7 @@ import {
   percent,
   rateToBytes,
   sentence,
+  withStop,
 } from "./format";
 
 describe("formatBytes", () => {
@@ -43,6 +44,12 @@ describe("sentence", () => {
   it("capitalizes the first letter only", () => {
     expect(sentence("the file was not found (HTTP 404)")).toBe("The file was not found (HTTP 404)");
     expect(sentence("")).toBe("");
+  });
+
+  it("ends a message that more text follows", () => {
+    expect(withStop("The file was not found on the server (HTTP 404)")).toBe("The file was not found on the server (HTTP 404).");
+    expect(withStop("Yt-dlp is not set up.")).toBe("Yt-dlp is not set up.");
+    expect(withStop("")).toBe("");
   });
 });
 

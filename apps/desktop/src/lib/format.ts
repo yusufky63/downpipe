@@ -19,6 +19,11 @@ export function sentence(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/** A message followed by more text needs its full stop: "(HTTP 404) It is…" reads as one broken sentence. */
+export function withStop(text: string): string {
+  return text === "" || /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
 export function formatSpeed(bytesPerSecond: number): string {
   return bytesPerSecond > 0 ? `${formatBytes(bytesPerSecond)}/s` : "–";
 }

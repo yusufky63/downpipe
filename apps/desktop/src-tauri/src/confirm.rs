@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use tauri::{
-    AppHandle, Emitter, LogicalSize, Manager as _, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager as _, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
 use crate::tray;
@@ -33,13 +33,14 @@ pub const AGAIN: &str = "downpipe://confirm-again";
 /// To the main window: open Settings, Media.
 pub const MEDIA_SETTINGS: &str = "downpipe://media-settings";
 
-/// IDM's dialog is as wide as this; the page asks for the height its
-/// question needs (`fit`).
+/// IDM's dialog is as wide as this, in CSS pixels; the page asks for the
+/// height its question needs (`fit`), which only the screen limits.
 const WIDTH: f64 = 520.0;
 const HEIGHT: f64 = 300.0;
-/// Bounds for the page's request: a question with several warnings still
-/// fits, and the page scrolls past this rather than grow the window.
-const HEIGHT_RANGE: (f64, f64) = (160.0, 560.0);
+const MIN_HEIGHT: f64 = 160.0;
+/// Room for rounding: at 125 % display scaling a fraction of a pixel too
+/// little already shows a scrollbar. Better a little taller.
+const SPARE: f64 = 2.0;
 
 /// A page that never says it drew the question is shown anyway after this,
 /// so that a download cannot wait for an answer nobody sees.
@@ -188,19 +189,49 @@ fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .build()
 }
 
-/// The window height for what the page asked, in whole pixels so text is
-/// not cut by a fraction.
-fn fitted(height: f64) -> f64 {
-    height.clamp(HEIGHT_RANGE.0, HEIGHT_RANGE.1).ceil()
+/// The inner size, in physical pixels, for a page that needs `height` CSS
+/// pixels at `scale` physical pixels per CSS pixel, no taller than `limit`.
+/// The page's `devicePixelRatio` is the scale rather than the window's,
+/// since it also counts a zoom of the web view, and pixels are rounded up.
+fn fitted(height: f64, scale: f64, limit: u32) -> PhysicalSize<u32> {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale.clamp(0.5, 8.0)
+    } else {
+        1.0
+    };
+    let height = if height.is_finite() {
+        height.max(MIN_HEIGHT)
+    } else {
+        HEIGHT
+    };
+    let wanted = ((height + SPARE) * scale).ceil() as u32;
+    PhysicalSize::new((WIDTH * scale).round() as u32, wanted.min(limit.max(1)))
 }
 
-/// The page's question needs this height (CSS pixels). A window about to
-/// show is centred again for it, as IDM's dialog opens in the middle.
-pub fn fit(app: &AppHandle, height: f64) {
+/// The tallest inner height that keeps the window on its screen, above the
+/// taskbar.
+fn room(window: &WebviewWindow) -> u32 {
+    let frame = match (window.outer_size(), window.inner_size()) {
+        (Ok(outer), Ok(inner)) => outer.height.saturating_sub(inner.height),
+        _ => 0,
+    };
+    window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map_or(u32::MAX, |m| {
+            m.work_area().size.height.saturating_sub(frame)
+        })
+}
+
+/// The page's question needs `height` CSS pixels at `scale` (its
+/// `devicePixelRatio`). A window about to show is centred again for it, as
+/// IDM's dialog opens in the middle.
+pub fn fit(app: &AppHandle, height: f64, scale: f64) {
     let Some(window) = app.get_webview_window(LABEL) else {
         return;
     };
-    let _ = window.set_size(LogicalSize::new(WIDTH, fitted(height)));
+    let _ = window.set_size(fitted(height, scale, room(&window)));
     if *app.state::<ConfirmWindow>().phase.lock() == Phase::Opening {
         let _ = window.center();
     }
@@ -270,10 +301,21 @@ mod tests {
 
     #[test]
     fn the_window_takes_the_height_asked_within_bounds() {
-        assert_eq!(fitted(271.2), 272.0);
-        assert_eq!(fitted(40.0), HEIGHT_RANGE.0);
-        assert_eq!(fitted(4000.0), HEIGHT_RANGE.1, "the page scrolls past it");
-        assert!((HEIGHT_RANGE.0..=HEIGHT_RANGE.1).contains(&HEIGHT));
+        let free = u32::MAX;
+        assert_eq!(fitted(272.4, 1.0, free), PhysicalSize::new(520, 275));
+        // 125 % and 150 % display scaling: rounded up, never a pixel short.
+        assert_eq!(fitted(272.4, 1.25, free), PhysicalSize::new(650, 343));
+        assert_eq!(fitted(272.4, 1.5, free), PhysicalSize::new(780, 412));
+        assert_eq!(fitted(40.0, 1.0, free).height, 162, "never a sliver");
+        assert_eq!(
+            fitted(4000.0, 1.5, 1000).height,
+            1000,
+            "only the screen limits it"
+        );
+        assert_eq!(
+            fitted(f64::NAN, f64::NAN, free),
+            PhysicalSize::new(520, 302)
+        );
     }
 
     #[test]

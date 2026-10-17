@@ -319,10 +319,11 @@ async fn confirm_window_drawn(app: AppHandle) {
     confirm::drawn(&app);
 }
 
-/// The confirmation page's question needs this height, in CSS pixels.
+/// The confirmation page's question needs this height, in CSS pixels at
+/// the page's `devicePixelRatio`.
 #[tauri::command]
-async fn fit_confirm_window(app: AppHandle, height: f64) {
-    confirm::fit(&app, height);
+async fn fit_confirm_window(app: AppHandle, height: f64, scale: f64) {
+    confirm::fit(&app, height, scale);
 }
 
 /// The confirmation page's Settings links: the main window opens on

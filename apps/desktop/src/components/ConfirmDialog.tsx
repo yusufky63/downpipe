@@ -2,7 +2,7 @@ import { FolderOpen } from "lucide-react";
 import { useEffect, useEffectEvent, useId, useState, type FormEvent } from "react";
 
 import { api, errorMessage, isCommandError, onConfirmClose, type Choices, type ConfirmOptions, type Queue, type Task } from "../lib/api";
-import { sentence } from "../lib/format";
+import { sentence, withStop } from "../lib/format";
 import { REFUSED_STREAM, audioName, audiosFor, initialChoice, kindName, needsMerge, qualityOption, selectionFor } from "../lib/media";
 import { displayName, knownSize } from "../lib/tasks";
 import { Banner, Button, Dialog, inputClass } from "./primitives";
@@ -109,7 +109,7 @@ export function ConfirmDialog({
         if (!current) return;
         const refused = isCommandError(err) && REFUSED_STREAM.has(err.code);
         const setup = isCommandError(err) && err.code === "tool_missing";
-        setInspection({ state: "failed", message: sentence(errorMessage(err)), refused, setup });
+        setInspection({ state: "failed", message: withStop(sentence(errorMessage(err))), refused, setup });
       });
     return () => {
       current = false;
@@ -305,23 +305,6 @@ export function ConfirmDialog({
                     </select>
                   </div>
                 )}
-                {options && audios.length > 1 && (
-                  <div className="min-w-0 flex-1">
-                    <select
-                      aria-label="Audio"
-                      title="Audio"
-                      value={audioId}
-                      onChange={(e) => setAudioId(e.target.value)}
-                      className={small}
-                    >
-                      {audios.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {audioName(a)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
                 {pickQueue && (
                   <div className={stream ? "w-28 shrink-0" : "min-w-0 flex-1"}>
                     <select
@@ -341,6 +324,22 @@ export function ConfirmDialog({
                   </div>
                 )}
               </div>
+            </>
+          )}
+
+          {/* Its own row: next to quality and queue it would be cut to a word. */}
+          {options && audios.length > 1 && (
+            <>
+              <label htmlFor={`${ids}-audio`} className="label">
+                Audio
+              </label>
+              <select id={`${ids}-audio`} value={audioId} onChange={(e) => setAudioId(e.target.value)} className={small}>
+                {audios.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {audioName(a)}
+                  </option>
+                ))}
+              </select>
             </>
           )}
         </div>
