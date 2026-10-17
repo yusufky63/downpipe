@@ -9,6 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+chrono.workspace = true
 dirs.workspace = true
 downpipe-http.workspace = true
 parking_lot.workspace = true

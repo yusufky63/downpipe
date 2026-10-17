@@ -80,7 +80,11 @@ Checkpoints sync the part file *before* writing the meta (write to `.tmp`, then 
 
 Starting the same URL into the same folder finds the meta and sends the first missing range with `If-Range` set to the strong ETag (weak ETags are not allowed there, so Last-Modified is used instead). The resume is accepted only if the server answers `206` for exactly that offset and total size with the same ETag. Anything else (`200`, `416`, a different size or ETag, a missing or truncated part file) discards the old data and starts over, with a notice explaining why.
 
-A download from a server without range support cannot resume; pausing it deletes the partial file.
+A download from a server without range support cannot resume; pausing it deletes the partial file. Pausing while a resume is still waiting for the server's first answer keeps the partial file and its meta untouched.
+
+## Replacing an expired link
+
+`DownloadRequest::relink` tells the engine that the URL replaces the one the resume data was saved with (the desktop app's **Use a new link**). The meta is then found by file name instead of URL, and the resume goes through the same checks as any other: `If-Range` with the saved validator, then the `206` must report the saved size and ETag. If it does, the meta is rewritten for the new link at once, so later resumes are ordinary. If it does not, the download fails with `different_file` and nothing on disk is touched; a normal resume would have started over instead.
 
 ## Finishing
 

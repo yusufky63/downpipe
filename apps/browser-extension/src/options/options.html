@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Capture filters · Downpipe</title>
+    <link rel="stylesheet" href="base.css" />
+    <link rel="stylesheet" href="page.css" />
+    <link rel="stylesheet" href="options.css" />
+    <script src="options.js" defer></script>
+  </head>
+  <body>
+    <header class="head page-head">
+      <div class="frame head-row">
+        <img class="logo" src="icons/icon-32.png" alt="" width="20" height="20" />
+        <span class="brand">Downpipe</span>
+        <span class="label head-label">Browser extension</span>
+      </div>
+    </header>
+
+    <form id="form" novalidate>
+      <main class="frame main">
+        <div class="intro">
+          <h1 class="title">Capture filters</h1>
+          <p class="lede">
+            Choose which downloads the browser hands to Downpipe while Capture browser downloads is on. Everything
+            else downloads in the browser as usual.
+          </p>
+        </div>
+
+        <p class="notice" id="capture-off" hidden>
+          Capture is off. These filters apply once you turn on Capture browser downloads in the Downpipe toolbar
+          popup.
+        </p>
+        <p class="notice" id="load-error" data-tone="danger" role="alert" hidden>
+          The settings could not be loaded. Reload this page to try again.
+        </p>
+
+        <section class="card" aria-labelledby="types-heading">
+          <div class="card-head">
+            <h2 class="eyebrow" id="types-heading">01 — File types</h2>
+          </div>
+          <div class="card-body">
+            <label class="switch-row" for="capture-all">
+              <span class="switch-text">
+                <span class="row-title">Capture all file types</span>
+                <span class="row-detail">Every download the browser starts goes to Downpipe, whatever its type.</span>
+              </span>
+              <input type="checkbox" role="switch" class="switch" id="capture-all" />
+            </label>
+            <div class="field">
+              <label class="field-label" for="types">Only these file types</label>
+              <textarea
+                class="input"
+                id="types"
+                rows="5"
+                spellcheck="false"
+                autocomplete="off"
+                autocapitalize="off"
+                aria-describedby="types-help types-errors"
+              ></textarea>
+              <p class="help" id="types-help">
+                Extensions separated by spaces or commas, such as <code class="inline">zip pdf mp4</code>. A download
+                is captured when its file name ends with one of them; <code class="inline">tar.gz</code> works too.
+              </p>
+              <ul class="errors" id="types-errors" aria-live="polite"></ul>
+              <div class="field-actions">
+                <button type="button" class="link" id="types-default">Restore the default list</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="sites-heading">
+          <div class="card-head">
+            <h2 class="eyebrow" id="sites-heading">02 — Excluded sites</h2>
+          </div>
+          <div class="card-body">
+            <div class="field">
+              <label class="field-label" for="sites">Never capture on these sites</label>
+              <textarea
+                class="input"
+                id="sites"
+                rows="5"
+                spellcheck="false"
+                autocomplete="off"
+                autocapitalize="off"
+                placeholder="example.com&#10;*.example.org"
+                aria-describedby="sites-help sites-errors"
+              ></textarea>
+              <p class="help" id="sites-help">
+                One site per line. <code class="inline">*.example.org</code> also covers every subdomain. A download
+                stays in the browser when it comes from one of these sites or starts on one of their pages. Ports and
+                paths are ignored.
+              </p>
+              <ul class="errors" id="sites-errors" aria-live="polite"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="size-heading">
+          <div class="card-head">
+            <h2 class="eyebrow" id="size-heading">03 — Minimum size</h2>
+          </div>
+          <div class="card-body">
+            <div class="field">
+              <label class="field-label" for="size">Leave smaller files to the browser</label>
+              <div class="size-row">
+                <input
+                  class="input num"
+                  id="size"
+                  type="text"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  aria-describedby="size-help size-errors"
+                />
+                <select class="input" id="unit" aria-label="Unit">
+                  <option value="KiB">KiB</option>
+                  <option value="MiB">MiB</option>
+                </select>
+              </div>
+              <p class="help" id="size-help">
+                0 turns this off. When the server does not say how big a file is, it goes to Downpipe.
+              </p>
+              <ul class="errors" id="size-errors" aria-live="polite"></ul>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <div class="dock">
+        <div class="frame dock-row">
+          <p class="dock-note" id="save-state" role="status" aria-live="polite"></p>
+          <div class="dock-actions">
+            <button type="submit" class="btn btn-primary" id="save">Save</button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </body>
+</html>

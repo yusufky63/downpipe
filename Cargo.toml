@@ -35,6 +35,7 @@ downpipe-test-server = { path = "tools/test-server" }
 anyhow = "1.0.104"
 axum = "0.8.9"
 bytes = "1.12.1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 clap = { version = "4.6.7", features = ["derive"] }
 ctrlc = "3.5.2"
 dirs = "7.0.0"
@@ -58,7 +59,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 uuid = { version = "1.28.0", features = ["v4", "serde"] }
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Ioctl"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Ioctl", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

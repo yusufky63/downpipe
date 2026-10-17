@@ -9,9 +9,10 @@
       "data_collection_permissions": { "required": ["none"] }
     }
   },
-  "permissions": ["contextMenus", "nativeMessaging", "notifications", "storage"],
+  "permissions": ["activeTab", "contextMenus", "nativeMessaging", "notifications", "scripting", "storage"],
   "optional_permissions": ["downloads"],
   "background": { "scripts": ["background.js"] },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
   "action": {
     "default_title": "Downpipe",
     "default_popup": "popup.html",

@@ -2,12 +2,15 @@
 //! [`downpipe_http`]. Desktop, CLI and future web UIs all drive this.
 
 mod manager;
+pub mod schedule;
 mod settings;
 mod store;
 mod task;
 
 pub use manager::{CoreError, Manager, ManagerEvent};
-pub use settings::{Settings, default_download_dir};
+pub use settings::{
+    Category, Schedule, Settings, default_categories, default_download_dir, extension_of,
+};
 pub use store::Store;
 pub use task::{AddOptions, Live, TaskId, TaskRecord, TaskSnapshot, TaskState};
 

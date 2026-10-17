@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HostResult } from "./host";
-import { bridgeStatus, downloadOutcome, errorText, keptMessage } from "./status";
+import { bridgeDown, bridgeStatus, downloadOutcome, errorText, keptMessage } from "./status";
 import { statusView } from "./view";
 
 const ok = (response: Extract<HostResult, { ok: true }>["response"]): HostResult => ({ ok: true, response });
@@ -56,6 +56,24 @@ describe("downloadOutcome", () => {
   it("falls back to the host's message for codes it does not know", () => {
     expect(errorText("forbidden", "The server refused access")).toBe("The server refused access");
     expect(errorText("weird", "")).toBe("Downpipe refused the download (weird).");
+  });
+});
+
+describe("bridgeDown", () => {
+  it("stops a batch when the bridge or the app is the problem", () => {
+    for (const failure of ["host_missing", "host_forbidden", "host_error", "timeout", "bad_response"] as const) {
+      expect(bridgeDown(fail(failure)), failure).toBe(true);
+    }
+    for (const code of ["app_not_running", "app_unavailable", "version_mismatch", "unsupported_version"]) {
+      expect(bridgeDown(ok({ type: "error", code, message: "x" })), code).toBe(true);
+    }
+  });
+
+  it("keeps going when only one link was refused", () => {
+    expect(bridgeDown(ok({ type: "accepted", taskId: "t" }))).toBe(false);
+    expect(bridgeDown(ok({ type: "error", code: "duplicate", message: "x", taskId: "t" }))).toBe(false);
+    expect(bridgeDown(ok({ type: "error", code: "invalid_url", message: "x" }))).toBe(false);
+    expect(bridgeDown(ok({ type: "error", code: "invalid_header", message: "x" }))).toBe(false);
   });
 });
 

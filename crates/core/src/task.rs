@@ -103,6 +103,13 @@ pub struct TaskRecord {
     pub error_kind: Option<String>,
     pub checksum: Option<String>,
     pub max_connections: Option<u32>,
+    /// Category the file was sorted into, if any.
+    #[serde(default)]
+    pub category: Option<String>,
+    /// The folder was picked by Downpipe rather than the user, so it may move
+    /// the finished file to the folder of its real type.
+    #[serde(default)]
+    pub auto_dir: bool,
     pub created_at: i64,
     pub updated_at: i64,
     pub completed_at: Option<i64>,

@@ -51,7 +51,18 @@ async fn wait_for(
         }
     })
     .await
-    .expect("condition not reached in time")
+    .unwrap_or_else(|_| {
+        let task = manager.get(id);
+        panic!(
+            "condition not reached in time; last: {:?}",
+            task.map(|t| (
+                t.record.state,
+                t.record.downloaded,
+                t.record.error,
+                t.live.notices
+            ))
+        )
+    })
 }
 
 #[tokio::test]
@@ -308,4 +319,205 @@ async fn can_be_driven_from_threads_outside_the_runtime() {
         .expect("add from a plain thread");
     let done = wait_for(&manager, &id, |t| t.record.state == TaskState::Completed).await;
     assert!(done.record.path.unwrap().exists());
+}
+
+async fn open_into(data: &Path, downloads: &Path) -> Manager {
+    let manager = open(data).await;
+    manager
+        .update_settings(Settings {
+            download_dir: downloads.to_path_buf(),
+            ..manager.settings()
+        })
+        .unwrap();
+    manager
+}
+
+fn add_auto(manager: &Manager, url: String) -> TaskSnapshot {
+    manager
+        .add(AddOptions {
+            url,
+            ..AddOptions::default()
+        })
+        .expect("add")
+}
+
+#[tokio::test]
+async fn sorts_downloads_into_category_folders() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open_into(data.path(), out.path()).await;
+
+    // The URL names the type: the folder is chosen up front.
+    let zip = add_auto(&manager, server.url("/file/2000/archive.zip"));
+    assert_eq!(zip.record.dir, out.path().join("Compressed"));
+    assert_eq!(zip.record.category.as_deref(), Some("Compressed"));
+
+    // Only the server's answer names the type: the file moves when done.
+    let iso = add_auto(&manager, server.url("/file/3000?name=disk.iso"));
+    assert_eq!(iso.record.dir, out.path());
+    assert_eq!(iso.record.category, None);
+
+    // A folder the user picked is never second-guessed.
+    let picked = tempfile::tempdir().unwrap();
+    let pdf = add(
+        &manager,
+        server.url("/file/1000?name=manual.pdf"),
+        picked.path(),
+    );
+
+    let zip = wait_for(&manager, &zip.record.id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+    let iso = wait_for(&manager, &iso.record.id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+    let pdf = wait_for(&manager, &pdf.record.id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+
+    assert_eq!(
+        zip.record.path.unwrap().parent().unwrap(),
+        out.path().join("Compressed")
+    );
+    let iso_path = iso.record.path.unwrap();
+    assert_eq!(iso_path, out.path().join("Disk images").join("disk.iso"));
+    assert_eq!(std::fs::read(&iso_path).unwrap(), content(3000, 0));
+    assert_eq!(iso.record.category.as_deref(), Some("Disk images"));
+    assert!(!out.path().join("disk.iso").exists(), "moved, not copied");
+    assert_eq!(pdf.record.path.unwrap(), picked.path().join("manual.pdf"));
+    assert_eq!(pdf.record.category.as_deref(), Some("Documents"));
+}
+
+#[tokio::test]
+async fn categories_can_be_switched_off() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open_into(data.path(), out.path()).await;
+    manager
+        .update_settings(Settings {
+            use_categories: false,
+            ..manager.settings()
+        })
+        .unwrap();
+    let task = add_auto(&manager, server.url("/file/1000/x.zip"));
+    let done = wait_for(&manager, &task.record.id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+    assert_eq!(done.record.path.unwrap(), out.path().join("x.zip"));
+}
+
+#[tokio::test]
+async fn changing_the_link_resumes_or_refuses() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open(data.path()).await;
+    let size = 8 * MIB;
+    let task = add(
+        &manager,
+        server.url(&format!("/file/{size}?rate=1048576&mirror=a")),
+        out.path(),
+    );
+    let id = task.record.id;
+
+    wait_for(&manager, &id, |t| t.record.downloaded > 512 * KIB).await;
+    manager.pause(&id).unwrap();
+    let paused = wait_for(&manager, &id, |t| t.record.state == TaskState::Paused).await;
+    let path = paused.record.path.clone().unwrap();
+
+    // Running downloads must be paused first.
+    manager.resume(&id).unwrap();
+    wait_for(&manager, &id, |t| t.record.state.is_running()).await;
+    assert!(matches!(
+        manager.change_url(&id, &server.url("/file/1?x")),
+        Err(CoreError::InvalidState { .. })
+    ));
+    manager.pause(&id).unwrap();
+    wait_for(&manager, &id, |t| t.record.state == TaskState::Paused).await;
+
+    // A different file behind the new link: refused, data kept.
+    server.state.set_version(9);
+    manager
+        .change_url(&id, &server.url(&format!("/file/{size}?mirror=b")))
+        .unwrap();
+    let failed = wait_for(&manager, &id, |t| t.record.state == TaskState::Failed).await;
+    assert_eq!(failed.record.error_kind.as_deref(), Some("different_file"));
+    assert!(meta::part_path(&path).exists());
+
+    // The same file again: resumes into the same path.
+    server.state.set_version(0);
+    manager
+        .change_url(&id, &server.url(&format!("/file/{size}?mirror=c")))
+        .unwrap();
+    let done = wait_for(&manager, &id, |t| t.record.state == TaskState::Completed).await;
+    assert_eq!(done.record.path.unwrap(), path);
+    assert_eq!(std::fs::read(&path).unwrap(), content(size, 0));
+    assert!(done.record.url.contains("mirror=c"));
+
+    assert!(matches!(
+        manager.change_url(&id, "ftp://example.org/x"),
+        Err(CoreError::InvalidUrl(_))
+    ));
+}
+
+#[tokio::test]
+async fn proxy_and_user_agent_settings() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open(data.path()).await;
+
+    for bad in ["nonsense", "ftp://proxy:21", "http://"] {
+        let err = manager
+            .update_settings(Settings {
+                proxy: bad.into(),
+                ..manager.settings()
+            })
+            .unwrap_err();
+        assert!(
+            matches!(err, CoreError::InvalidSetting(_)),
+            "{bad}: {err:?}"
+        );
+    }
+    assert_eq!(
+        manager.settings().proxy,
+        "",
+        "rejected values are not saved"
+    );
+
+    manager
+        .update_settings(Settings {
+            user_agent: "Mozilla/5.0 Downpipe-test".into(),
+            ..manager.settings()
+        })
+        .unwrap();
+    let task = add(&manager, server.url("/file/1000"), out.path());
+    wait_for(&manager, &task.record.id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+    assert_eq!(
+        server.state.requests()[0].user_agent.as_deref(),
+        Some("Mozilla/5.0 Downpipe-test")
+    );
+
+    // A proxy nobody listens on: the setting is accepted, downloads fail.
+    manager
+        .update_settings(Settings {
+            proxy: "http://127.0.0.1:9".into(),
+            ..manager.settings()
+        })
+        .unwrap();
+    let task = add(&manager, server.url("/file/1000?again"), out.path());
+    let failed = wait_for(&manager, &task.record.id, |t| {
+        t.record.state == TaskState::Failed
+    })
+    .await;
+    assert_eq!(failed.record.error_kind.as_deref(), Some("network"));
 }

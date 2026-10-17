@@ -1,10 +1,10 @@
-import { Check, Copy, ExternalLink, FolderOpen, Pause, Play, RotateCw } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { Check, Copy, ExternalLink, FolderOpen, Link2, Pause, Play, RotateCw } from "lucide-react";
+import { useState, type FormEvent, type ReactNode } from "react";
 
-import type { Task } from "../lib/api";
+import { errorMessage, type Task } from "../lib/api";
 import { formatBytes, formatDate, formatDuration, formatSpeed, percent, sentence } from "../lib/format";
 import { canCancel, canPause, canResume, displayName, isRunning, stateInfo } from "../lib/tasks";
-import { Badge, Banner, Button, Dialog, IconButton } from "./primitives";
+import { Badge, Banner, Button, Dialog, IconButton, inputClass } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
 
 export interface DetailActions {
@@ -15,6 +15,8 @@ export interface DetailActions {
   onReveal: (id: string) => void;
   onOpen: (id: string) => void;
   onRemove: (id: string) => void;
+  /** Rejects with the reason the link was refused. */
+  onChangeUrl: (id: string, url: string) => Promise<void>;
 }
 
 export function DetailsDialog({ task, actions }: { task: Task; actions: DetailActions }) {
@@ -115,6 +117,8 @@ export function DetailsDialog({ task, actions }: { task: Task; actions: DetailAc
           </div>
         ) : null}
 
+        {canChangeLink(task) && <ChangeLink task={task} onChangeUrl={actions.onChangeUrl} />}
+
         <dl className="divide-y divide-line rounded-lg border border-line">
           <Row label={task.path ? "Saved to" : "Folder"}>
             <CopyValue value={task.path ?? task.dir} />
@@ -138,6 +142,76 @@ export function DetailsDialog({ task, actions }: { task: Task; actions: DetailAc
         </dl>
       </div>
     </Dialog>
+  );
+}
+
+const canChangeLink = (t: Task) => t.state === "paused" || t.state === "failed" || t.state === "canceled" || t.state === "queued";
+
+/**
+ * IDM's "refresh download address": links from file hosts and CDNs expire.
+ * Paste a fresh one and the download continues if it is the same file.
+ */
+function ChangeLink({ task, onChangeUrl }: { task: Task; onChangeUrl: DetailActions["onChangeUrl"] }) {
+  const [open, setOpen] = useState(task.error_kind === "forbidden" || task.error_kind === "not_found");
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (!open) {
+    return (
+      <div>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+          <Link2 size={16} strokeWidth={1.75} />
+          Use a new link…
+        </Button>
+      </div>
+    );
+  }
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!url.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onChangeUrl(task.id, url.trim());
+      setUrl("");
+      setOpen(false);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2 rounded-lg border border-line p-4">
+      <label htmlFor={`relink-${task.id}`} className="label">
+        New link for this file
+      </label>
+      <div className="flex gap-2">
+        <input
+          id={`relink-${task.id}`}
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://"
+          spellCheck={false}
+          autoFocus
+          className={`${inputClass} h-9 font-mono text-[13px]`}
+        />
+        <Button type="submit" variant="primary" disabled={busy || !url.trim()}>
+          Continue
+        </Button>
+      </div>
+      {error ? (
+        <p className="text-[13px] text-danger-fg">{error}</p>
+      ) : (
+        <p className="text-[12px] text-ink-muted">
+          For an expired or broken link. The download continues where it stopped only if the new link serves the same file; otherwise nothing is
+          overwritten.
+        </p>
+      )}
+    </form>
   );
 }
 

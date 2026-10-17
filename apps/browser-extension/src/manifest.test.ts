@@ -3,6 +3,9 @@ import rustManifest from "../../../crates/native-host/src/manifest.rs?raw";
 import chrome from "../manifests/chrome.json";
 import firefox from "../manifests/firefox.json";
 import { HOST_NAME } from "./lib/protocol";
+import linksHtml from "./links/links.html?raw";
+import optionsHtml from "./options/options.html?raw";
+import popupHtml from "./popup/popup.html?raw";
 
 /** Chrome's extension id: SHA-256 of the public key, first 16 bytes, hex digits mapped to a-p. */
 async function extensionId(base64Key: string): Promise<string> {
@@ -22,16 +25,51 @@ describe("manifests", () => {
   it("ask for no host access at all", () => {
     for (const m of [chrome, firefox] as Record<string, unknown>[]) {
       expect(m.host_permissions).toBeUndefined();
+      expect(m.optional_host_permissions).toBeUndefined();
       expect(m.content_scripts).toBeUndefined();
       expect(m.externally_connectable).toBeUndefined();
+      // The links page is opened by the extension itself; web pages cannot load it.
+      expect(m.web_accessible_resources).toBeUndefined();
       expect(JSON.stringify(m)).not.toContain("<all_urls>");
+      expect(JSON.stringify(m)).not.toContain("://*/");
     }
   });
 
   it("keep permissions minimal and downloads optional", () => {
     for (const m of [chrome, firefox]) {
-      expect([...m.permissions].sort()).toEqual(["contextMenus", "nativeMessaging", "notifications", "storage"]);
+      // activeTab + scripting: reading a page's links once, after a click.
+      expect([...m.permissions].sort()).toEqual([
+        "activeTab",
+        "contextMenus",
+        "nativeMessaging",
+        "notifications",
+        "scripting",
+        "storage",
+      ]);
       expect(m.optional_permissions).toEqual(["downloads"]);
+    }
+  });
+
+  it("open the capture filters as the options page, in a tab", () => {
+    for (const m of [chrome, firefox]) {
+      expect(m.options_ui).toEqual({ page: "options.html", open_in_tab: true });
+      expect(m.action.default_popup).toBe("popup.html");
+    }
+  });
+
+  it("have pages that load the scripts and styles the build writes", () => {
+    const pages: [string, string, boolean][] = [
+      ["popup", popupHtml, false],
+      ["options", optionsHtml, true],
+      ["links", linksHtml, true],
+    ];
+    for (const [name, html, fullPage] of pages) {
+      expect(html, name).toContain(`<script src="${name}.js" defer></script>`);
+      expect(html, name).toContain('<link rel="stylesheet" href="base.css" />');
+      expect(html, name).toContain(`<link rel="stylesheet" href="${name}.css" />`);
+      expect(html.includes('href="page.css"'), name).toBe(fullPage);
+      // No inline scripts: Manifest V3's content security policy would block them.
+      expect(html.match(/<script/g)?.length, name).toBe(1);
     }
   });
 

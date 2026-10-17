@@ -1,22 +1,25 @@
 // No console window behind the app in release builds on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod background;
+mod power;
+mod tray;
+
 use std::path::PathBuf;
 
+use background::{Background, WhenDone, WhenDoneView};
 use downpipe_core::{AddOptions, CoreError, Manager, Settings, TaskSnapshot, TaskState};
 use downpipe_native_host::ipc::Endpoint;
 use downpipe_native_host::manifest::{self, Layout, Stale, Status};
 use downpipe_native_host::server::BridgeServer;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager as _, RunEvent, State};
+use tauri::{AppHandle, Manager as _, RunEvent, State, WindowEvent};
+use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
-use tokio::sync::broadcast::error::RecvError;
 
-/// Engine events are re-emitted to the web view under this name.
-const EVENT: &str = "downpipe://event";
-/// Sent when the web view fell behind and should reload the full list.
-const RESYNC: &str = "downpipe://resync";
+/// Passed by the login item so Downpipe starts in the tray.
+const HIDDEN_ARG: &str = "--hidden";
 
 /// Error shape the UI can branch on (`code`) and show (`message`).
 #[derive(Debug, Serialize)]
@@ -104,15 +107,160 @@ fn get_settings(manager: State<'_, Manager>) -> Settings {
 }
 
 #[tauri::command]
-async fn update_settings(manager: State<'_, Manager>, settings: Settings) -> CmdResult<Settings> {
+async fn update_settings(
+    app: AppHandle,
+    manager: State<'_, Manager>,
+    settings: Settings,
+) -> CmdResult<Settings> {
     let was_registering = manager.settings().register_browser_host;
     let saved = manager.update_settings(settings)?;
+    sync_autostart(&app, saved.start_with_system).map_err(|e| CommandError::new("autostart", e))?;
     if saved.register_browser_host && !was_registering {
         // Switching it on fixes the registration now rather than at the
         // next start, so the extension connects without restarting the app.
         let _ = tauri::async_runtime::spawn_blocking(register_browser_host).await;
     }
     Ok(saved)
+}
+
+/// IDM's "refresh download address": a new link for a paused or failed
+/// download, used only if it serves the same file.
+#[tauri::command]
+fn change_download_url(manager: State<'_, Manager>, id: String, url: String) -> CmdResult<()> {
+    Ok(manager.change_url(&id, &url)?)
+}
+
+/// Save every link in the list to a text file, one per line. Credentials
+/// were never stored, so none can leak into the file.
+#[tauri::command]
+async fn export_downloads(app: AppHandle, manager: State<'_, Manager>) -> CmdResult<Option<usize>> {
+    let urls: Vec<String> = manager.list().into_iter().map(|t| t.record.url).collect();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_file_name("downpipe-links.txt")
+        .add_filter("Text", &["txt"])
+        .save_file(move |path| {
+            let _ = tx.send(path.and_then(|p| p.into_path().ok()));
+        });
+    let Some(path) = rx.await.ok().flatten() else {
+        return Ok(None);
+    };
+    let mut text = urls.join("\n");
+    text.push('\n');
+    std::fs::write(&path, text).map_err(|e| CommandError::new("io", e.to_string()))?;
+    Ok(Some(urls.len()))
+}
+
+/// Drag a finished file out of the window into another app. By id, like
+/// every other file action.
+#[tauri::command]
+fn start_drag(
+    window: tauri::WebviewWindow,
+    manager: State<'_, Manager>,
+    id: String,
+) -> CmdResult<()> {
+    let task = manager
+        .get(&id)
+        .ok_or_else(|| CommandError::new("not_found", "That download no longer exists"))?;
+    let path = match (task.record.state, task.record.path) {
+        (TaskState::Completed, Some(path)) if path.is_file() => path,
+        _ => {
+            return Err(CommandError::new(
+                "invalid_state",
+                "Only finished downloads can be dragged",
+            ));
+        }
+    };
+    // The system drag loop waits for the button to be released. Started
+    // after a quick click instead of a drag, it would wait for the next
+    // click anywhere on screen and drop the file there.
+    if !primary_button_down() {
+        return Ok(());
+    }
+    let icon = drag::Image::Raw(include_bytes!("../icons/64x64.png").to_vec());
+    let target = window.clone();
+    // OLE drag and drop must start on the UI thread, while the button is down.
+    window
+        .run_on_main_thread(move || {
+            let item = drag::DragItem::Files(vec![path]);
+            #[cfg(target_os = "linux")]
+            let handle = target.gtk_window();
+            #[cfg(not(target_os = "linux"))]
+            let handle = &target;
+            #[cfg(target_os = "linux")]
+            let handle = match handle {
+                Ok(h) => h,
+                Err(_) => return,
+            };
+            #[cfg(target_os = "linux")]
+            let handle = &handle;
+            if let Err(err) =
+                drag::start_drag(handle, item, icon, |_, _| {}, drag::Options::default())
+            {
+                tracing::warn!("drag failed: {err}");
+            }
+        })
+        .map_err(|e| CommandError::new("drag", e.to_string()))
+}
+
+#[cfg(windows)]
+fn primary_button_down() -> bool {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_SWAPBUTTON};
+    // SAFETY: both functions only read input state and take plain values.
+    unsafe {
+        // GetAsyncKeyState reports physical buttons; with swapped buttons
+        // the primary one is the physical right button.
+        let key = if GetSystemMetrics(SM_SWAPBUTTON) != 0 {
+            VK_RBUTTON
+        } else {
+            VK_LBUTTON
+        };
+        (GetAsyncKeyState(i32::from(key)) as u16) & 0x8000 != 0
+    }
+}
+
+#[cfg(not(windows))]
+fn primary_button_down() -> bool {
+    true
+}
+
+#[tauri::command]
+fn get_when_done(background: State<'_, Background>) -> WhenDoneView {
+    background.when_done()
+}
+
+#[tauri::command]
+fn set_when_done(
+    app: AppHandle,
+    background: State<'_, Background>,
+    action: WhenDone,
+) -> WhenDoneView {
+    background.set_when_done(&app, action);
+    background.when_done()
+}
+
+#[tauri::command]
+fn when_done_now(app: AppHandle, background: State<'_, Background>) {
+    background.when_done_now(&app);
+}
+
+/// Keep the login item in step with the setting. Also rewrites it when the
+/// executable moved (an update to a new folder).
+fn sync_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    let launcher = app.autolaunch();
+    let is_enabled = launcher.is_enabled().unwrap_or(false);
+    let result = if enabled {
+        launcher.enable()
+    } else if is_enabled {
+        launcher.disable()
+    } else {
+        Ok(())
+    };
+    result.map_err(|e| e.to_string())
 }
 
 /// Native folder picker. Returns `None` when the user closes it.
@@ -330,17 +478,18 @@ fn main() {
     // development build next to an installed one) stay separate on purpose.
     if std::env::var_os("DOWNPIPE_DATA_DIR").is_none() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            tray::show_main(app);
         }));
     }
 
     let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![HIDDEN_ARG]),
+        ))
         .setup(|app| {
             // DOWNPIPE_DATA_DIR keeps test runs and portable setups away from
             // the real catalog in the OS app-data folder.
@@ -353,23 +502,31 @@ fn main() {
                 tauri::async_runtime::spawn_blocking(register_browser_host);
             }
             start_browser_bridge(manager.clone());
-            let mut events = manager.subscribe();
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    match events.recv().await {
-                        Ok(event) => {
-                            let _ = handle.emit(EVENT, event);
-                        }
-                        Err(RecvError::Lagged(_)) => {
-                            let _ = handle.emit(RESYNC, ());
-                        }
-                        Err(RecvError::Closed) => break,
-                    }
-                }
-            });
+            app.manage(Background::default());
+            background::spawn(app.handle().clone(), manager.clone());
+            if let Err(err) = tray::create(app.handle()) {
+                tracing::warn!("no tray icon: {err}");
+            }
+            if let Err(err) = sync_autostart(app.handle(), manager.settings().start_with_system) {
+                tracing::warn!("could not update the login item: {err}");
+            }
             app.manage(manager);
+            // The window starts hidden (tauri.conf.json) so a login start
+            // stays in the tray without a flash; normal starts show it now.
+            if !std::env::args().any(|a| a == HIDDEN_ARG) {
+                tray::show_main(app.handle());
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                if app.state::<Manager>().settings().close_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    app.state::<Background>().closed_to_tray(app);
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             list_downloads,
@@ -388,6 +545,12 @@ fn main() {
             pick_folder,
             reveal_download,
             open_download,
+            change_download_url,
+            export_downloads,
+            start_drag,
+            get_when_done,
+            set_when_done,
+            when_done_now,
         ])
         .build(tauri::generate_context!());
 

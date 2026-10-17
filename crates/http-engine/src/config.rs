@@ -73,6 +73,12 @@ pub struct DownloadRequest {
     pub headers: Vec<(String, String)>,
     /// Per-download override of [`EngineConfig::max_connections`].
     pub max_connections: Option<usize>,
+    /// `url` replaces the link the resume data was saved with (an expired
+    /// link refreshed by the user). The resume must still prove it is the
+    /// same file (size, ETag); if not, the download fails with
+    /// [`DownloadError::DifferentFile`](crate::DownloadError::DifferentFile)
+    /// and the partial data is kept.
+    pub relink: bool,
 }
 
 impl DownloadRequest {
@@ -84,6 +90,7 @@ impl DownloadRequest {
             checksum: None,
             headers: Vec::new(),
             max_connections: None,
+            relink: false,
         }
     }
 }

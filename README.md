@@ -20,7 +20,15 @@ It is built as a Rust engine with a desktop app (Tauri), a command-line tool and
 | Queue | Persistent queue (SQLite) with a concurrency limit, pause/resume/cancel, duplicate detection, and automatic continuation after the app restarts. |
 | Limits | Global speed limit shared by all downloads, adjustable while they run. |
 | Safety | Server-supplied file names are sanitized (path traversal, Windows device names, reserved characters); existing files are never overwritten. |
-| Desktop app | Download list with per-segment progress, details panel, add-links dialog (paste several at once), settings, light and dark themes. |
+| Desktop app | Download list with per-segment progress, search and sortable columns, a details dialog, light and dark themes. |
+| Adding links | Paste or drag links onto the window, expand patterns like `file[001-100].zip`, import a `.txt` list, and save the whole list back to a file. Finished files can be dragged out into other apps. |
+| Categories | New downloads go to a folder per file type (Compressed, Documents, Music, Video, Programs, Disk images; editable). If the server's file name shows a different type, the finished file moves to the right folder. Folders you pick yourself are left alone. |
+| Expired links | **Use a new link** on a paused or failed download continues it from a fresh link, but only after checking it is the same file (size and ETag); otherwise the partial data is kept and the new link refused. |
+| Tray and start-up | Closing the window keeps Downpipe in the tray, so the browser can still hand downloads over. Optional start at sign-in, in the tray. A system notification when a download finishes or fails while the window is in the background. |
+| Schedule | Start and stop times per weekday, and "when all downloads finish": quit, sleep or shut down, after a 60-second countdown you can cancel. |
+| Network | Proxy (`http`, `https`, `socks5`) and a custom user agent in the settings; the system proxy is used otherwise. |
+| Capture filters | The extension captures only listed file types (or all of them), never on excluded sites, and leaves files under a minimum size to the browser. One click pauses capture on the current site. |
+| Links on a page | **Download links on this page with Downpipe…** lists a page's links with type filters and sends the ones you tick. The page is read only on that click (`activeTab`), never in the background. |
 | CLI | `downpipe get`, `downpipe resume`, `downpipe probe`. Ctrl+C pauses cleanly. |
 | Browser bridge | Chrome, Edge and Firefox extension: **Download with Downpipe** on any link, optional capture of the downloads the browser starts (the browser keeps them if Downpipe is closed), a notification for every hand-over, and a toolbar popup with the connection status and the live progress of what the browser sent. Talks to the app through Native Messaging and a local pipe, never a network port; the desktop app ships the native host and registers it for your user account when it starts. |
 

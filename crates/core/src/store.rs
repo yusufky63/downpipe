@@ -11,7 +11,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use crate::settings::Settings;
 use crate::task::{TaskRecord, TaskState};
 
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 #[derive(Debug)]
 pub struct Store {
@@ -60,6 +60,13 @@ impl Store {
                     value TEXT NOT NULL
                 );",
             )?;
+            conn.pragma_update(None, "user_version", 1)?;
+        }
+        if version < 2 {
+            conn.execute_batch(
+                "ALTER TABLE downloads ADD COLUMN category TEXT;
+                 ALTER TABLE downloads ADD COLUMN auto_dir INTEGER NOT NULL DEFAULT 0;",
+            )?;
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         Ok(Self { conn })
@@ -69,15 +76,16 @@ impl Store {
         self.conn.execute(
             "INSERT INTO downloads (id, url, dir, file_name, path, state, total, downloaded,
                                     error, error_kind, checksum, max_connections,
-                                    created_at, updated_at, completed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                                    created_at, updated_at, completed_at, category, auto_dir)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
              ON CONFLICT(id) DO UPDATE SET
                 url = excluded.url, dir = excluded.dir, file_name = excluded.file_name,
                 path = excluded.path, state = excluded.state, total = excluded.total,
                 downloaded = excluded.downloaded, error = excluded.error,
                 error_kind = excluded.error_kind, checksum = excluded.checksum,
                 max_connections = excluded.max_connections,
-                updated_at = excluded.updated_at, completed_at = excluded.completed_at",
+                updated_at = excluded.updated_at, completed_at = excluded.completed_at,
+                category = excluded.category, auto_dir = excluded.auto_dir",
             params![
                 r.id,
                 r.url,
@@ -94,6 +102,8 @@ impl Store {
                 r.created_at,
                 r.updated_at,
                 r.completed_at,
+                r.category,
+                r.auto_dir,
             ],
         )?;
         Ok(())
@@ -108,7 +118,8 @@ impl Store {
     pub fn all(&self) -> rusqlite::Result<Vec<TaskRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, url, dir, file_name, path, state, total, downloaded, error, error_kind,
-                    checksum, max_connections, created_at, updated_at, completed_at
+                    checksum, max_connections, created_at, updated_at, completed_at,
+                    category, auto_dir
              FROM downloads ORDER BY created_at, rowid",
         )?;
         let rows = stmt.query_map([], row_to_record)?;
@@ -159,6 +170,8 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<TaskRecord> {
         created_at: row.get(12)?,
         updated_at: row.get(13)?,
         completed_at: row.get(14)?,
+        category: row.get(15)?,
+        auto_dir: row.get(16)?,
     })
 }
 
@@ -192,6 +205,8 @@ mod tests {
             error_kind: None,
             checksum: None,
             max_connections: Some(4),
+            category: Some("Disk images".into()),
+            auto_dir: true,
             created_at: created,
             updated_at: created,
             completed_at: None,
@@ -237,5 +252,35 @@ mod tests {
         let path = dir.path().join("nested").join("downpipe.db");
         Store::open(&path).unwrap().upsert(&record("x", 1)).unwrap();
         assert_eq!(Store::open(&path).unwrap().all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn migrates_a_version_1_catalog() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("downpipe.db");
+        {
+            // The 0.1 schema, exactly as it shipped.
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE downloads (
+                    id TEXT PRIMARY KEY, url TEXT NOT NULL, dir TEXT NOT NULL, file_name TEXT,
+                    path TEXT, state TEXT NOT NULL, total INTEGER,
+                    downloaded INTEGER NOT NULL DEFAULT 0, error TEXT, error_kind TEXT,
+                    checksum TEXT, max_connections INTEGER, created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL, completed_at INTEGER);
+                 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 INSERT INTO downloads (id, url, dir, state, created_at, updated_at)
+                    VALUES ('old', 'https://example.org/a.zip', 'C:/D', 'paused', 1, 1);
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let old = store.all().unwrap().pop().unwrap();
+        assert_eq!(old.id, "old");
+        assert_eq!(old.category, None);
+        assert!(!old.auto_dir);
+        store.upsert(&record("new", 2)).unwrap();
+        assert_eq!(store.all().unwrap().len(), 2);
     }
 }

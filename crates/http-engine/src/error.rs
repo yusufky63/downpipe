@@ -36,6 +36,9 @@ pub enum DownloadError {
     #[error("the remote file changed while downloading ({0})")]
     ResourceChanged(String),
 
+    #[error("the new link points to a different file ({0}); the partial download was kept")]
+    DifferentFile(String),
+
     #[error("the server stopped honouring byte ranges")]
     RangeNotHonoured,
 
@@ -100,6 +103,7 @@ impl DownloadError {
             Self::Throttled { .. } => "throttled",
             Self::HttpStatus { .. } => "http_status",
             Self::ResourceChanged(_) => "resource_changed",
+            Self::DifferentFile(_) => "different_file",
             Self::RangeNotHonoured => "range_not_honoured",
             Self::PrematureEnd | Self::Stalled(_) | Self::Network(_) => "network",
             Self::ChecksumMismatch { .. } | Self::InvalidChecksum(_) => "checksum",

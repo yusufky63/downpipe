@@ -514,3 +514,116 @@ async fn probe_reports_server_capabilities() {
     assert_eq!(info.total_size, Some(777));
     assert!(!info.accepts_ranges);
 }
+
+#[tokio::test]
+async fn relink_resumes_the_same_file_from_a_new_url() {
+    let server = TestServer::start().await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let size = 8 * MIB;
+    let old = server.url(&format!("/file/{size}?rate=1048576&mirror=a"));
+    let new = server.url(&format!("/file/{size}?mirror=b"));
+
+    let handle = engine(config()).start(DownloadRequest::new(&old, dir.path()));
+    wait_for(&handle, |p| p.downloaded >= MIB).await;
+    handle.pause();
+    let Outcome::Paused {
+        path: Some(path), ..
+    } = handle.wait().await.unwrap()
+    else {
+        panic!("expected a resumable pause");
+    };
+    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    let kept = meta::load(&meta::meta_path(&path))
+        .unwrap()
+        .completed_bytes();
+
+    server.state.reset_stats();
+    let mut req = DownloadRequest::new(&new, dir.path());
+    req.file_name = Some(name);
+    req.relink = true;
+    let done = completed_path(engine(config()).start(req).wait().await.unwrap());
+    assert_eq!(done, path);
+    assert_eq!(std::fs::read(&done).unwrap(), content(size, 0));
+    // The first request picks up after the kept bytes and carries the
+    // validator saved with the old link. (Byte counts are not compared: an
+    // unthrottled server pushes data into socket buffers that split-off
+    // connections never read.)
+    let first = &server.state.requests()[0];
+    assert!(kept > 0);
+    assert_ne!(first.range.as_deref(), Some("bytes=0-"));
+    assert!(first.if_range.is_some());
+    // The resume data now belongs to the new link.
+    assert!(
+        !meta::meta_path(&done).exists(),
+        "finished downloads drop their meta"
+    );
+}
+
+#[tokio::test]
+async fn relink_to_a_different_file_keeps_the_partial_data() {
+    let server = TestServer::start().await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let size = 8 * MIB;
+    let url = server.url(&format!("/file/{size}?rate=1048576"));
+
+    let handle = engine(config()).start(DownloadRequest::new(&url, dir.path()));
+    wait_for(&handle, |p| p.downloaded >= MIB).await;
+    handle.pause();
+    let Outcome::Paused {
+        path: Some(path), ..
+    } = handle.wait().await.unwrap()
+    else {
+        panic!("expected a resumable pause");
+    };
+
+    server.state.set_version(3);
+    let mut req = DownloadRequest::new(server.url(&format!("/file/{size}?other=1")), dir.path());
+    req.file_name = Some(path.file_name().unwrap().to_string_lossy().into_owned());
+    req.relink = true;
+    let err = engine(config()).start(req).wait().await.unwrap_err();
+    assert!(matches!(err, DownloadError::DifferentFile(_)), "{err:?}");
+    assert_eq!(err.kind(), "different_file");
+    assert!(meta::part_path(&path).exists(), "partial data kept");
+    assert!(meta::meta_path(&path).exists());
+}
+
+#[tokio::test]
+async fn pausing_while_a_resume_waits_keeps_the_partial_data() {
+    let server = TestServer::start().await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let size = 8 * MIB;
+
+    let handle = engine(config()).start(DownloadRequest::new(
+        server.url(&format!("/file/{size}?rate=1048576")),
+        dir.path(),
+    ));
+    wait_for(&handle, |p| p.downloaded >= MIB).await;
+    handle.pause();
+    let Outcome::Paused {
+        path: Some(path),
+        downloaded,
+        ..
+    } = handle.wait().await.unwrap()
+    else {
+        panic!("expected a resumable pause");
+    };
+
+    // The resume's first request is told to come back in 5 s; pause while
+    // the engine waits for it.
+    let mut req = DownloadRequest::new(
+        server.url(&format!("/file/{size}?fail=503&fail_times=5&retry_after=5")),
+        dir.path(),
+    );
+    req.file_name = Some(path.file_name().unwrap().to_string_lossy().into_owned());
+    req.relink = true;
+    let handle = engine(config()).start(req);
+    wait_for(&handle, |p| p.phase == downpipe_http::Phase::Waiting).await;
+    handle.pause();
+    let outcome = handle.wait().await.unwrap();
+    assert!(
+        matches!(outcome, Outcome::Paused { resumable: true, downloaded: d, .. } if d == downloaded),
+        "{outcome:?}"
+    );
+    assert!(meta::part_path(&path).exists(), "partial file kept");
+    assert!(meta::meta_path(&path).exists(), "resume data kept");
+}

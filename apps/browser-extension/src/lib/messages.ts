@@ -1,29 +1,126 @@
-// What the popup and the service worker say to each other.
+// What the extension's own pages (popup, options, links page) and the
+// service worker say to each other.
+import { parseFilters, normalizeSitePattern, validFilters, type CaptureFilters } from "./filters";
 import type { TaskStatus } from "./protocol";
 import type { BridgeStatus, Outcome } from "./status";
+import { webUrl } from "./url";
 
-export type PopupRequest = { kind: "status" } | { kind: "tasks" } | { kind: "set_notify"; enabled: boolean };
+export type PopupRequest =
+  | { kind: "status" }
+  | { kind: "tasks" }
+  | { kind: "ping" }
+  | { kind: "get_settings" }
+  | { kind: "set_notify"; enabled: boolean }
+  | { kind: "save_filters"; filters: CaptureFilters }
+  /** Adds or removes one exact entry of the excluded sites. */
+  | { kind: "set_site_paused"; site: string; paused: boolean }
+  /** Collect the links of this tab and open the links page; needs `activeTab` for it. */
+  | { kind: "collect_links"; tabId: number }
+  /** One link from the links page, sent as if it had been clicked on `pageUrl`. */
+  | { kind: "send_link"; url: string; pageUrl?: string };
 
-export function parsePopupRequest(value: unknown): PopupRequest | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
-  const keys = Object.keys(v).length;
-  if ((v.kind === "status" || v.kind === "tasks") && keys === 1) return { kind: v.kind };
-  if (v.kind === "set_notify" && typeof v.enabled === "boolean" && keys === 2) {
-    return { kind: "set_notify", enabled: v.enabled };
-  }
-  return null;
+const SIMPLE_KINDS = ["status", "tasks", "ping", "get_settings"] as const;
+
+function hasKeys(v: Record<string, unknown>, ...keys: string[]): boolean {
+  const own = Object.keys(v);
+  return own.length === keys.length && keys.every((k) => own.includes(k));
 }
 
-/** Stored in `storage.local`. */
-export interface Settings {
+function isWebUrl(value: unknown): value is string {
+  return typeof value === "string" && webUrl(value) !== null;
+}
+
+/**
+ * Exact shapes only: an unknown kind, a missing or extra field, or a value
+ * of the wrong type makes the whole request invalid.
+ */
+export function parsePopupRequest(value: unknown): PopupRequest | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  const simple = SIMPLE_KINDS.find((k) => k === v.kind);
+  if (simple) return hasKeys(v, "kind") ? { kind: simple } : null;
+  switch (v.kind) {
+    case "set_notify":
+      return hasKeys(v, "kind", "enabled") && typeof v.enabled === "boolean"
+        ? { kind: "set_notify", enabled: v.enabled }
+        : null;
+    case "save_filters": {
+      const filters = hasKeys(v, "kind", "filters") ? validFilters(v.filters) : null;
+      return filters ? { kind: "save_filters", filters } : null;
+    }
+    case "set_site_paused": {
+      if (!hasKeys(v, "kind", "site", "paused") || typeof v.site !== "string" || typeof v.paused !== "boolean") {
+        return null;
+      }
+      return normalizeSitePattern(v.site) === v.site ? { kind: "set_site_paused", site: v.site, paused: v.paused } : null;
+    }
+    case "collect_links":
+      return hasKeys(v, "kind", "tabId") && Number.isSafeInteger(v.tabId) && (v.tabId as number) >= 0
+        ? { kind: "collect_links", tabId: v.tabId as number }
+        : null;
+    case "send_link": {
+      if (!isWebUrl(v.url)) return null;
+      if (hasKeys(v, "kind", "url")) return { kind: "send_link", url: v.url };
+      return hasKeys(v, "kind", "url", "pageUrl") && isWebUrl(v.pageUrl)
+        ? { kind: "send_link", url: v.url, pageUrl: v.pageUrl }
+        : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** Stored in `storage.local` under one key. */
+export interface Settings extends CaptureFilters {
   /** Show a notification when a download is handed over, or could not be. */
   notify: boolean;
 }
 
+/**
+ * Anything stored, including settings from before the capture filters
+ * existed (`{ notify }` only): missing or malformed fields get defaults.
+ */
 export function parseSettings(value: unknown): Settings {
   const v = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-  return { notify: v.notify !== false };
+  return { notify: v.notify !== false, ...parseFilters(v) };
+}
+
+export function isSettings(value: unknown): value is Settings {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.notify === "boolean" && validFilters({
+    captureAll: v.captureAll,
+    captureTypes: v.captureTypes,
+    excludedSites: v.excludedSites,
+    minSizeBytes: v.minSizeBytes,
+  }) !== null;
+}
+
+/** The answer to `send_link`. */
+export interface LinkResult {
+  outcome: Outcome;
+  message: string;
+  fileName?: string;
+  taskId?: string;
+  /** The bridge or the app is down: the remaining links would fail too. */
+  stop: boolean;
+}
+
+export function isLinkResult(value: unknown): value is LinkResult {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    (v.outcome === "added" || v.outcome === "duplicate" || v.outcome === "failed") &&
+    typeof v.message === "string" &&
+    typeof v.stop === "boolean" &&
+    (v.fileName === undefined || typeof v.fileName === "string") &&
+    (v.taskId === undefined || typeof v.taskId === "string")
+  );
+}
+
+/** The answer to `ping`. */
+export interface PingReply {
+  bridge: BridgeStatus;
 }
 
 export interface Activity {
@@ -44,6 +141,8 @@ export interface StatusReply {
   /** The `downloads` permission is granted, so browser downloads are captured. */
   capture: boolean;
   notify: boolean;
+  /** For the popup's "Pause capture on this site". */
+  excludedSites: string[];
   activity: Activity[];
   /** Live state of the downloads in `activity`, when the app could be asked. */
   tasks: TaskStatus[];

@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Downpipe</title>
+    <link rel="stylesheet" href="base.css" />
     <link rel="stylesheet" href="popup.css" />
     <script src="popup.js" defer></script>
   </head>
@@ -38,21 +39,31 @@
     </section>
 
     <section class="block" aria-labelledby="downloads-heading">
-      <h2 class="eyebrow" id="downloads-heading">Downloads</h2>
+      <div class="block-head">
+        <h2 class="eyebrow" id="downloads-heading">Downloads</h2>
+        <button type="button" class="link" id="page-links" hidden>Links on this page…</button>
+      </div>
       <ul class="activity" id="activity" aria-live="polite"></ul>
       <p class="empty" id="activity-empty">Right-click a link and choose Download with Downpipe.</p>
     </section>
 
     <section class="block">
-      <label class="switch-row" for="capture">
-        <span class="switch-text">
-          <span class="row-title">Capture browser downloads</span>
-          <span class="row-detail"
-            >The browser keeps them when Downpipe is closed.</span
-          >
-        </span>
-        <input type="checkbox" role="switch" class="switch" id="capture" />
-      </label>
+      <div class="capture">
+        <label class="switch-row" for="capture">
+          <span class="switch-text">
+            <span class="row-title">Capture browser downloads</span>
+            <span class="row-detail"
+              >The browser keeps them when Downpipe is closed.</span
+            >
+          </span>
+          <input type="checkbox" role="switch" class="switch" id="capture" />
+        </label>
+        <div class="capture-links">
+          <button type="button" class="link" id="filters">Capture filters</button>
+          <button type="button" class="link site-action" id="site-action" hidden></button>
+          <span class="site-note" id="site-note" hidden></span>
+        </div>
+      </div>
       <label class="switch-row" for="notify">
         <span class="switch-text">
           <span class="row-title">Notifications</span>

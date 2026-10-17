@@ -1,10 +1,10 @@
 // App frame: header, filter bar, status bar, empty state and toasts.
-import { Moon, Pause, Play, Plus, Settings as SettingsIcon, Sun, X } from "lucide-react";
+import { Download, Moon, Pause, Play, Plus, Search, Settings as SettingsIcon, Sun, X } from "lucide-react";
 
-import type { Settings } from "../lib/api";
+import type { Settings, WhenDone } from "../lib/api";
 import { formatSpeed } from "../lib/format";
 import { FILTERS, type Filter } from "../lib/tasks";
-import { Button, IconButton } from "./primitives";
+import { Button, Dialog, IconButton } from "./primitives";
 
 export function Logo() {
   return (
@@ -73,16 +73,35 @@ export function FilterBar({
   onFilter,
   onClearFinished,
   canClear,
+  query,
+  onQuery,
+  category,
+  categories,
+  onCategory,
+  sortIsDefault,
+  onResetSort,
+  onExport,
+  canExport,
 }: {
   filter: Filter;
   counts: Record<Filter, number>;
   onFilter: (f: Filter) => void;
   onClearFinished: () => void;
   canClear: boolean;
+  query: string;
+  onQuery: (q: string) => void;
+  /** "" = all categories, "-" = none. */
+  category: string;
+  categories: string[];
+  onCategory: (c: string) => void;
+  sortIsDefault: boolean;
+  onResetSort: () => void;
+  onExport: () => void;
+  canExport: boolean;
 }) {
   return (
-    <div className="scrollbar-none flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-4 py-2">
-      <div role="tablist" aria-label="Filter downloads" className="flex items-center gap-1">
+    <div className="flex shrink-0 flex-wrap items-center gap-x-1 gap-y-2 border-b border-line px-4 py-2">
+      <div role="tablist" aria-label="Filter downloads" className="scrollbar-none flex max-w-full min-w-0 items-center gap-1 overflow-x-auto">
         {FILTERS.map(({ id, label }) => {
           const active = filter === id;
           return (
@@ -102,23 +121,140 @@ export function FilterBar({
           );
         })}
       </div>
-      <Button size="sm" variant="ghost" className="ml-auto" onClick={onClearFinished} disabled={!canClear}>
-        Clear finished
-      </Button>
+      <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:flex-none">
+        <label className="relative min-w-0 flex-1 sm:w-56 sm:flex-none">
+          <span className="sr-only">Search downloads</span>
+          <Search size={14} strokeWidth={1.75} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => onQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onQuery("");
+            }}
+            placeholder="Search"
+            spellCheck={false}
+            className="h-8 w-full rounded-md border border-line-strong bg-canvas pr-2 pl-8 text-[13px] text-ink placeholder:text-ink-muted transition-colors duration-150 focus:border-primary"
+          />
+        </label>
+        {categories.length > 0 && (
+          <select
+            aria-label="Category"
+            value={category}
+            onChange={(e) => onCategory(e.target.value)}
+            className="h-8 max-w-36 rounded-md border border-line-strong bg-canvas px-2 text-[13px] text-ink transition-colors duration-150 focus:border-primary"
+          >
+            <option value="">All types</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+            <option value="-">Uncategorized</option>
+          </select>
+        )}
+        {!sortIsDefault && (
+          <Button size="sm" variant="ghost" onClick={onResetSort} title="Sort by date added, newest first">
+            Newest first
+          </Button>
+        )}
+        <IconButton label="Save all links to a text file" onClick={onExport} disabled={!canExport}>
+          <Download size={16} strokeWidth={1.75} />
+        </IconButton>
+        <Button size="sm" variant="ghost" onClick={onClearFinished} disabled={!canClear}>
+          Clear finished
+        </Button>
+      </div>
     </div>
   );
 }
 
-export function StatusBar({ speed, active, queued, settings }: { speed: number; active: number; queued: number; settings: Settings | null }) {
+const WHEN_DONE_LABELS: Record<WhenDone, string> = {
+  nothing: "Do nothing",
+  quit: "Quit Downpipe",
+  sleep: "Sleep",
+  shutdown: "Shut down",
+};
+
+export function WhenDoneSelect({ value, onChange }: { value: WhenDone; onChange: (w: WhenDone) => void }) {
+  return (
+    <label className={`inline-flex shrink-0 items-center gap-1.5 ${value === "nothing" ? "" : "text-primary"}`}>
+      <span className="max-sm:sr-only">when done</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as WhenDone)}
+        className="h-6 rounded-sm border border-line bg-canvas px-1 font-mono text-[12px] text-ink focus:border-primary"
+      >
+        {(Object.keys(WHEN_DONE_LABELS) as WhenDone[]).map((w) => (
+          <option key={w} value={w}>
+            {WHEN_DONE_LABELS[w]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function WhenDoneDialog({
+  action,
+  secondsLeft,
+  onCancel,
+  onNow,
+}: {
+  action: WhenDone;
+  secondsLeft: number;
+  onCancel: () => void;
+  onNow: () => void;
+}) {
+  const what = action === "shutdown" ? "shut down this computer" : action === "sleep" ? "put this computer to sleep" : "quit";
+  return (
+    <Dialog
+      eyebrow="All downloads finished"
+      title={`Downpipe will ${what}`}
+      onClose={onCancel}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onNow}>
+            Do it now
+          </Button>
+          <Button variant="primary" onClick={onCancel}>
+            Cancel
+          </Button>
+        </>
+      }
+    >
+      <p className="text-[15px] text-ink-secondary">
+        In <span className="num font-mono text-ink">{secondsLeft}</span> seconds. Cancel to keep everything as it is; the choice resets to Do nothing.
+      </p>
+    </Dialog>
+  );
+}
+
+export function StatusBar({
+  speed,
+  active,
+  queued,
+  settings,
+  whenDone,
+  onWhenDone,
+}: {
+  speed: number;
+  active: number;
+  queued: number;
+  settings: Settings | null;
+  whenDone: WhenDone;
+  onWhenDone: (w: WhenDone) => void;
+}) {
   return (
     <footer className="flex h-8 shrink-0 items-center gap-4 overflow-hidden border-t border-line bg-surface px-4 font-mono text-[12px] text-ink-muted">
       <span className="num shrink-0">
         <span className="text-ink-secondary">{active}</span> downloading
       </span>
-      <span className="num shrink-0">
+      <span className="num shrink-0 max-sm:hidden">
         <span className="text-ink-secondary">{queued}</span> queued
       </span>
       <span className="num shrink-0 text-ink-secondary">{speed > 0 ? formatSpeed(speed) : "idle"}</span>
+      <WhenDoneSelect value={whenDone} onChange={onWhenDone} />
       {settings && (
         <span className="ml-auto hidden truncate sm:inline">
           {settings.speed_limit > 0 ? `limit ${formatSpeed(settings.speed_limit)}` : "no speed limit"} · {settings.max_concurrent_downloads} at a time ·{" "}

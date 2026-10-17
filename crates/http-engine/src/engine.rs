@@ -227,6 +227,8 @@ enum Opened {
     Ready(Box<Session>),
     /// The resume data no longer matches the server; start over.
     Changed(String),
+    /// The partial file on disk is unusable; start over.
+    Gone(String),
     Stopped,
 }
 
@@ -294,18 +296,28 @@ impl Job {
         if let Some((final_path, meta)) = self.find_resume(url).await {
             match self.open_resume(url, headers, final_path, meta).await? {
                 Opened::Ready(s) => session = Some(s),
-                Opened::Changed(why) => {
+                // A refreshed link must lead to the same file; starting over
+                // would throw away the data the user asked to keep.
+                Opened::Changed(why) if self.req.relink => {
+                    self.current = None;
+                    return Err(DownloadError::DifferentFile(why));
+                }
+                Opened::Changed(why) | Opened::Gone(why) => {
                     self.notice(format!("Could not resume ({why}); starting over"));
                     self.discard_current().await;
                 }
-                Opened::Stopped => return Ok(self.stopped_outcome(None).await),
+                // Paused before the server answered: the data from earlier
+                // sessions is untouched and must survive.
+                Opened::Stopped => return Ok(self.stopped_while_resuming().await),
             }
         }
         let mut session = match session {
             Some(s) => s,
             None => match self.open_fresh(url, headers).await? {
                 Opened::Ready(s) => s,
-                Opened::Changed(why) => return Err(DownloadError::ResourceChanged(why)),
+                Opened::Changed(why) | Opened::Gone(why) => {
+                    return Err(DownloadError::ResourceChanged(why));
+                }
                 Opened::Stopped => return Ok(self.stopped_outcome(None).await),
             },
         };
@@ -336,11 +348,14 @@ impl Job {
         let key = http::redact_url(url);
         let dir = self.req.output_dir.clone();
         let wanted = self.req.file_name.as_deref().map(filename::sanitize);
+        let relink = self.req.relink;
         tokio::task::spawn_blocking(move || match wanted {
             Some(name) => {
                 let path = dir.join(name);
                 let meta = meta::load(&meta::meta_path(&path)).ok()?;
-                (meta.url == key).then_some((path, meta))
+                // A refreshed link is allowed to differ; open_resume then
+                // proves it is still the same file.
+                (relink || meta.url == key).then_some((path, meta))
             }
             None => meta::find_for_url(&dir, &key),
         })
@@ -500,7 +515,7 @@ impl Job {
             match blocking(move || PartFile::open_existing(&path, total)).await {
                 Ok(part) => Arc::new(part),
                 Err(_) => {
-                    return Ok(Opened::Changed(
+                    return Ok(Opened::Gone(
                         "the partial file is missing or truncated".into(),
                     ));
                 }
@@ -576,6 +591,18 @@ impl Job {
                 Some((resp, a))
             }
         };
+
+        let mut meta = meta;
+        if self.req.relink {
+            // Proven to be the same file: from now on the resume data belongs
+            // to the new link, so later resumes need no special handling.
+            meta.url = http::redact_url(url);
+            meta.final_url = http::redact_url(&work_url);
+            meta.touch();
+            let path = meta::meta_path(&final_path);
+            let saved = meta.clone();
+            blocking(move || meta::save(&path, &saved)).await?;
+        }
 
         Ok(Opened::Ready(Box::new(Session {
             final_path,
@@ -1035,6 +1062,21 @@ impl Job {
             downloaded: if resumable { progress.downloaded } else { 0 },
             total,
             resumable,
+        }
+    }
+
+    async fn stopped_while_resuming(&mut self) -> Outcome {
+        if self.control.cancel.load(Ordering::SeqCst) {
+            self.discard_current().await;
+            return Outcome::Canceled;
+        }
+        self.current = None;
+        let progress = self.tx.borrow().clone();
+        Outcome::Paused {
+            path: progress.path,
+            downloaded: progress.downloaded,
+            total: progress.total,
+            resumable: true,
         }
     }
 

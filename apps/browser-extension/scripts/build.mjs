@@ -3,7 +3,7 @@
 // Firefox's event page then load it the same way, without module support.
 import { createRequire } from "node:module";
 import { copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
@@ -15,6 +15,15 @@ const TARGETS = {
   chrome: "chrome120",
   firefox: "firefox128",
 };
+
+// Extension pages: [html, page-specific css] next to src/ui/base.css (and
+// page.css for the full-tab pages).
+const PAGES = [
+  ["src/popup/popup.html", "src/popup/popup.css"],
+  ["src/options/options.html", "src/options/options.css"],
+  ["src/links/links.html", "src/links/links.css"],
+];
+const SHARED_CSS = ["src/ui/base.css", "src/ui/page.css"];
 
 const FONTS = [
   ["@fontsource/dm-sans", "dm-sans-latin-400-normal.woff2"],
@@ -30,7 +39,12 @@ for (const [target, esTarget] of Object.entries(TARGETS)) {
 
   await build({
     absWorkingDir: root,
-    entryPoints: { background: "src/background.ts", popup: "src/popup/popup.ts" },
+    entryPoints: {
+      background: "src/background.ts",
+      popup: "src/popup/popup.ts",
+      options: "src/options/options.ts",
+      links: "src/links/links.ts",
+    },
     outdir: out,
     bundle: true,
     format: "iife",
@@ -39,8 +53,9 @@ for (const [target, esTarget] of Object.entries(TARGETS)) {
     logLevel: "warning",
   });
 
-  await copyFile(join(root, "src/popup/popup.html"), join(out, "popup.html"));
-  await copyFile(join(root, "src/popup/popup.css"), join(out, "popup.css"));
+  for (const file of [...PAGES.flat(), ...SHARED_CSS]) {
+    await copyFile(join(root, file), join(out, basename(file)));
+  }
   await cp(join(root, "public/icons"), join(out, "icons"), { recursive: true });
   for (const [pkgName, file] of FONTS) {
     const dir = dirname(require.resolve(`${pkgName}/package.json`));

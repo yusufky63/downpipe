@@ -74,6 +74,19 @@ export function downloadOutcome(result: HostResult): {
   return { outcome: "failed", message: FAILURE_TEXT.bad_response };
 }
 
+// Codes after which the next link would fail the same way.
+const BRIDGE_DOWN_CODES = new Set(["app_not_running", "app_unavailable", "version_mismatch", "unsupported_version"]);
+
+/**
+ * True when the bridge or the app itself is the problem, not this one link.
+ * Sending a page's links stops there instead of failing each of them,
+ * possibly after a timeout each.
+ */
+export function bridgeDown(result: HostResult): boolean {
+  if (!result.ok) return true;
+  return result.response.type === "error" && BRIDGE_DOWN_CODES.has(result.response.code);
+}
+
 /** For a captured download the browser kept because Downpipe could not take it. */
 export function keptMessage(result: HostResult): string {
   const closed = result.ok && result.response.type === "error" && result.response.code === "app_not_running";

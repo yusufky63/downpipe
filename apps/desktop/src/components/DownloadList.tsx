@@ -1,8 +1,9 @@
-import { FolderOpen, Pause, Play, RotateCw, Trash2 } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import { ArrowDown, ArrowUp, FolderOpen, Pause, Play, RotateCw, Trash2 } from "lucide-react";
+import type { DragEvent, KeyboardEvent } from "react";
 
 import type { Task } from "../lib/api";
 import { formatBytes, formatDuration, formatSpeed, hostOf, percent, sentence } from "../lib/format";
+import type { Sort, SortKey } from "../lib/sort";
 import { canPause, canResume, displayName, isRunning, stateInfo } from "../lib/tasks";
 import { Badge, IconButton } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
@@ -20,27 +21,34 @@ export interface RowActions {
   onReveal: (id: string) => void;
   onRemove: (id: string) => void;
   onOpen: (id: string) => void;
+  /** Start dragging a finished file out of the window. */
+  onDragOut: (id: string) => void;
 }
 
-export function DownloadList({ tasks, selectedId, actions }: { tasks: Task[]; selectedId: string | null; actions: RowActions }) {
+export function DownloadList({
+  tasks,
+  selectedId,
+  actions,
+  sort,
+  onSort,
+}: {
+  tasks: Task[];
+  selectedId: string | null;
+  actions: RowActions;
+  sort: Sort;
+  onSort: (key: SortKey) => void;
+}) {
+  const header = (key: SortKey, label: string, className: string, align: "left" | "right" = "left") => (
+    <SortHeader sortKey={key} label={label} sort={sort} onSort={onSort} className={className} align={align} />
+  );
   return (
     <div role="table" aria-label="Downloads" className="min-w-0">
-      <div role="row" className={`${COLUMNS} sticky top-0 z-20 border-b border-line bg-canvas px-4 py-2`}>
-        <span role="columnheader" className="label">
-          Name
-        </span>
-        <span role="columnheader" className="label hidden text-right md:block">
-          Size
-        </span>
-        <span role="columnheader" className="label hidden md:block">
-          Progress
-        </span>
-        <span role="columnheader" className="label hidden text-right md:block">
-          Speed
-        </span>
-        <span role="columnheader" className="label hidden text-right lg:block">
-          Left
-        </span>
+      <div role="row" className={`${COLUMNS} sticky top-0 z-20 border-b border-line bg-canvas px-4 py-1.5`}>
+        {header("name", "Name", "")}
+        {header("size", "Size", "hidden md:flex", "right")}
+        {header("progress", "Progress", "hidden md:flex")}
+        {header("speed", "Speed", "hidden md:flex", "right")}
+        {header("left", "Left", "hidden lg:flex", "right")}
         <span role="columnheader" className="label text-right">
           <span className="sr-only">Actions</span>
         </span>
@@ -54,13 +62,57 @@ export function DownloadList({ tasks, selectedId, actions }: { tasks: Task[]; se
   );
 }
 
+function SortHeader({
+  sortKey,
+  label,
+  sort,
+  onSort,
+  className,
+  align,
+}: {
+  sortKey: SortKey;
+  label: string;
+  sort: Sort;
+  onSort: (key: SortKey) => void;
+  className: string;
+  align: "left" | "right";
+}) {
+  const active = sort.key === sortKey;
+  const Arrow = sort.dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <span
+      role="columnheader"
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+      className={`${className} ${align === "right" ? "justify-end" : ""}`}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`label -mx-1 inline-flex h-7 items-center gap-1 rounded-sm px-1 transition-colors duration-150 hover:text-ink ${active ? "text-ink" : ""}`}
+      >
+        {label}
+        {active && <Arrow size={12} strokeWidth={2} aria-hidden="true" />}
+      </button>
+    </span>
+  );
+}
+
 function DownloadRow({ task, selected, actions }: { task: Task; selected: boolean; actions: RowActions }) {
   const info = stateInfo(task);
   const pct = percent(task.downloaded, task.total);
   const running = isRunning(task.state);
   const barTone = task.state === "completed" ? "positive" : task.state === "failed" ? "danger" : running ? "primary" : "neutral";
   const sizeText = task.total !== null ? formatBytes(task.total) : task.downloaded > 0 ? formatBytes(task.downloaded) : "–";
-  const detail = task.state === "failed" && task.error ? sentence(task.error) : hostOf(task.url);
+  const detail =
+    task.state === "failed" && task.error ? sentence(task.error) : [hostOf(task.url), task.category].filter(Boolean).join(" · ");
+  const done = task.state === "completed";
+
+  // A native drag needs the mouse button still down, so it starts from the
+  // HTML drag event and hands over to the system right away.
+  const onDragStart = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    actions.onDragOut(task.id);
+  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
@@ -76,6 +128,9 @@ function DownloadRow({ task, selected, actions }: { task: Task; selected: boolea
       tabIndex={0}
       aria-selected={selected}
       aria-label={`${displayName(task)}, ${info.label}. Open details`}
+      title={done ? "Drag the file into another app, or click for details" : undefined}
+      draggable={done}
+      onDragStart={done ? onDragStart : undefined}
       onClick={() => actions.onSelect(task.id)}
       onKeyDown={onKeyDown}
       className={`${COLUMNS} rail cursor-pointer px-4 py-3 ${selected ? "rail-active bg-surface" : "hover:bg-surface"}`}

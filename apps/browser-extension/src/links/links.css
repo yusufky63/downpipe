@@ -1,0 +1,214 @@
+/* Links page. base.css and page.css come first. */
+
+:root {
+  --frame: 960px;
+}
+
+.page-url {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.bridge {
+  display: grid;
+  gap: 12px;
+}
+
+/* ---------- Tools ---------- */
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.tools .input {
+  flex: 1 1 240px;
+}
+.tools-switch {
+  flex: none;
+  align-items: center;
+  gap: 12px;
+}
+.tools-switch .switch {
+  margin: 0;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.chips:empty {
+  display: none;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.chip:hover {
+  border-color: var(--border-strong);
+}
+.chip[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.chip-count {
+  color: var(--text-muted);
+}
+.chip[aria-pressed="true"] .chip-count {
+  color: inherit;
+}
+
+.list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.select-actions {
+  display: flex;
+  gap: 16px;
+}
+
+/* ---------- Rows ---------- */
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rows:empty {
+  display: none;
+}
+.row {
+  border-top: 1px solid var(--border);
+  /* Long pages: let the browser skip rows that are off screen. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 61px;
+}
+.row:first-child {
+  border-top: 0;
+}
+.row[data-tone="primary"] {
+  --tone: var(--primary);
+  --tone-soft: var(--primary-soft);
+}
+.row[data-tone="positive"] {
+  --tone: var(--positive-fg);
+  --tone-soft: var(--positive-soft);
+}
+.row[data-tone="danger"] {
+  --tone: var(--danger-fg);
+  --tone-soft: var(--danger-soft);
+}
+.row-label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  align-items: center;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+.row-label:hover {
+  background: var(--surface);
+}
+.check {
+  appearance: none;
+  grid-row: 1 / span 2;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.check:checked {
+  border-color: var(--primary-fill);
+  background: var(--primary-fill);
+}
+/* A check mark drawn with two borders, so no icon file is needed. */
+.check:checked::after {
+  content: "";
+  display: block;
+  width: 5px;
+  height: 9px;
+  margin: 1px 0 0 4.5px;
+  border: solid var(--primary-contrast);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.check:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.row-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.row-url {
+  grid-column: 2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.row-note {
+  grid-column: 2;
+  font-size: 13px;
+  color: var(--danger-fg);
+}
+.row-tags {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The type stays neutral whatever happened to the link. */
+.row-ext {
+  --tone: var(--text-secondary);
+  --tone-soft: var(--surface-muted);
+  text-transform: none;
+}
+
+.empty {
+  padding: 24px 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}

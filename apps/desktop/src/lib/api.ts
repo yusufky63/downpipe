@@ -34,6 +34,10 @@ export interface Task {
   error_kind: string | null;
   checksum: string | null;
   max_connections: number | null;
+  /** Category the file was sorted into. */
+  category: string | null;
+  /** Downpipe picked the folder (it may move the file into its category). */
+  auto_dir: boolean;
   created_at: number;
   updated_at: number;
   completed_at: number | null;
@@ -54,6 +58,42 @@ export interface Settings {
   speed_limit: number;
   /** Re-register the browser bridge for this user at every start. */
   register_browser_host: boolean;
+  notify_on_finish: boolean;
+  close_to_tray: boolean;
+  start_with_system: boolean;
+  /** Empty: the system proxy. */
+  proxy: string;
+  /** Empty: Downpipe's own. */
+  user_agent: string;
+  use_categories: boolean;
+  categories: Category[];
+  schedule: Schedule;
+}
+
+export interface Category {
+  name: string;
+  /** Lower case, no dots. */
+  extensions: string[];
+  /** Empty: a folder named after the category inside the download folder. */
+  folder: string;
+}
+
+export interface Schedule {
+  enabled: boolean;
+  /** HH:MM */
+  start: string;
+  /** HH:MM or empty */
+  stop: string;
+  /** Monday first. */
+  days: boolean[];
+}
+
+export type WhenDone = "nothing" | "quit" | "sleep" | "shutdown";
+
+export interface WhenDoneView {
+  action: WhenDone;
+  /** Set while counting down to the action. */
+  seconds_left: number | null;
 }
 
 export type BridgeBrowser = "chrome" | "edge" | "chromium" | "firefox";
@@ -111,7 +151,18 @@ export const api = {
   pickFolder: (initial: string | null) => invoke<string | null>("pick_folder", { initial }),
   reveal: (id: string) => invoke<null>("reveal_download", { id }),
   open: (id: string) => invoke<null>("open_download", { id }),
+  changeUrl: (id: string, url: string) => invoke<null>("change_download_url", { id, url }),
+  /** Number of links written, or null when the save dialog was closed. */
+  exportLinks: () => invoke<number | null>("export_downloads"),
+  startDrag: (id: string) => invoke<null>("start_drag", { id }),
+  whenDone: () => invoke<WhenDoneView>("get_when_done"),
+  setWhenDone: (action: WhenDone) => invoke<WhenDoneView>("set_when_done", { action }),
+  whenDoneNow: () => invoke<null>("when_done_now"),
 };
+
+export function onWhenDone(cb: (view: WhenDoneView) => void): Promise<UnlistenFn> {
+  return listen<WhenDoneView>("downpipe://when-done", (e) => cb(e.payload));
+}
 
 export function onManagerEvent(cb: (event: ManagerEvent) => void): Promise<UnlistenFn> {
   return listen<ManagerEvent>("downpipe://event", (e) => cb(e.payload));

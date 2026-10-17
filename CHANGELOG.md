@@ -2,6 +2,33 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
+## 0.3.0 — unreleased
+
+The IDM features that save the most time day to day.
+
+### New
+
+- System notification when a download completes or fails while the window is in the background (Settings → App).
+- Tray icon with Show, Pause all, Resume all and Quit. Closing the window keeps Downpipe running in the tray, so the browser extension can still hand downloads over. Optional start at sign-in, straight to the tray.
+- Search box and sortable Name, Size, Progress, Speed and Left columns; the sort is remembered.
+- Drag links or a `.txt` list onto the window to add them, expand patterns such as `file[001-100].zip` or `part[a-f].rar` (up to 1000 links), import a list from a file, and save every link in the list to a text file. Finished downloads can be dragged out of the list into other apps.
+- Proxy (`http://`, `https://`, `socks5://`) and user agent settings; downloads started after saving use them.
+- Categories: new downloads are sorted into Compressed, Documents, Music, Video, Programs and Disk images folders by file type, and a finished file moves to its real type's folder when the server's name differs from the link. Categories are editable and can be switched off; folders picked by hand are never changed. A type filter next to the search box.
+- **Use a new link…** in the details of a paused or failed download, for links that expired. The download continues only if the new link serves the same file (size and ETag); otherwise it fails with "different file" and keeps the partial data.
+- Schedule: resume paused and failed downloads at a start time and pause everything at a stop time, on chosen weekdays.
+- "When done" in the status bar: quit Downpipe, sleep or shut down once all downloads finish, after a 60-second countdown that can be cancelled or skipped.
+- Capture filters in the browser extension (its options page, opened from **Capture filters** in the popup): capture only listed file types (an IDM-like default list of archives, programs, disk images, documents, audio and video, or **Capture all file types**), never capture on excluded sites (`example.com`, `*.example.com`, checked against the download, its redirect target and the page it came from), and leave files under a minimum size to the browser. **Pause capture on this site** in the popup excludes the current site in one click.
+- **Download links on this page with Downpipe…** in the page context menu (and **Download selected links…** for a text selection), or **Links on this page…** in the popup, lists the page's http(s) links in a new tab with a text filter, file type chips, **Hide web pages**, select all or none, and sends the chosen links to Downpipe with a result for each. Nothing is sent while Downpipe is not running.
+- The extension asks for `activeTab` and `scripting` for this: it reads a page only when you choose the menu item or open the popup on it, once, without content scripts or host permissions.
+
+### Changed
+
+- Download capture takes the default file types only, unless **Capture all file types** is switched on.
+
+### Fixed
+
+- Pausing a download in the moment it was resuming (before the server answered) deleted the partial file from earlier sessions. It is now kept.
+
 ## 0.2.0 — unreleased
 
 Second milestone: a link clicked in the browser downloads in the desktop app.

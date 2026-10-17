@@ -43,6 +43,8 @@ pub enum CoreError {
     },
     #[error("invalid URL: {0}")]
     InvalidUrl(String),
+    #[error("invalid setting: {0}")]
+    InvalidSetting(String),
 }
 
 impl CoreError {
@@ -53,6 +55,7 @@ impl CoreError {
             Self::NotFound(_) => "not_found",
             Self::InvalidState { .. } => "invalid_state",
             Self::InvalidUrl(_) => "invalid_url",
+            Self::InvalidSetting(_) => "invalid_setting",
             Self::Download(e) => e.kind(),
             Self::Store(_) | Self::Io(_) => "internal",
         }
@@ -75,7 +78,11 @@ pub struct Manager {
 
 #[derive(Debug)]
 struct Inner {
-    engine: Engine,
+    /// Rebuilt when the proxy or user agent changes; downloads already
+    /// running keep the engine (and connections) they started with.
+    engine: Mutex<Engine>,
+    base_config: EngineConfig,
+    limiter: Arc<RateLimiter>,
     /// UI frameworks call into the manager from threads that are not part of
     /// any Tokio runtime (Tauri runs sync commands on the main thread), so
     /// downloads are always spawned on the runtime the manager was opened on.
@@ -104,6 +111,9 @@ struct Entry {
     supervisor: Option<JoinHandle<()>>,
     after_stop: AfterStop,
     last_persist: Instant,
+    /// The URL was replaced by the user; the next start must prove the
+    /// server still has the same file before resuming.
+    relink: bool,
 }
 
 /// What a stop request should turn into once the engine has stopped.
@@ -133,7 +143,7 @@ impl Manager {
         .map_err(|e| CoreError::Io(std::io::Error::other(e)))??;
 
         let limiter = Arc::new(RateLimiter::new(settings.speed_limit));
-        let engine = Engine::with_limiter(config, limiter)?;
+        let engine = Engine::with_limiter(engine_config(&config, &settings), limiter.clone())?;
 
         let mut tasks = Vec::with_capacity(records.len());
         for mut record in records {
@@ -153,13 +163,16 @@ impl Manager {
                 supervisor: None,
                 after_stop: AfterStop::Pause,
                 last_persist: Instant::now(),
+                relink: false,
             });
         }
 
         let (events, _) = broadcast::channel(512);
         let manager = Self {
             inner: Arc::new(Inner {
-                engine,
+                engine: Mutex::new(engine),
+                base_config: config,
+                limiter,
                 runtime: tokio::runtime::Handle::current(),
                 state: Mutex::new(State {
                     store,
@@ -196,14 +209,7 @@ impl Manager {
     }
 
     pub fn add(&self, opts: AddOptions) -> Result<TaskSnapshot, CoreError> {
-        let url =
-            url::Url::parse(opts.url.trim()).map_err(|e| CoreError::InvalidUrl(e.to_string()))?;
-        if !matches!(url.scheme(), "http" | "https") {
-            return Err(CoreError::InvalidUrl(format!(
-                "`{}` links are not supported; use http or https",
-                url.scheme()
-            )));
-        }
+        let url = parse_web_url(&opts.url)?;
         let checksum = match opts
             .checksum
             .as_deref()
@@ -226,16 +232,31 @@ impl Manager {
                 return Err(CoreError::Duplicate(dup.record.id.clone()));
             }
             let now = unix_now();
+            let file_name = opts
+                .file_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(filename::sanitize);
+            // The real name is known only once the server answers; the hint
+            // from the URL or the browser is good enough to pick a folder,
+            // and the finished file moves if it turns out to be different.
+            let hint = file_name.clone().or_else(|| filename::from_url(&url));
+            let category = hint
+                .as_deref()
+                .and_then(|name| st.settings.category_for(name))
+                .cloned();
+            let auto_dir = opts.dir.is_none();
+            let dir = match (opts.dir, &category) {
+                (Some(dir), _) => dir,
+                (None, Some(c)) => st.settings.category_dir(c),
+                (None, None) => st.settings.download_dir.clone(),
+            };
             let record = TaskRecord {
                 id: uuid::Uuid::new_v4().to_string(),
                 url: key,
-                dir: opts.dir.unwrap_or_else(|| st.settings.download_dir.clone()),
-                file_name: opts
-                    .file_name
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(filename::sanitize),
+                dir,
+                file_name,
                 path: None,
                 state: if opts.paused {
                     TaskState::Paused
@@ -248,6 +269,8 @@ impl Manager {
                 error_kind: None,
                 checksum,
                 max_connections: opts.max_connections.map(|c| c.clamp(1, 32)),
+                category: category.map(|c| c.name),
+                auto_dir,
                 created_at: now,
                 updated_at: now,
                 completed_at: None,
@@ -262,6 +285,7 @@ impl Manager {
                 supervisor: None,
                 after_stop: AfterStop::Pause,
                 last_persist: Instant::now(),
+                relink: false,
             };
             let snapshot = entry.snapshot();
             st.tasks.push(entry);
@@ -340,6 +364,47 @@ impl Manager {
         })
     }
 
+    /// Give a paused or failed download a new link (IDM's "refresh download
+    /// address") and queue it. The partial data is reused only if the new
+    /// link serves the same file; otherwise the download fails with
+    /// `different_file` and keeps what it has.
+    pub fn change_url(&self, id: &str, new_url: &str) -> Result<(), CoreError> {
+        let url = parse_web_url(new_url)?;
+        let key = downpipe_http::redact_url(&url);
+        let snapshot =
+            {
+                let mut st = self.inner.state.lock();
+                if let Some(dup) = st.tasks.iter().find(|e| {
+                    e.record.id != id && e.record.url == key && !e.record.state.is_finished()
+                }) {
+                    return Err(CoreError::Duplicate(dup.record.id.clone()));
+                }
+                let State { store, tasks, .. } = &mut *st;
+                let entry = tasks
+                    .iter_mut()
+                    .find(|e| e.record.id == id)
+                    .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
+                if entry.control.is_some() || entry.record.state == TaskState::Completed {
+                    return Err(invalid("change the link of", entry.record.state));
+                }
+                entry.url = url.to_string();
+                entry.record.url = key;
+                // Without a file name the engine never started, so there is no
+                // partial data to protect.
+                entry.relink = entry.record.file_name.is_some();
+                entry.record.error = None;
+                entry.record.error_kind = None;
+                entry.set_state(TaskState::Queued);
+                store.upsert(&entry.record)?;
+                entry.snapshot()
+            };
+        self.inner.emit(ManagerEvent::Updated {
+            task: Box::new(snapshot),
+        });
+        self.inner.schedule();
+        Ok(())
+    }
+
     /// Forget a download; with `delete_files`, also delete what it wrote.
     pub fn remove(&self, id: &str, delete_files: bool) -> Result<(), CoreError> {
         let removed = {
@@ -403,12 +468,34 @@ impl Manager {
 
     pub fn update_settings(&self, settings: Settings) -> Result<Settings, CoreError> {
         let settings = settings.normalized();
+        validate_proxy(&settings.proxy)?;
+        if settings.user_agent.chars().any(char::is_control) {
+            return Err(CoreError::InvalidSetting(
+                "the user agent cannot contain control characters".into(),
+            ));
+        }
+        let previous = self.settings();
+        // Build the new client before saving, so a value the HTTP stack
+        // rejects never reaches the catalog.
+        let rebuilt =
+            if previous.proxy != settings.proxy || previous.user_agent != settings.user_agent {
+                let config = engine_config(&self.inner.base_config, &settings);
+                Some(
+                    Engine::with_limiter(config, self.inner.limiter.clone())
+                        .map_err(|e| CoreError::InvalidSetting(e.to_string()))?,
+                )
+            } else {
+                None
+            };
         {
             let mut st = self.inner.state.lock();
             st.store.save_settings(&settings)?;
             st.settings = settings.clone();
         }
-        self.inner.engine.limiter().set_rate(settings.speed_limit);
+        if let Some(engine) = rebuilt {
+            *self.inner.engine.lock() = engine;
+        }
+        self.inner.limiter.set_rate(settings.speed_limit);
         self.inner.emit(ManagerEvent::Settings {
             settings: settings.clone(),
         });
@@ -486,6 +573,7 @@ impl Inner {
             }
             let limit = st.settings.max_concurrent_downloads as usize;
             let per_download = st.settings.max_connections_per_download;
+            let engine = self.engine.lock().clone();
             let mut running = st.tasks.iter().filter(|e| e.control.is_some()).count();
             let State { store, tasks, .. } = &mut *st;
             for entry in tasks.iter_mut() {
@@ -495,7 +583,7 @@ impl Inner {
                 if entry.record.state != TaskState::Queued || entry.control.is_some() {
                     continue;
                 }
-                let handle = self.engine.start(entry.request(per_download));
+                let handle = engine.start(entry.request(per_download));
                 entry.control = Some(handle.control());
                 entry.after_stop = AfterStop::Pause;
                 entry.record.error = None;
@@ -577,7 +665,12 @@ impl Inner {
     fn on_finished(&self, id: &str, result: Result<Outcome, DownloadError>) {
         let event = {
             let mut st = self.state.lock();
-            let State { store, tasks, .. } = &mut *st;
+            let State {
+                store,
+                tasks,
+                settings,
+                ..
+            } = &mut *st;
             let Some(idx) = tasks.iter().position(|e| e.record.id == id) else {
                 return;
             };
@@ -587,6 +680,9 @@ impl Inner {
             entry.live.speed = 0;
             entry.live.connections = 0;
             let after = entry.after_stop;
+            if result.is_ok() {
+                entry.relink = false;
+            }
 
             if after == AfterStop::Remove && !matches!(result, Ok(Outcome::Completed { .. })) {
                 if let Err(e) = store.delete(id) {
@@ -601,6 +697,11 @@ impl Inner {
             let r = &mut entry.record;
             match result {
                 Ok(Outcome::Completed { path, bytes, .. }) => {
+                    let (path, category) = sort_into_category(settings, r, path);
+                    r.category = category;
+                    if let Some(dir) = path.parent() {
+                        r.dir = dir.to_path_buf();
+                    }
                     r.file_name = path.file_name().map(|n| n.to_string_lossy().into_owned());
                     r.path = Some(path);
                     r.total = Some(bytes);
@@ -670,8 +771,93 @@ impl Entry {
         req.checksum = self.record.checksum.as_deref().and_then(|c| c.parse().ok());
         req.headers.clone_from(&self.headers);
         req.max_connections = Some(self.record.max_connections.unwrap_or(per_download) as usize);
+        req.relink = self.relink;
         req
     }
+}
+
+fn parse_web_url(input: &str) -> Result<url::Url, CoreError> {
+    let url = url::Url::parse(input.trim()).map_err(|e| CoreError::InvalidUrl(e.to_string()))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(CoreError::InvalidUrl(format!(
+            "`{}` links are not supported; use http or https",
+            url.scheme()
+        )));
+    }
+    Ok(url)
+}
+
+fn engine_config(base: &EngineConfig, settings: &Settings) -> EngineConfig {
+    let mut config = base.clone();
+    if !settings.proxy.is_empty() {
+        config.proxy = Some(settings.proxy.clone());
+    }
+    if !settings.user_agent.is_empty() {
+        config.user_agent = settings.user_agent.clone();
+    }
+    config
+}
+
+fn validate_proxy(proxy: &str) -> Result<(), CoreError> {
+    if proxy.is_empty() {
+        return Ok(());
+    }
+    let bad = || {
+        CoreError::InvalidSetting(format!(
+            "`{proxy}` is not a proxy address; use http://, https:// or socks5://host:port"
+        ))
+    };
+    let url = url::Url::parse(proxy).map_err(|_| bad())?;
+    let scheme_ok = matches!(url.scheme(), "http" | "https" | "socks5" | "socks5h");
+    if scheme_ok && url.host_str().is_some_and(|h| !h.is_empty()) {
+        Ok(())
+    } else {
+        Err(bad())
+    }
+}
+
+/// Move a finished download whose folder Downpipe picked into the folder of
+/// its real type. The type guessed from the URL can be wrong (a `download?id=`
+/// link that turns out to be an ISO), and only now is the name certain.
+/// Returns the final path and category. A failed move leaves the file where
+/// it is: it is complete either way.
+fn sort_into_category(
+    settings: &Settings,
+    record: &TaskRecord,
+    path: PathBuf,
+) -> (PathBuf, Option<String>) {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let Some(category) = settings.category_for(&name).cloned() else {
+        return (path, None);
+    };
+    if !record.auto_dir {
+        return (path, Some(category.name));
+    }
+    let target = settings.category_dir(&category);
+    if path.parent() == Some(target.as_path()) {
+        return (path, Some(category.name));
+    }
+    match move_into(&path, &target, &name) {
+        Ok(moved) => (moved, Some(category.name)),
+        Err(err) => {
+            tracing::warn!(
+                "could not move {} into {}: {err}",
+                path.display(),
+                target.display()
+            );
+            (path, Some(category.name))
+        }
+    }
+}
+
+fn move_into(path: &Path, dir: &Path, name: &str) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    let dest = filename::unique_path(dir, name);
+    std::fs::rename(path, &dest)?;
+    Ok(dest)
 }
 
 fn invalid(action: &'static str, state: TaskState) -> CoreError {

@@ -1,0 +1,32 @@
+/* Capture filters page. base.css and page.css come first. */
+
+.inline {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.field-actions {
+  display: flex;
+  gap: 16px;
+}
+
+.size-row {
+  display: flex;
+  gap: 8px;
+}
+.size-row #size {
+  width: 128px;
+}
+.size-row #unit {
+  width: 88px;
+}
+
+/* The list is kept, but does nothing while every type is captured. */
+.field[data-off="true"] .field-label,
+.field[data-off="true"] .help {
+  color: var(--text-muted);
+}

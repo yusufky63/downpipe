@@ -53,6 +53,12 @@ The catalog lives in SQLite (`downpipe.db` in the app data folder): one row per 
 
 On start, tasks that were running are put back in the queue and their progress is re-read from the meta files. On a clean shutdown running tasks are paused with a final checkpoint and re-queued, so they continue on the next launch.
 
+**Categories.** When a download is added without a folder, the manager picks one from its category (by the extension of the browser's file name hint or the URL) and marks the record `auto_dir`. When it completes, the real file name is known; if it belongs to another category, the file is renamed into that folder. Records keep the category for filtering. The catalog schema is at version 2 (`category`, `auto_dir`).
+
+**Proxy and user agent** are part of the settings. Changing either builds a new `Engine` (a new connection pool); running downloads keep the one they started with.
+
+**Schedule.** `downpipe_core::schedule` has the pure rules: `due()` decides whether a start or stop time passed between two timer ticks (so a late tick or a computer that slept through the time still acts), and `DoneWatcher` fires once when the number of running and queued downloads drops to zero after having been above zero.
+
 The manager broadcasts `ManagerEvent::{Updated, Removed, Settings}`. The desktop app forwards them to the web view as `downpipe://event`; if the web view falls behind it receives `downpipe://resync` and reloads the list.
 
 Credentials embedded in URLs and custom headers are kept in memory only. The database stores the URL with `user:password@` removed.
@@ -61,7 +67,11 @@ Credentials embedded in URLs and custom headers are kept in memory only. The dat
 
 `apps/desktop/src-tauri` exposes commands (`list_downloads`, `add_download`, `pause_download`, `remove_download`, `update_settings`, `pick_folder`, `reveal_download`, ...). The web view has only Tauri's `core:default` permission: folder pickers and opening files run in Rust, and file actions take a download id rather than a path, so the web view cannot open arbitrary files.
 
-The React UI (`apps/desktop/src`) keeps one array of task snapshots and applies events to it (`lib/tasks.ts`).
+The React UI (`apps/desktop/src`) keeps one array of task snapshots and applies events to it (`lib/tasks.ts`); searching, sorting (`lib/sort.ts`) and link patterns (`lib/patterns.ts`) are pure functions with tests.
+
+The browser extension decides what to capture in `apps/browser-extension/src/lib/filters.ts` (file types, excluded sites, minimum size) before anything reaches the app. Its "links on this page" feature injects one self-contained function (`lib/collect.ts`) with `scripting.executeScript` when the user asks, shows the result on an extension page, and sends each chosen link through the same Native Messaging request as a context-menu click; see [BROWSER_BRIDGE.md](BROWSER_BRIDGE.md).
+
+`src-tauri/src/background.rs` runs beside the window: it forwards events to the web view, shows finish notifications when the window is not in front, keeps the tray tooltip current, applies the schedule every 20 seconds and runs the "when done" countdown. `tray.rs` builds the tray menu; closing the window hides it when `close_to_tray` is on. The window is created hidden and shown in `setup`, except when the sign-in item starts Downpipe with `--hidden`.
 
 ## Browser bridge
 

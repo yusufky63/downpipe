@@ -17,6 +17,8 @@ function task(id: string, patch: Partial<Task> = {}): Task {
     error_kind: null,
     checksum: null,
     max_connections: null,
+    category: null,
+    auto_dir: true,
     created_at: 1,
     updated_at: 1,
     completed_at: null,

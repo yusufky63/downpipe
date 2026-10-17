@@ -60,6 +60,7 @@ pub struct RequestLog {
     pub if_range: Option<String>,
     pub referer: Option<String>,
     pub cookie: Option<String>,
+    pub user_agent: Option<String>,
     pub status: u16,
 }
 
@@ -113,6 +114,7 @@ impl ServerState {
             if_range: get(header::IF_RANGE),
             referer: get(header::REFERER),
             cookie: get(header::COOKIE),
+            user_agent: get(header::USER_AGENT),
             status: status.as_u16(),
         });
     }
@@ -192,6 +194,9 @@ pub fn router(state: Arc<ServerState>) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/file/{size}", get(file))
+        // Same content; the trailing name only gives clients a file name in
+        // the URL (`/file/1000/archive.zip`).
+        .route("/file/{size}/{name}", get(file_named))
         .route("/redirect", get(redirect))
         .with_state(state)
 }
@@ -260,6 +265,18 @@ async fn file(
     headers: HeaderMap,
 ) -> Response {
     let path = format!("/file/{size}");
+    let resp = build_file_response(&state, size, &q, &headers);
+    state.record(&path, &headers, resp.status());
+    resp
+}
+
+async fn file_named(
+    State(state): State<Arc<ServerState>>,
+    Path((size, name)): Path<(u64, String)>,
+    Query(q): Query<FileQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let path = format!("/file/{size}/{name}");
     let resp = build_file_response(&state, size, &q, &headers);
     state.record(&path, &headers, resp.status());
     resp
