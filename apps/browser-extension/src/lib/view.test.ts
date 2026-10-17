@@ -117,6 +117,14 @@ describe("mediaRowView", () => {
     expect(mediaRowView(file, true).detail).toBe("MP4 video · 2.0 KiB · cdn.example.net");
   });
 
+  it("takes the page's name and says how many qualities a master has", () => {
+    expect(mediaRowView({ ...stream, qualities: 3 }, true, "Home / X (2)")).toEqual({
+      label: "Home / X (2)",
+      detail: "HLS · 3 qualities · video.example.net",
+      sendable: true,
+    });
+  });
+
   it("asks for an update when Downpipe cannot take streams", () => {
     expect(mediaRowView(stream, false)).toMatchObject({ sendable: false, detail: "Update Downpipe to download streams" });
     // Files go through the ordinary download message, which every version knows.

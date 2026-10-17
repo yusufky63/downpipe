@@ -1,6 +1,6 @@
 import { ext } from "../lib/browser";
 import { hostOf, matchingSite } from "../lib/filters";
-import { WEB_ORIGINS, type MediaCandidate } from "../lib/media";
+import { WEB_ORIGINS, mediaLabels, type MediaCandidate } from "../lib/media";
 import {
   isMediaReply,
   isSettings,
@@ -65,6 +65,8 @@ let streams = true;
 /** The connected Downpipe takes video pages (YouTube); assumed likewise. */
 let pages = true;
 let mediaItems: MediaCandidate[] = [];
+/** The tab's title, which names the media rows. */
+let mediaTitle: string | undefined;
 /** The tab is a video page the site provider can download. */
 let mediaPage: PageItem | undefined;
 let mediaEnabled = false;
@@ -161,8 +163,8 @@ function activityItem(entry: Activity, now: number): HTMLLIElement {
   return li;
 }
 
-function mediaRow(c: MediaCandidate): HTMLLIElement {
-  const view = mediaRowView(c, streams);
+function mediaRow(c: MediaCandidate, name: string | undefined): HTMLLIElement {
+  const view = mediaRowView(c, streams, name);
   const result = mediaResults.get(c.id);
   const li = document.createElement("li");
   li.className = "item media-item";
@@ -214,13 +216,15 @@ function renderMedia(): void {
     streams,
     pages,
     mediaPage,
-    mediaItems.map((c) => c.id),
+    mediaTitle,
+    mediaItems.map((c) => [c.id, c.qualities]),
     [...mediaResults],
   ]);
   els.media.toggle.checked = mediaEnabled;
   if (drawn === mediaDrawn) return;
   mediaDrawn = drawn;
-  const rows = mediaItems.map(mediaRow);
+  const names = mediaLabels(mediaItems, mediaTitle);
+  const rows = mediaItems.map((c, i) => mediaRow(c, names[i]));
   els.media.list.replaceChildren(...(mediaPage ? [pageRow(mediaPage), ...rows] : rows));
   els.media.empty.textContent = mediaEmptyText(mediaEnabled, mediaExcludedBy);
   // On a video page the page row is the download; "nothing yet" would be wrong.
@@ -235,6 +239,7 @@ async function refreshMedia(): Promise<void> {
   mediaEnabled = reply.enabled;
   mediaExcludedBy = reply.excludedBy;
   mediaItems = reply.items;
+  mediaTitle = reply.title;
   mediaPage = reply.page;
   renderMedia();
   if (mediaEnabled) mediaTimer = setTimeout(() => void refreshMedia(), MEDIA_POLL_MS);
