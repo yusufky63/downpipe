@@ -1,0 +1,9 @@
+{
+  "name": "downpipe",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "desktop": "pnpm --filter @downpipe/desktop tauri dev",
+    "check": "pnpm --filter @downpipe/desktop typecheck && pnpm --filter @downpipe/desktop lint && pnpm --filter @downpipe/desktop test"
+  }
+}

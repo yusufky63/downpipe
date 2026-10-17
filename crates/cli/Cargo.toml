@@ -1,0 +1,28 @@
+[package]
+name = "downpipe-cli"
+description = "Command-line interface for the Downpipe download manager"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "downpipe"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+downpipe-http.workspace = true
+indicatif.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+downpipe-test-server.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

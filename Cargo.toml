@@ -1,0 +1,71 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/http-engine",
+    "crates/core",
+    "crates/cli",
+    "tools/test-server",
+    "apps/desktop/src-tauri",
+]
+# The desktop shell pulls in the whole Tauri/WebView2 stack; keep everyday
+# `cargo test` / `cargo build` fast and opt into it with `--workspace`.
+default-members = [
+    "crates/http-engine",
+    "crates/core",
+    "crates/cli",
+    "tools/test-server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/yusufky63/downpipe"
+authors = ["Downpipe contributors"]
+
+[workspace.dependencies]
+downpipe-http = { path = "crates/http-engine" }
+downpipe-core = { path = "crates/core" }
+downpipe-test-server = { path = "tools/test-server" }
+
+anyhow = "1.0.104"
+axum = "0.8.9"
+bytes = "1.12.1"
+clap = { version = "4.6.7", features = ["derive"] }
+ctrlc = "3.5.2"
+dirs = "7.0.0"
+fastrand = "2.5.0"
+futures-util = "0.3.34"
+hex = "0.4.3"
+httpdate = "1.0.3"
+indicatif = "0.18.6"
+parking_lot = "0.12.5"
+percent-encoding = "2.3.2"
+reqwest = { version = "0.13.5", default-features = false, features = ["default-tls", "system-proxy", "stream", "socks"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net", "signal", "io-util"] }
+tokio-util = "0.7.20"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+uuid = { version = "1.28.0", features = ["v4", "serde"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Ioctl"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

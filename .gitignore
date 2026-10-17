@@ -1,0 +1,24 @@
+# Rust
+/target/
+
+# Node
+node_modules/
+apps/*/dist/
+
+# Tauri generated
+apps/desktop/src-tauri/gen/
+
+# Local state and partial downloads
+*.part
+*.part.meta
+*.part.meta.tmp
+
+# Environment
+.env
+.env.*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
