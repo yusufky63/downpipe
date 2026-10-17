@@ -1,11 +1,13 @@
 //! Clipboard watching: a copied download link brings up the Add dialog, as
-//! in IDM. Only http(s) links whose file type belongs to a category are
-//! offered, and never one that is already in the list, so "Copy link" in
-//! Downpipe's own menu does not offer the link back.
+//! in IDM. Only http(s) links whose file type belongs to a category, or that
+//! are video pages the site provider takes (YouTube), are offered, and never
+//! one that is already in the list, so "Copy link" in Downpipe's own menu
+//! does not offer the link back.
 
 use std::time::{Duration, Instant};
 
 use downpipe_core::Manager;
+use downpipe_core::providers::pages;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -81,9 +83,7 @@ fn watch(app: &AppHandle, manager: &Manager) {
         {
             continue;
         }
-        let key = url::Url::parse(&url)
-            .map(|u| downpipe_core::http::redact_url(&u))
-            .unwrap_or_else(|_| url.clone());
+        let key = list_key(&url);
         if manager.list().iter().any(|t| t.record.url == key) {
             continue;
         }
@@ -129,7 +129,9 @@ fn sequence() -> Option<u32> {
 }
 
 /// The link to offer for copied text: one http(s) URL, nothing else, whose
-/// file name ends in one of `extensions`.
+/// file name ends in one of `extensions`, or a video page, which has no file
+/// name to go by. The Add dialog sends a video page on to the quality
+/// chooser.
 fn offer(text: &str, extensions: &[String]) -> Option<String> {
     let text = text.trim();
     if text.is_empty() || text.len() > 4096 || text.chars().any(char::is_whitespace) {
@@ -139,10 +141,26 @@ fn offer(text: &str, extensions: &[String]) -> Option<String> {
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
         return None;
     }
+    if pages::recognize(&url).is_some() {
+        return Some(text.to_string());
+    }
     let name = url.path_segments()?.next_back()?;
     let (_, ext) = name.rsplit_once('.')?;
     let ext = ext.to_ascii_lowercase();
     extensions.contains(&ext).then(|| text.to_string())
+}
+
+/// The link as the list keeps it: without credentials, and a video page as
+/// its one link per video, so a share link of a video already in the list
+/// is not offered again.
+fn list_key(link: &str) -> String {
+    match url::Url::parse(link) {
+        Ok(url) => {
+            let url = pages::recognize(&url).map_or(url, |page| page.url);
+            downpipe_core::http::redact_url(&url)
+        }
+        Err(_) => link.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -180,5 +198,38 @@ mod tests {
         }
         let long = format!("https://example.org/{}.zip", "a".repeat(5000));
         assert_eq!(offer(&long, &exts()), None);
+    }
+
+    #[test]
+    fn offers_video_pages_whatever_the_categories() {
+        for text in [
+            "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+            "https://youtu.be/jNQXAC9IVRw?si=abc",
+            " https://www.youtube.com/shorts/aqz-KE-bpKQ\n",
+        ] {
+            assert_eq!(offer(text, &[]).as_deref(), Some(text.trim()), "{text:?}");
+        }
+        for text in [
+            "https://www.youtube.com/",
+            "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb",
+            "https://www.youtube.com/watch?v=short",
+            "https://youtu.be/jNQXAC9IVRw https://youtu.be/aqz-KE-bpKQ",
+        ] {
+            assert_eq!(offer(text, &exts()), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn keys_match_the_list() {
+        // A video is listed under its canonical page, so any link to it is
+        // recognized as already there.
+        assert_eq!(
+            list_key("https://youtu.be/jNQXAC9IVRw?si=abc&t=3"),
+            "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+        );
+        assert_eq!(
+            list_key("https://user:pw@example.org/a.zip"),
+            "https://example.org/a.zip"
+        );
     }
 }

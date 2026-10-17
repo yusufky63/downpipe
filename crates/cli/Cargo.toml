@@ -16,6 +16,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 downpipe-http.workspace = true
+downpipe-providers.workspace = true
 indicatif.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true

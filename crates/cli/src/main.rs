@@ -112,6 +112,7 @@ async fn main() -> ExitCode {
 async fn run(cli: Cli) -> Result<ExitCode> {
     match cli.command {
         Command::Get(args) => {
+            refuse_video_page(&args.url)?;
             let mut req = DownloadRequest::new(args.url, args.output);
             req.file_name = args.file_name;
             req.checksum = args
@@ -318,6 +319,23 @@ async fn download(mut req: DownloadRequest, tuning: &Tuning) -> Result<ExitCode>
     }
 }
 
+/// A video page (YouTube) would download as its HTML. The desktop app
+/// downloads it through yt-dlp, after the user picks a quality there; the
+/// CLI does not guess one, since yt-dlp's best can be a very large 4K file.
+fn refuse_video_page(url: &str) -> Result<()> {
+    match downpipe_providers::pages::recognize_link(url) {
+        Some(page) => bail!(
+            "{} is a {} video page, not a file. Downpipe downloads videos from {} in the \
+             desktop app, through yt-dlp, where you choose the quality: paste the link into \
+             its Add dialog.",
+            page.url,
+            page.site,
+            page.site
+        ),
+        None => Ok(()),
+    }
+}
+
 fn parse_headers(raw: &[String]) -> Result<Vec<(String, String)>> {
     raw.iter()
         .map(|h| match h.split_once(':') {
@@ -342,6 +360,32 @@ mod tests {
         );
         assert!(parse_headers(&["nonsense".into()]).is_err());
         assert!(parse_headers(&[": empty".into()]).is_err());
+    }
+
+    #[test]
+    fn video_pages_go_to_the_app() {
+        let err = refuse_video_page("https://youtu.be/jNQXAC9IVRw?si=abc")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.starts_with("https://www.youtube.com/watch?v=jNQXAC9IVRw is a YouTube video page"),
+            "{err}"
+        );
+        assert!(err.contains("desktop app"), "{err}");
+        assert!(refuse_video_page("https://example.org/video.mp4").is_ok());
+        assert!(refuse_video_page("https://www.youtube.com/").is_ok());
+    }
+
+    #[tokio::test]
+    async fn get_refuses_a_video_page_before_any_request() {
+        let cli = Cli::try_parse_from([
+            "downpipe",
+            "get",
+            "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        ])
+        .unwrap();
+        let err = run(cli).await.unwrap_err().to_string();
+        assert!(err.contains("YouTube video page"), "{err}");
     }
 
     #[test]

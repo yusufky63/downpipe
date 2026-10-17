@@ -4,7 +4,15 @@ import { useRef, useState, type DragEvent, type FormEvent } from "react";
 import { MAIN_QUEUE, api, errorMessage, isCommandError, type Settings, type Task } from "../lib/api";
 import { parseUrls } from "../lib/format";
 import { MAX_EXPANDED, expandPatterns, linksFromList } from "../lib/patterns";
+import { sitePage } from "../lib/sites";
 import { Button, Dialog, Field, inputClass } from "./primitives";
+
+/** The Links hint's word on the video pages among several links. */
+function pagesNote(pages: number, files: number): string {
+  if (pages === 0) return "";
+  if (files === 0) return " You choose the quality of each video next.";
+  return pages === 1 ? " One of them is a video: you choose its quality next." : ` ${pages} of them are videos: you choose their quality next.`;
+}
 
 export function AddDialog({
   text,
@@ -34,6 +42,10 @@ export function AddDialog({
 
   const expansion = expandPatterns(text);
   const urls = parseUrls(expansion.urls.join("\n"));
+  // Video pages (YouTube) are not started from here: each goes on to the
+  // confirmation dialog, where yt-dlp lists its qualities.
+  const pages = urls.filter((url) => sitePage(url) !== null).length;
+  const onlyPages = pages > 0 && pages === urls.length;
   const fileInput = useRef<HTMLInputElement>(null);
 
   // A dropped or chosen list file is appended, so several lists can be combined.
@@ -55,6 +67,9 @@ export function AddDialog({
   };
   // Per-file options make sense for zero (not typed yet) or one link.
   const single = urls.length <= 1;
+  // yt-dlp builds a video's file itself: no connections or checksum to set.
+  const firstPage = single && urls[0] !== undefined ? sitePage(urls[0]) : null;
+  const video = firstPage !== null;
 
   const browse = async () => {
     const picked = await api.pickFolder(dir || settings.download_dir).catch(() => null);
@@ -73,16 +88,18 @@ export function AddDialog({
     const added: Task[] = [];
     const problems: string[] = [];
     for (const url of urls) {
+      const page = sitePage(url) !== null;
       try {
         added.push(
           await api.add({
             url,
             dir: dir.trim() || null,
             file_name: single && fileName.trim() ? fileName.trim() : null,
-            checksum: single && checksum.trim() ? checksum.trim() : null,
-            max_connections: Number.isFinite(conns) ? conns : null,
+            checksum: single && !page && checksum.trim() ? checksum.trim() : null,
+            max_connections: Number.isFinite(conns) && !page ? conns : null,
             paused,
             queue,
+            confirm: page,
           }),
         );
       } catch (err) {
@@ -99,6 +116,16 @@ export function AddDialog({
     else onClose();
   };
 
+  const files = urls.length - pages;
+  const linksHint =
+    expansion.dropped > 0
+      ? `Only the first ${MAX_EXPANDED} links of the pattern are used.`
+      : expansion.expanded
+        ? `${urls.length} links from the pattern. One download each.`
+        : urls.length > 1
+          ? `${urls.length} links found. One download each.`
+          : "One link per line, or a pattern like file[001-100].zip. Only http and https are supported.";
+
   return (
     <Dialog
       eyebrow="New download"
@@ -106,33 +133,24 @@ export function AddDialog({
       onClose={onClose}
       footer={
         <>
-          <label className="mr-auto flex items-center gap-2 text-[13px] text-ink-secondary">
-            <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} className="size-4 accent-primary" />
-            Add paused
-          </label>
+          {/* Videos are held for their quality anyway, with Download later there. */}
+          {!onlyPages && (
+            <label className="mr-auto flex items-center gap-2 text-[13px] text-ink-secondary">
+              <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} className="size-4 accent-primary" />
+              Add paused
+            </label>
+          )}
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button variant="primary" onClick={() => void submit()} disabled={busy || urls.length === 0}>
-            {paused ? "Add to list" : urls.length > 1 ? `Download ${urls.length} files` : "Download"}
+            {onlyPages ? "Next" : paused ? "Add to list" : files > 1 ? `Download ${files} files` : "Download"}
           </Button>
         </>
       }
     >
       <form onSubmit={submit} className="flex flex-col gap-5">
-        <Field
-          label="Links"
-          error={error}
-          hint={
-            expansion.dropped > 0
-              ? `Only the first ${MAX_EXPANDED} links of the pattern are used.`
-              : expansion.expanded
-                ? `${urls.length} links from the pattern. One download each.`
-                : urls.length > 1
-                  ? `${urls.length} links found. One download each.`
-                  : "One link per line, or a pattern like file[001-100].zip. Only http and https are supported."
-          }
-        >
+        <Field label="Links" error={error} hint={firstPage ? `A ${firstPage.site} video. You choose its quality next.` : linksHint + pagesNote(pages, files)}>
           {(id) => (
             <textarea
               id={id}
@@ -192,7 +210,10 @@ export function AddDialog({
         </Field>
 
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-[1fr_120px]">
-          <Field label="File name" hint={single ? "Leave empty to use the name the server sends." : "Only for a single link."}>
+          <Field
+            label="File name"
+            hint={video ? "Leave empty to use the video's title." : single ? "Leave empty to use the name the server sends." : "Only for a single link."}
+          >
             {(id) => (
               <input
                 id={id}
@@ -205,7 +226,7 @@ export function AddDialog({
               />
             )}
           </Field>
-          <Field label="Connections" hint="Upper limit">
+          <Field label="Connections" hint={video ? "Not for videos" : "Upper limit"}>
             {(id) => (
               <input
                 id={id}
@@ -213,8 +234,9 @@ export function AddDialog({
                 min={1}
                 max={32}
                 value={connections}
+                disabled={video}
                 onChange={(e) => setConnections(e.target.value)}
-                className={`${inputClass} num h-9 font-mono`}
+                className={`${inputClass} num h-9 font-mono disabled:opacity-50`}
               />
             )}
           </Field>
@@ -234,12 +256,19 @@ export function AddDialog({
           </Field>
         )}
 
-        <Field label="Checksum" hint="Optional, e.g. sha256:9f86d0… The file is only renamed into place if it matches.">
+        <Field
+          label="Checksum"
+          hint={
+            video
+              ? "Only for files: yt-dlp puts a video's file together from the site's formats."
+              : "Optional, e.g. sha256:9f86d0… The file is only renamed into place if it matches."
+          }
+        >
           {(id) => (
             <input
               id={id}
               value={checksum}
-              disabled={!single}
+              disabled={!single || video}
               onChange={(e) => setChecksum(e.target.value)}
               spellCheck={false}
               placeholder="sha256:…"

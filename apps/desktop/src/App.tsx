@@ -83,6 +83,9 @@ export function App() {
   const [menu, setMenu] = useState<{ x: number; y: number; keyboard: boolean } | null>(null);
   const [details, setDetails] = useState<{ id: string; relink: boolean } | null>(null);
   const [addText, setAddText] = useState<string | null>(null);
+  // Video pages added here wait for their quality in the confirmation
+  // dialog, which then speaks of them rather than of the browser.
+  const [askedHere, setAskedHere] = useState<ReadonlySet<string>>(() => new Set());
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const [removingIds, setRemovingIds] = useState<string[]>([]);
   const [redownloadId, setRedownloadId] = useState<string | null>(null);
@@ -610,10 +613,13 @@ export function App() {
             setQuery("");
             setCategory("");
             setQueue("");
+            const asked = added.filter((t) => t.awaiting_confirmation).map((t) => t.id);
+            if (asked.length > 0) setAskedHere((ids) => new Set([...ids, ...asked]));
             const first = added[0];
             if (first) {
               setSelection({ ids: added.map((t) => t.id), anchor: first.id });
-              focusRow(first.id);
+              // The confirmation dialog that follows keeps the focus.
+              if (asked.length === 0) focusRow(first.id);
             }
           }}
           onDuplicate={(id) => {
@@ -630,6 +636,7 @@ export function App() {
         <ConfirmDialog
           key={asking.id}
           task={asking}
+          fromApp={askedHere.has(asking.id)}
           waiting={awaiting.length - 1}
           queues={queues}
           onConfirm={async (options) => {

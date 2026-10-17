@@ -477,7 +477,7 @@ export function SettingsDialog({
             />
             <Switch
               label="Offer to download copied links"
-              hint="When you copy a link to a file type listed under Categories, Downpipe opens the Add dialog with it. Links already in the list are skipped."
+              hint="When you copy a link to a file type listed under Categories, or to a YouTube video, Downpipe opens the Add dialog with it. Links already in the list are skipped."
               checked={watchClipboard}
               onChange={setWatchClipboard}
             />

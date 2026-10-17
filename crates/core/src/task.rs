@@ -225,8 +225,9 @@ pub struct Live {
     pub resumable: bool,
     pub segments: Vec<SegmentView>,
     pub notices: Vec<String>,
-    /// Sent by the browser and waiting for the user to confirm its name,
-    /// folder and queue before it starts.
+    /// Waiting for the user to confirm its name, folder and queue (and a
+    /// stream's or video page's quality) before it starts: sent by the
+    /// browser, or a video page added in the app.
     pub awaiting_confirmation: bool,
     /// Stream downloads: fragments done and in all.
     pub fragments: Option<Fragments>,

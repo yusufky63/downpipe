@@ -1256,6 +1256,7 @@ dependencies = [
  "anyhow",
  "clap",
  "downpipe-http",
+ "downpipe-providers",
  "downpipe-test-server",
  "indicatif",
  "tempfile",

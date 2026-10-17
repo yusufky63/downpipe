@@ -51,7 +51,10 @@ export interface Task {
   resumable: boolean;
   segments: SegmentView[];
   notices: string[];
-  /** Sent by the browser and waiting for the user to pick its name and folder. */
+  /**
+   * Waiting for the user to pick its name and folder: sent by the browser,
+   * or a video page added here whose quality is still to be chosen.
+   */
   awaiting_confirmation: boolean;
   /** Set when the link is a stream (HLS or DASH) rather than a file. */
   media: MediaInfo | null;
@@ -273,6 +276,8 @@ export interface AddOptions {
   max_connections?: number | null;
   paused?: boolean;
   queue?: string | null;
+  /** Hold it in the confirmation dialog (a video page's quality) before it starts. */
+  confirm?: boolean;
 }
 
 /** What the user chose for a download from the browser. */

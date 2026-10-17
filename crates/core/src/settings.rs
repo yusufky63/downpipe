@@ -32,7 +32,7 @@ pub struct Settings {
     pub categories: Vec<Category>,
     pub schedule: Schedule,
     /// Desktop app: offer to download http(s) links copied to the clipboard
-    /// when their file type belongs to a category.
+    /// when their file type belongs to a category or they are video pages.
     pub watch_clipboard: bool,
     /// Desktop app: keep the computer from sleeping while downloads run.
     /// The display may still turn off.

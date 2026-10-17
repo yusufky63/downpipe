@@ -33,11 +33,14 @@ function titleName(title: string): string {
 
 /**
  * IDM's "Download File Info": a download caught in the browser waits here
- * for its name, folder and queue, and for a stream also its quality.
- * Nothing but a stream's manifest is fetched before the answer.
+ * for its name, folder and queue, and for a stream also its quality. A video
+ * page added in Downpipe itself waits here too, for its quality.
+ * Nothing but a stream's manifest (or yt-dlp's reading of the page) is
+ * fetched before the answer.
  */
 export function ConfirmDialog({
   task,
+  fromApp,
   waiting,
   queues,
   onConfirm,
@@ -46,6 +49,8 @@ export function ConfirmDialog({
   onOpenSettings,
 }: {
   task: Task;
+  /** Added in Downpipe (the Add dialog), not sent by the browser. */
+  fromApp: boolean;
   /** More downloads waiting after this one. */
   waiting: number;
   queues: Queue[];
@@ -109,7 +114,11 @@ export function ConfirmDialog({
   const audios = choices ? audiosFor(choices.options, video) : [];
   // yt-dlp cannot save separate video and sound without FFmpeg; a stream's
   // tracks are then saved as two files instead.
-  const blocked = site && choices !== null && !choices.ffmpeg && needsMerge(choices, videoId);
+  // Started before yt-dlp answers, a page would download in its best
+  // quality, which can be a very large 4K file: Start waits for the list
+  // (or for yt-dlp to fail, when the best quality is all there is).
+  const blocked =
+    (site && inspection.state === "loading") || (site && choices !== null && !choices.ffmpeg && needsMerge(choices, videoId));
 
   const answer = async (start: boolean, e?: FormEvent) => {
     e?.preventDefault();
@@ -139,11 +148,8 @@ export function ConfirmDialog({
     if (picked) setDir(picked);
   };
 
-  const from = task.site
-    ? `From the browser · ${task.site.site}`
-    : task.media
-      ? `From the browser · ${kindName(task.media.kind)} stream`
-      : "From the browser";
+  const what = task.site ? task.site.site : task.media ? `${kindName(task.media.kind)} stream` : null;
+  const from = fromApp ? (what ?? "New download") : what ? `From the browser · ${what}` : "From the browser";
 
   return (
     <Dialog
@@ -153,10 +159,13 @@ export function ConfirmDialog({
       onClose={() => (refused ? onDiscard() : void answer(false))}
       footer={
         <>
-          <label className="mr-auto flex items-center gap-2 text-[13px] text-ink-secondary">
-            <input type="checkbox" checked={stopAsking} onChange={(e) => setStopAsking(e.target.checked)} className="size-4 accent-primary" />
-            Don&apos;t ask again
-          </label>
+          {/* The setting is about the browser; a video added here always needs its quality chosen. */}
+          {!fromApp && (
+            <label className="mr-auto flex items-center gap-2 text-[13px] text-ink-secondary">
+              <input type="checkbox" checked={stopAsking} onChange={(e) => setStopAsking(e.target.checked)} className="size-4 accent-primary" />
+              Don&apos;t ask again
+            </label>
+          )}
           <Button
             variant="ghost"
             disabled={busy}

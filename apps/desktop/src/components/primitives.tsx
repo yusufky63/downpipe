@@ -184,8 +184,12 @@ export function Dialog({
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
+    // A field still disabled (a quality list waiting for yt-dlp) cannot take
+    // the focus, which would then stay behind the dialog.
     const first = focusFirstField
-      ? panel.current?.querySelector<HTMLElement>("input, textarea, select, button:not([data-close])")
+      ? panel.current?.querySelector<HTMLElement>(
+          "input:not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not([data-close]):not(:disabled)",
+        )
       : null;
     (first ?? panel.current)?.focus();
     const onKey = (e: KeyboardEvent) => {
