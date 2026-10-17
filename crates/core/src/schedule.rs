@@ -146,6 +146,7 @@ mod tests {
             start: start.into(),
             stop: stop.into(),
             days: [true; 7],
+            queue: String::new(),
         }
     }
 

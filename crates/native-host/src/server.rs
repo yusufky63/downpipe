@@ -258,6 +258,10 @@ fn add(manager: &Manager, request: DownloadRequest, origin: Option<&str>) -> App
         url: request.resource_url,
         file_name: request.file_name,
         headers,
+        // The app asks for name, folder and queue first when the user wants
+        // that (IDM's "Download File Info"); the browser is answered at once
+        // either way, so it never waits on a dialog.
+        confirm: manager.settings().confirm_browser_downloads,
         ..AddOptions::default()
     };
     match manager.add(options) {

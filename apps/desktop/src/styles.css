@@ -157,6 +157,16 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;
+  /* An app window: labels and rows do not highlight like page text when
+     clicked or dragged over. Fields and values marked select-text still do. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+input,
+textarea,
+[contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 body::before {
   content: "";
@@ -271,6 +281,12 @@ body::before {
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
+  outline: none;
+}
+/* Menus and dialogs take focus to receive keys; their highlighted entry
+   or first field shows where the keyboard is, not a ring round the panel. */
+[role="menu"]:focus-visible,
+[role="dialog"]:focus-visible {
   outline: none;
 }
 

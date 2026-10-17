@@ -1,7 +1,8 @@
 // App frame: header, filter bar, status bar, empty state and toasts.
 import { Download, Moon, Pause, Play, Plus, Search, Settings as SettingsIcon, Sun, X } from "lucide-react";
+import type { RefObject } from "react";
 
-import type { Settings, WhenDone } from "../lib/api";
+import type { Queue, Settings, WhenDone } from "../lib/api";
 import { formatSpeed } from "../lib/format";
 import { FILTERS, type Filter } from "../lib/tasks";
 import { Button, Dialog, IconButton } from "./primitives";
@@ -82,6 +83,12 @@ export function FilterBar({
   onResetSort,
   onExport,
   canExport,
+  searchRef,
+  queues,
+  queue,
+  onQueue,
+  onStartQueue,
+  onStopQueue,
 }: {
   filter: Filter;
   counts: Record<Filter, number>;
@@ -98,6 +105,14 @@ export function FilterBar({
   onResetSort: () => void;
   onExport: () => void;
   canExport: boolean;
+  /** Ctrl+F focuses the search field. */
+  searchRef: RefObject<HTMLInputElement | null>;
+  queues: Queue[];
+  /** "" = every queue. */
+  queue: string;
+  onQueue: (id: string) => void;
+  onStartQueue: () => void;
+  onStopQueue: () => void;
 }) {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-1 gap-y-2 border-b border-line px-4 py-2">
@@ -121,11 +136,12 @@ export function FilterBar({
           );
         })}
       </div>
-      <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:flex-none">
-        <label className="relative min-w-0 flex-1 sm:w-56 sm:flex-none">
+      <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-none">
+        <label className="relative min-w-36 flex-1 sm:w-56 sm:flex-none">
           <span className="sr-only">Search downloads</span>
           <Search size={14} strokeWidth={1.75} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
           <input
+            ref={searchRef}
             type="search"
             value={query}
             onChange={(e) => onQuery(e.target.value)}
@@ -133,16 +149,42 @@ export function FilterBar({
               if (e.key === "Escape") onQuery("");
             }}
             placeholder="Search"
+            title="Search (Ctrl+F)"
             spellCheck={false}
             className="h-8 w-full rounded-md border border-line-strong bg-canvas pr-2 pl-8 text-[13px] text-ink placeholder:text-ink-muted transition-colors duration-150 focus:border-primary"
           />
         </label>
+        {queues.length > 1 && (
+          <select
+            aria-label="Queue"
+            value={queue}
+            onChange={(e) => onQueue(e.target.value)}
+            className="h-8 max-w-28 rounded-md sm:max-w-36 border border-line-strong bg-canvas px-2 text-[13px] text-ink transition-colors duration-150 focus:border-primary"
+          >
+            <option value="">All queues</option>
+            {queues.map((q) => (
+              <option key={q.id} value={q.id}>
+                {q.name}
+              </option>
+            ))}
+          </select>
+        )}
+        {queue !== "" && (
+          <>
+            <IconButton label="Start this queue" onClick={onStartQueue}>
+              <Play size={16} strokeWidth={1.75} />
+            </IconButton>
+            <IconButton label="Stop this queue" onClick={onStopQueue}>
+              <Pause size={16} strokeWidth={1.75} />
+            </IconButton>
+          </>
+        )}
         {categories.length > 0 && (
           <select
             aria-label="Category"
             value={category}
             onChange={(e) => onCategory(e.target.value)}
-            className="h-8 max-w-36 rounded-md border border-line-strong bg-canvas px-2 text-[13px] text-ink transition-colors duration-150 focus:border-primary"
+            className="h-8 max-w-28 rounded-md sm:max-w-36 border border-line-strong bg-canvas px-2 text-[13px] text-ink transition-colors duration-150 focus:border-primary"
           >
             <option value="">All types</option>
             {categories.map((c) => (
@@ -234,6 +276,7 @@ export function StatusBar({
   speed,
   active,
   queued,
+  selected,
   settings,
   whenDone,
   onWhenDone,
@@ -241,6 +284,8 @@ export function StatusBar({
   speed: number;
   active: number;
   queued: number;
+  /** Rows selected in the list; shown from two on. */
+  selected: number;
   settings: Settings | null;
   whenDone: WhenDone;
   onWhenDone: (w: WhenDone) => void;
@@ -255,6 +300,11 @@ export function StatusBar({
       </span>
       <span className="num shrink-0 text-ink-secondary">{speed > 0 ? formatSpeed(speed) : "idle"}</span>
       <WhenDoneSelect value={whenDone} onChange={onWhenDone} />
+      {selected > 1 && (
+        <span className="num shrink-0 text-primary max-sm:hidden">
+          {selected} selected
+        </span>
+      )}
       {settings && (
         <span className="ml-auto hidden truncate sm:inline">
           {settings.speed_limit > 0 ? `limit ${formatSpeed(settings.speed_limit)}` : "no speed limit"} · {settings.max_concurrent_downloads} at a time ·{" "}

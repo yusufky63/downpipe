@@ -89,6 +89,7 @@ export const canCancel = (t: Task) => t.state !== "completed" && t.state !== "ca
 export type Tone = "primary" | "positive" | "danger" | "warning" | "neutral";
 
 export function stateInfo(task: Task): { label: string; tone: Tone } {
+  if (task.awaiting_confirmation) return { label: "Confirm", tone: "warning" };
   switch (task.state) {
     case "queued":
       return { label: "Queued", tone: "neutral" };

@@ -1,31 +1,34 @@
 import { FileText, FolderOpen } from "lucide-react";
 import { useRef, useState, type DragEvent, type FormEvent } from "react";
 
-import { api, errorMessage, isCommandError, type Settings, type Task } from "../lib/api";
+import { MAIN_QUEUE, api, errorMessage, isCommandError, type Settings, type Task } from "../lib/api";
 import { parseUrls } from "../lib/format";
 import { MAX_EXPANDED, expandPatterns, linksFromList } from "../lib/patterns";
 import { Button, Dialog, Field, inputClass } from "./primitives";
 
 export function AddDialog({
-  initialText,
+  text,
+  onTextChange,
   settings,
   onClose,
   onAdded,
   onDuplicate,
 }: {
-  initialText: string;
+  /** Kept by the app, so a link copied while the dialog is open joins the list. */
+  text: string;
+  onTextChange: (text: string) => void;
   settings: Settings;
   onClose: () => void;
   onAdded: (tasks: Task[]) => void;
   onDuplicate: (id: string) => void;
 }) {
-  const [text, setText] = useState(initialText);
   // Empty means automatic: the default folder, or the category's folder.
   const [dir, setDir] = useState("");
   const [fileName, setFileName] = useState("");
   const [connections, setConnections] = useState(String(settings.max_connections_per_download));
   const [checksum, setChecksum] = useState("");
   const [paused, setPaused] = useState(false);
+  const [queue, setQueue] = useState(MAIN_QUEUE);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -40,7 +43,7 @@ export function AddDialog({
       return;
     }
     const links = linksFromList(await file.text());
-    setText((current) => [current.trim(), links].filter(Boolean).join("\n"));
+    onTextChange([text.trim(), links].filter(Boolean).join("\n"));
   };
 
   const onDropFile = (e: DragEvent<HTMLTextAreaElement>) => {
@@ -79,6 +82,7 @@ export function AddDialog({
             checksum: single && checksum.trim() ? checksum.trim() : null,
             max_connections: Number.isFinite(conns) ? conns : null,
             paused,
+            queue,
           }),
         );
       } catch (err) {
@@ -133,7 +137,7 @@ export function AddDialog({
             <textarea
               id={id}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => onTextChange(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void submit();
               }}
@@ -215,6 +219,20 @@ export function AddDialog({
             )}
           </Field>
         </div>
+
+        {settings.queues.length > 1 && (
+          <Field label="Queue" hint="Each queue runs its own downloads at once.">
+            {(id) => (
+              <select id={id} value={queue} onChange={(e) => setQueue(e.target.value)} className={`${inputClass} h-9`}>
+                {settings.queues.map((q) => (
+                  <option key={q.id} value={q.id}>
+                    {q.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+        )}
 
         <Field label="Checksum" hint="Optional, e.g. sha256:9f86d0… The file is only renamed into place if it matches.">
           {(id) => (

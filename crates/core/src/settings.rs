@@ -31,6 +31,43 @@ pub struct Settings {
     pub use_categories: bool,
     pub categories: Vec<Category>,
     pub schedule: Schedule,
+    /// Desktop app: offer to download http(s) links copied to the clipboard
+    /// when their file type belongs to a category.
+    pub watch_clipboard: bool,
+    /// Desktop app: keep the computer from sleeping while downloads run.
+    /// The display may still turn off.
+    pub keep_awake: bool,
+    /// Downloads sent by the browser wait until the user confirms their
+    /// name, folder and queue (IDM's "Download File Info").
+    pub confirm_browser_downloads: bool,
+    /// Download queues. The first is always the main queue, whose limit is
+    /// `max_concurrent_downloads`.
+    pub queues: Vec<Queue>,
+}
+
+/// The queue every download belongs to unless moved.
+pub const MAIN_QUEUE: &str = "main";
+
+/// A named queue with its own number of downloads at once.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Queue {
+    /// Stable id; generated from the name for new queues.
+    pub id: String,
+    pub name: String,
+    /// 1 to 16. Ignored for the main queue, which uses
+    /// `Settings::max_concurrent_downloads`.
+    pub max_concurrent: u32,
+}
+
+impl Default for Queue {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            max_concurrent: 1,
+        }
+    }
 }
 
 /// A file-type group with its own folder, like IDM's categories.
@@ -55,6 +92,8 @@ pub struct Schedule {
     pub stop: String,
     /// Monday first.
     pub days: [bool; 7],
+    /// Queue id the schedule starts and stops; empty for every queue.
+    pub queue: String,
 }
 
 impl Default for Schedule {
@@ -64,6 +103,7 @@ impl Default for Schedule {
             start: "02:00".into(),
             stop: "07:00".into(),
             days: [true; 7],
+            queue: String::new(),
         }
     }
 }
@@ -84,6 +124,10 @@ impl Default for Settings {
             use_categories: true,
             categories: default_categories(),
             schedule: Schedule::default(),
+            watch_clipboard: false,
+            keep_awake: true,
+            confirm_browser_downloads: true,
+            queues: default_queues(),
         }
     }
 }
@@ -110,7 +154,41 @@ impl Settings {
         if !self.schedule.stop.trim().is_empty() && !crate::schedule::is_time(&self.schedule.stop) {
             self.schedule.stop = String::new();
         }
+        self.queues = normalize_queues(
+            std::mem::take(&mut self.queues),
+            self.max_concurrent_downloads,
+        );
+        if !self.schedule.queue.is_empty()
+            && !self.queues.iter().any(|q| q.id == self.schedule.queue)
+        {
+            self.schedule.queue = String::new();
+        }
         self
+    }
+
+    pub fn queue(&self, id: &str) -> Option<&Queue> {
+        self.queues.iter().find(|q| q.id == id)
+    }
+
+    /// Downloads a queue may run at once.
+    pub fn queue_limit(&self, id: &str) -> usize {
+        if id == MAIN_QUEUE {
+            return self.max_concurrent_downloads.max(1) as usize;
+        }
+        self.queue(id)
+            .map_or(1, |q| q.max_concurrent.max(1) as usize)
+    }
+
+    /// Lower-case extensions of every category, for the clipboard watcher.
+    pub fn watched_extensions(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .categories
+            .iter()
+            .flat_map(|c| c.extensions.iter().cloned())
+            .collect();
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// The category a file name belongs to, if categories are on.
@@ -209,6 +287,67 @@ pub fn default_categories() -> Vec<Category> {
     ]
 }
 
+pub fn default_queues() -> Vec<Queue> {
+    vec![Queue {
+        id: MAIN_QUEUE.into(),
+        name: "Main".into(),
+        max_concurrent: 3,
+    }]
+}
+
+/// Main queue first, unique ids, named queues only, limits in range.
+fn normalize_queues(queues: Vec<Queue>, main_limit: u32) -> Vec<Queue> {
+    let mut out: Vec<Queue> = Vec::new();
+    let mut main = None;
+    for mut q in queues {
+        q.name = q.name.trim().to_string();
+        q.id = q.id.trim().to_string();
+        q.max_concurrent = q.max_concurrent.clamp(1, 16);
+        if q.id == MAIN_QUEUE {
+            main.get_or_insert(q);
+            continue;
+        }
+        if q.name.is_empty() {
+            continue;
+        }
+        if q.id.is_empty() || out.iter().any(|o| o.id == q.id) {
+            q.id = unique_queue_id(&q.name, &out);
+        }
+        out.push(q);
+    }
+    let mut main = main.unwrap_or_else(|| default_queues().remove(0));
+    if main.name.is_empty() {
+        main.name = "Main".into();
+    }
+    main.max_concurrent = main_limit.clamp(1, 16);
+    out.insert(0, main);
+    out
+}
+
+fn unique_queue_id(name: &str, taken: &[Queue]) -> String {
+    let slug: String = name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let base = if slug.is_empty() || slug == MAIN_QUEUE {
+        "queue".to_string()
+    } else {
+        slug
+    };
+    let mut id = base.clone();
+    let mut n = 2;
+    while taken.iter().any(|q| q.id == id) || id == MAIN_QUEUE {
+        id = format!("{base}-{n}");
+        n += 1;
+    }
+    id
+}
+
 pub fn default_download_dir() -> PathBuf {
     dirs::download_dir()
         .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
@@ -305,6 +444,60 @@ mod tests {
             ..s
         };
         assert_eq!(off.category_for("clip.mp4"), None);
+    }
+
+    #[test]
+    fn queues_keep_main_first_and_get_ids() {
+        let s = Settings {
+            max_concurrent_downloads: 4,
+            queues: vec![
+                Queue {
+                    id: String::new(),
+                    name: " Night downloads ".into(),
+                    max_concurrent: 0,
+                },
+                Queue {
+                    id: "night-downloads".into(),
+                    name: "Other".into(),
+                    max_concurrent: 99,
+                },
+                Queue::default(),
+            ],
+            schedule: Schedule {
+                queue: "gone".into(),
+                ..Schedule::default()
+            },
+            ..Settings::default()
+        }
+        .normalized();
+        let ids: Vec<&str> = s.queues.iter().map(|q| q.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["main", "night-downloads", "other"],
+            "a clashing id is rebuilt from the name"
+        );
+        assert_eq!(s.queues[0].name, "Main");
+        assert_eq!(s.queues[1].max_concurrent, 1);
+        assert_eq!(s.queues[2].max_concurrent, 16);
+        assert_eq!(
+            s.queue_limit("main"),
+            4,
+            "main follows max_concurrent_downloads"
+        );
+        assert_eq!(s.queue_limit("night-downloads"), 1);
+        assert_eq!(s.queue_limit("missing"), 1);
+        assert_eq!(s.schedule.queue, "", "unknown queue falls back to all");
+    }
+
+    #[test]
+    fn clipboard_watches_every_category_type() {
+        let s = Settings::default();
+        let exts = s.watched_extensions();
+        assert!(exts.contains(&"iso".to_string()) && exts.contains(&"mp4".to_string()));
+        assert!(
+            exts.windows(2).all(|w| w[0] < w[1]),
+            "sorted, no duplicates"
+        );
     }
 
     #[test]

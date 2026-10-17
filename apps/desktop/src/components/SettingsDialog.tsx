@@ -1,15 +1,16 @@
 import { FolderOpen, Plus, Trash2 } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
 
-import { api, errorMessage, type BridgeRegistration, type Category, type Settings } from "../lib/api";
+import { MAIN_QUEUE, api, errorMessage, type BridgeRegistration, type Category, type Queue, type Settings } from "../lib/api";
 import { BROWSER_NAMES, bridgeStateInfo, canRegister } from "../lib/bridge";
 import { bytesToRate, rateToBytes, type RateUnit } from "../lib/format";
 import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } from "./primitives";
 
-type Tab = "downloads" | "categories" | "network" | "schedule" | "app";
+export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "schedule" | "app";
 
-const TABS: { id: Tab; label: string }[] = [
+const TABS: { id: SettingsTab; label: string }[] = [
   { id: "downloads", label: "Downloads" },
+  { id: "queues", label: "Queues" },
   { id: "categories", label: "Categories" },
   { id: "network", label: "Network" },
   { id: "schedule", label: "Schedule" },
@@ -26,8 +27,22 @@ interface CategoryDraft {
   folder: string;
 }
 
+/** Queues as edited: the limit stays a string until saved. */
+interface QueueDraft {
+  key: number;
+  id: string;
+  name: string;
+  max: string;
+}
+
 let draftKey = 0;
 const toDraft = (c: Category): CategoryDraft => ({ key: ++draftKey, name: c.name, extensions: c.extensions.join(" "), folder: c.folder });
+const toQueueDraft = (q: Queue): QueueDraft => ({ key: ++draftKey, id: q.id, name: q.name, max: String(q.max_concurrent) });
+const fromQueueDraft = (d: QueueDraft): Queue => ({
+  id: d.id,
+  name: d.name.trim(),
+  max_concurrent: Math.min(16, Math.max(1, Number.parseInt(d.max, 10) || 1)),
+});
 const fromDraft = (d: CategoryDraft): Category => ({
   name: d.name.trim(),
   extensions: d.extensions
@@ -39,15 +54,17 @@ const fromDraft = (d: CategoryDraft): Category => ({
 
 export function SettingsDialog({
   settings,
+  initialTab = "downloads",
   onClose,
   onSaved,
 }: {
   settings: Settings;
+  initialTab?: SettingsTab;
   onClose: () => void;
   onSaved: (s: Settings) => void;
 }) {
   const initialRate = bytesToRate(settings.speed_limit);
-  const [tab, setTab] = useState<Tab>("downloads");
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [dir, setDir] = useState(settings.download_dir);
   const [concurrent, setConcurrent] = useState(String(settings.max_concurrent_downloads));
   const [connections, setConnections] = useState(String(settings.max_connections_per_download));
@@ -62,6 +79,10 @@ export function SettingsDialog({
   const [useCategories, setUseCategories] = useState(settings.use_categories);
   const [categories, setCategories] = useState<CategoryDraft[]>(() => settings.categories.map(toDraft));
   const [schedule, setSchedule] = useState(settings.schedule);
+  const [queues, setQueues] = useState<QueueDraft[]>(() => settings.queues.map(toQueueDraft));
+  const [watchClipboard, setWatchClipboard] = useState(settings.watch_clipboard);
+  const [keepAwake, setKeepAwake] = useState(settings.keep_awake);
+  const [confirmBrowser, setConfirmBrowser] = useState(settings.confirm_browser_downloads);
   const [error, setError] = useState<string | null>(null);
   const tabIds = useId();
 
@@ -81,6 +102,10 @@ export function SettingsDialog({
         use_categories: useCategories,
         categories: categories.map(fromDraft).filter((c) => c.name),
         schedule,
+        watch_clipboard: watchClipboard,
+        keep_awake: keepAwake,
+        confirm_browser_downloads: confirmBrowser,
+        queues: queues.map(fromQueueDraft).filter((q) => q.id === MAIN_QUEUE || q.name),
       });
       onSaved(saved);
       onClose();
@@ -91,6 +116,9 @@ export function SettingsDialog({
 
   const updateCategory = (key: number, patch: Partial<CategoryDraft>) =>
     setCategories((list) => list.map((c) => (c.key === key ? { ...c, ...patch } : c)));
+  const updateQueue = (key: number, patch: Partial<QueueDraft>) => setQueues((list) => list.map((q) => (q.key === key ? { ...q, ...patch } : q)));
+  // Only saved queues can be scheduled; a new one gets its id when saved.
+  const schedulable = queues.filter((q) => q.id && q.name.trim());
 
   return (
     <Dialog
@@ -168,6 +196,63 @@ export function SettingsDialog({
                 </div>
               )}
             </Field>
+          </>
+        )}
+
+        {tab === "queues" && (
+          <>
+            <p className="text-[13px] text-ink-secondary">
+              Each queue runs its own number of downloads at once, next to the others; inside a queue, downloads start top to bottom. Move downloads
+              between queues and change their order from the right-click menu. Downloads in a removed queue move to the main queue.
+            </p>
+            <ul aria-label="Queues" className="flex flex-col gap-3">
+              {queues.map((q) => {
+                const main = q.id === MAIN_QUEUE;
+                return (
+                  <li key={q.key} className="grid grid-cols-[minmax(0,1fr)_96px_32px] items-center gap-2 rounded-md border border-line p-3">
+                    <input
+                      aria-label="Queue name"
+                      value={q.name}
+                      placeholder="Name"
+                      onChange={(e) => updateQueue(q.key, { name: e.target.value })}
+                      className={`${inputClass} h-8 text-[13px]`}
+                    />
+                    {main ? (
+                      <span className="num text-right font-mono text-[12px] text-ink-muted" title="Set in Downloads, Downloads at once">
+                        {concurrent} at once
+                      </span>
+                    ) : (
+                      <input
+                        aria-label={`${q.name || "Queue"} downloads at once`}
+                        title="Downloads at once, 1 to 16"
+                        type="number"
+                        min={1}
+                        max={16}
+                        value={q.max}
+                        onChange={(e) => updateQueue(q.key, { max: e.target.value })}
+                        className={`${inputClass} num h-8 font-mono text-[13px]`}
+                      />
+                    )}
+                    {main ? (
+                      <span aria-hidden="true" />
+                    ) : (
+                      <IconButton label={`Remove ${q.name || "queue"}`} tone="danger" onClick={() => setQueues((list) => list.filter((x) => x.key !== q.key))}>
+                        <Trash2 size={16} strokeWidth={1.75} />
+                      </IconButton>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <div>
+              <Button
+                size="sm"
+                onClick={() => setQueues((list) => [...list, { key: ++draftKey, id: "", name: `Queue ${list.length + 1}`, max: "1" }])}
+              >
+                <Plus size={16} strokeWidth={1.75} />
+                Add queue
+              </Button>
+            </div>
           </>
         )}
 
@@ -253,10 +338,26 @@ export function SettingsDialog({
           <>
             <Switch
               label="Start and stop downloads on a schedule"
-              hint="At the start time, paused and failed downloads resume. At the stop time, everything pauses. Downpipe has to be running, in the window or the tray."
+              hint="At the start time, paused and failed downloads resume. At the stop time, they pause. Downpipe has to be running, in the window or the tray."
               checked={schedule.enabled}
               onChange={(enabled) => setSchedule({ ...schedule, enabled })}
             />
+            {schedulable.length > 1 && (
+              <div className={schedule.enabled ? "" : "opacity-50"}>
+                <Field label="Queue" hint={schedule.queue ? "The other queues are not touched." : undefined}>
+                  {(id) => (
+                    <select id={id} value={schedule.queue} onChange={(e) => setSchedule({ ...schedule, queue: e.target.value })} className={`${inputClass} h-9`}>
+                      <option value="">Every queue</option>
+                      {schedulable.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
+              </div>
+            )}
             <div className={`grid grid-cols-2 gap-5 ${schedule.enabled ? "" : "opacity-50"}`}>
               <Field label="Start at">
                 {(id) => (
@@ -324,6 +425,24 @@ export function SettingsDialog({
               hint="Starts in the tray, so captured downloads always have somewhere to go."
               checked={startWithSystem}
               onChange={setStartWithSystem}
+            />
+            <Switch
+              label="Offer to download copied links"
+              hint="When you copy a link to a file type listed under Categories, Downpipe opens the Add dialog with it. Links already in the list are skipped."
+              checked={watchClipboard}
+              onChange={setWatchClipboard}
+            />
+            <Switch
+              label="Keep the computer awake while downloading"
+              hint="Sleep waits until downloads stop running. The screen can still turn off."
+              checked={keepAwake}
+              onChange={setKeepAwake}
+            />
+            <Switch
+              label="Ask before downloads from the browser start"
+              hint="Choose the file name, folder and queue first. Off: they start at once with the automatic folder."
+              checked={confirmBrowser}
+              onChange={setConfirmBrowser}
             />
             <BrowserBridge registerHost={registerHost} onRegisterHostChange={setRegisterHost} />
           </>

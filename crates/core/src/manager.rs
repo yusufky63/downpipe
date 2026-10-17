@@ -14,9 +14,11 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
-use crate::settings::Settings;
+use crate::settings::{MAIN_QUEUE, Settings};
 use crate::store::Store;
-use crate::task::{AddOptions, Live, TaskId, TaskRecord, TaskSnapshot, TaskState};
+use crate::task::{
+    AddOptions, ConfirmOptions, Live, QueueMove, TaskId, TaskRecord, TaskSnapshot, TaskState,
+};
 
 const DB_FILE: &str = "downpipe.db";
 /// Progress is written to SQLite at most this often while a task runs; the
@@ -65,10 +67,11 @@ impl CoreError {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ManagerEvent {
-    // Boxed: a snapshot is large and events are moved through a channel.
+    // Boxed: snapshots and settings are large and events are moved
+    // through a channel.
     Updated { task: Box<TaskSnapshot> },
     Removed { id: TaskId },
-    Settings { settings: Settings },
+    Settings { settings: Box<Settings> },
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +148,16 @@ impl Manager {
         let limiter = Arc::new(RateLimiter::new(settings.speed_limit));
         let engine = Engine::with_limiter(engine_config(&config, &settings), limiter.clone())?;
 
+        let mut records = records;
+        // Positions are only an order: renumber them so they are distinct and
+        // dense, and send downloads of queues that no longer exist to main.
+        records.sort_by_key(|r| (r.position, r.created_at));
+        for (i, r) in records.iter_mut().enumerate() {
+            r.position = i as i64;
+            if settings.queue(&r.queue).is_none() {
+                r.queue = MAIN_QUEUE.into();
+            }
+        }
         let mut tasks = Vec::with_capacity(records.len());
         for mut record in records {
             // A task that was running when the app stopped (or crashed)
@@ -258,7 +271,7 @@ impl Manager {
                 dir,
                 file_name,
                 path: None,
-                state: if opts.paused {
+                state: if opts.paused || opts.confirm {
                     TaskState::Paused
                 } else {
                     TaskState::Queued
@@ -271,6 +284,11 @@ impl Manager {
                 max_connections: opts.max_connections.map(|c| c.clamp(1, 32)),
                 category: category.map(|c| c.name),
                 auto_dir,
+                queue: opts
+                    .queue
+                    .filter(|q| st.settings.queue(q).is_some())
+                    .unwrap_or_else(|| MAIN_QUEUE.into()),
+                position: next_position(&st.tasks),
                 created_at: now,
                 updated_at: now,
                 completed_at: None,
@@ -287,6 +305,8 @@ impl Manager {
                 last_persist: Instant::now(),
                 relink: false,
             };
+            let mut entry = entry;
+            entry.live.awaiting_confirmation = opts.confirm;
             let snapshot = entry.snapshot();
             st.tasks.push(entry);
             snapshot
@@ -328,6 +348,9 @@ impl Manager {
             match entry.record.state {
                 TaskState::Queued => Ok(None),
                 s if s.can_resume() => {
+                    // Resuming one held for confirmation by hand accepts it
+                    // as it is.
+                    entry.live.awaiting_confirmation = false;
                     entry.record.error = None;
                     entry.record.error_kind = None;
                     entry.set_state(TaskState::Queued);
@@ -452,7 +475,18 @@ impl Manager {
     }
 
     pub fn resume_all(&self) {
-        let ids = self.ids(|s| s == TaskState::Paused || s == TaskState::Failed);
+        // Downloads waiting for confirmation start only when confirmed.
+        let ids: Vec<TaskId> = {
+            let st = self.inner.state.lock();
+            st.tasks
+                .iter()
+                .filter(|e| {
+                    matches!(e.record.state, TaskState::Paused | TaskState::Failed)
+                        && !e.live.awaiting_confirmation
+                })
+                .map(|e| e.record.id.clone())
+                .collect()
+        };
         for id in ids {
             let _ = self.resume(&id);
         }
@@ -464,6 +498,176 @@ impl Manager {
             self.remove(&id, false)?;
         }
         Ok(())
+    }
+
+    /// Apply what the user chose for a download held for confirmation.
+    pub fn confirm(&self, id: &str, choice: ConfirmOptions) -> Result<(), CoreError> {
+        let start = choice.start;
+        self.inner.with_entry(id, |st, entry| {
+            if !entry.live.awaiting_confirmation {
+                return Err(invalid("confirm", entry.record.state));
+            }
+            if let Some(name) = choice
+                .file_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+            {
+                entry.record.file_name = Some(filename::sanitize(name));
+            }
+            if let Some(dir) = choice.dir.filter(|d| !d.as_os_str().is_empty()) {
+                entry.record.dir = dir;
+                entry.record.auto_dir = false;
+            }
+            if let Some(queue) = choice.queue.filter(|q| st.settings.queue(q).is_some()) {
+                entry.record.queue = queue;
+            }
+            entry.live.awaiting_confirmation = false;
+            entry.set_state(if start {
+                TaskState::Queued
+            } else {
+                TaskState::Paused
+            });
+            st.store.upsert(&entry.record)?;
+            Ok(Some(entry.snapshot()))
+        })?;
+        self.inner.schedule();
+        Ok(())
+    }
+
+    /// Download a finished file again from the same link. With `replace`,
+    /// the old file is deleted first and the new one takes its name;
+    /// otherwise the new file gets a free name next to it.
+    pub fn redownload(&self, id: &str, replace: bool) -> Result<(), CoreError> {
+        self.inner.with_entry(id, |st, entry| {
+            if entry.control.is_some() || entry.record.state != TaskState::Completed {
+                return Err(invalid("download again", entry.record.state));
+            }
+            let r = &mut entry.record;
+            if replace {
+                if let Some(path) = r.path.as_ref().filter(|p| p.exists()) {
+                    std::fs::remove_file(path)?;
+                }
+            } else {
+                r.file_name = None;
+            }
+            r.path = None;
+            r.total = None;
+            r.downloaded = 0;
+            r.completed_at = None;
+            r.error = None;
+            r.error_kind = None;
+            entry.live = Live::default();
+            entry.set_state(TaskState::Queued);
+            st.store.upsert(&entry.record)?;
+            Ok(Some(entry.snapshot()))
+        })?;
+        self.inner.schedule();
+        Ok(())
+    }
+
+    /// Reorder downloads inside their queues. Several ids move together and
+    /// keep their relative order.
+    pub fn move_tasks(&self, ids: &[TaskId], to: QueueMove) -> Result<(), CoreError> {
+        let changed = {
+            let mut st = self.inner.state.lock();
+            let State { store, tasks, .. } = &mut *st;
+            let mut order: Vec<usize> = (0..tasks.len()).collect();
+            order.sort_by_key(|&i| tasks[i].record.position);
+            let queues: Vec<String> = ids
+                .iter()
+                .filter_map(|id| tasks.iter().find(|e| &e.record.id == id))
+                .map(|e| e.record.queue.clone())
+                .collect();
+            for queue in dedup(queues) {
+                // Slots this queue occupies in the global order stay the same;
+                // only which download sits in them changes.
+                let slots: Vec<usize> = (0..order.len())
+                    .filter(|&at| tasks[order[at]].record.queue == queue)
+                    .collect();
+                let picked = |i: usize| ids.contains(&tasks[i].record.id);
+                let mut members: Vec<usize> = slots.iter().map(|&at| order[at]).collect();
+                reorder(&mut members, &picked, to);
+                for (&at, member) in slots.iter().zip(members) {
+                    order[at] = member;
+                }
+            }
+            let mut changed = Vec::new();
+            for (pos, &i) in order.iter().enumerate() {
+                let pos = pos as i64;
+                if tasks[i].record.position != pos {
+                    tasks[i].record.position = pos;
+                    store.upsert(&tasks[i].record)?;
+                    changed.push(tasks[i].snapshot());
+                }
+            }
+            changed
+        };
+        for task in changed {
+            self.inner.emit(ManagerEvent::Updated {
+                task: Box::new(task),
+            });
+        }
+        self.inner.schedule();
+        Ok(())
+    }
+
+    /// Move downloads to the end of another queue.
+    pub fn set_queue(&self, ids: &[TaskId], queue: &str) -> Result<(), CoreError> {
+        let changed = {
+            let mut st = self.inner.state.lock();
+            if st.settings.queue(queue).is_none() {
+                return Err(CoreError::InvalidSetting(format!(
+                    "there is no queue `{queue}`"
+                )));
+            }
+            let mut next = next_position(&st.tasks);
+            let State { store, tasks, .. } = &mut *st;
+            let mut changed = Vec::new();
+            for entry in tasks.iter_mut().filter(|e| ids.contains(&e.record.id)) {
+                if entry.record.queue == queue {
+                    continue;
+                }
+                entry.record.queue = queue.to_string();
+                entry.record.position = next;
+                next += 1;
+                store.upsert(&entry.record)?;
+                changed.push(entry.snapshot());
+            }
+            changed
+        };
+        for task in changed {
+            self.inner.emit(ManagerEvent::Updated {
+                task: Box::new(task),
+            });
+        }
+        self.inner.schedule();
+        Ok(())
+    }
+
+    /// Resume the paused and failed downloads of one queue.
+    pub fn start_queue(&self, queue: &str) {
+        for id in self.ids_in(queue, |s| s == TaskState::Paused || s == TaskState::Failed) {
+            let _ = self.resume(&id);
+        }
+    }
+
+    /// Pause everything running or waiting in one queue.
+    pub fn stop_queue(&self, queue: &str) {
+        for id in self.ids_in(queue, |s| s.is_running() || s == TaskState::Queued) {
+            let _ = self.pause(&id);
+        }
+    }
+
+    fn ids_in(&self, queue: &str, pred: impl Fn(TaskState) -> bool) -> Vec<TaskId> {
+        let st = self.inner.state.lock();
+        st.tasks
+            .iter()
+            .filter(|e| {
+                e.record.queue == queue && pred(e.record.state) && !e.live.awaiting_confirmation
+            })
+            .map(|e| e.record.id.clone())
+            .collect()
     }
 
     pub fn update_settings(&self, settings: Settings) -> Result<Settings, CoreError> {
@@ -491,13 +695,21 @@ impl Manager {
             let mut st = self.inner.state.lock();
             st.store.save_settings(&settings)?;
             st.settings = settings.clone();
+            let State { store, tasks, .. } = &mut *st;
+            for entry in tasks
+                .iter_mut()
+                .filter(|e| settings.queue(&e.record.queue).is_none())
+            {
+                entry.record.queue = MAIN_QUEUE.into();
+                store.upsert(&entry.record)?;
+            }
         }
         if let Some(engine) = rebuilt {
             *self.inner.engine.lock() = engine;
         }
         self.inner.limiter.set_rate(settings.speed_limit);
         self.inner.emit(ManagerEvent::Settings {
-            settings: settings.clone(),
+            settings: Box::new(settings.clone()),
         });
         self.inner.schedule();
         Ok(settings)
@@ -547,12 +759,17 @@ impl Inner {
     ) -> Result<(), CoreError> {
         let snapshot = {
             let mut st = self.state.lock();
-            let State { store, tasks, .. } = &mut *st;
+            let State {
+                store,
+                tasks,
+                settings,
+                ..
+            } = &mut *st;
             let entry = tasks
                 .iter_mut()
                 .find(|e| e.record.id == id)
                 .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
-            f(&mut StateParts { store }, entry)?
+            f(&mut StateParts { store, settings }, entry)?
         };
         if let Some(task) = snapshot {
             self.emit(ManagerEvent::Updated {
@@ -571,18 +788,32 @@ impl Inner {
             if st.shutting_down {
                 return;
             }
-            let limit = st.settings.max_concurrent_downloads as usize;
             let per_download = st.settings.max_connections_per_download;
             let engine = self.engine.lock().clone();
-            let mut running = st.tasks.iter().filter(|e| e.control.is_some()).count();
-            let State { store, tasks, .. } = &mut *st;
-            for entry in tasks.iter_mut() {
-                if running >= limit {
-                    break;
-                }
+            let State {
+                store,
+                tasks,
+                settings,
+                ..
+            } = &mut *st;
+            // Each queue runs up to its own limit, in its own order.
+            let mut running: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for e in tasks.iter().filter(|e| e.control.is_some()) {
+                *running.entry(e.record.queue.clone()).or_default() += 1;
+            }
+            let mut order: Vec<usize> = (0..tasks.len()).collect();
+            order.sort_by_key(|&i| tasks[i].record.position);
+            for i in order {
+                let entry = &mut tasks[i];
                 if entry.record.state != TaskState::Queued || entry.control.is_some() {
                     continue;
                 }
+                let busy = running.entry(entry.record.queue.clone()).or_default();
+                if *busy >= settings.queue_limit(&entry.record.queue) {
+                    continue;
+                }
+                *busy += 1;
                 let handle = engine.start(entry.request(per_download));
                 entry.control = Some(handle.control());
                 entry.after_stop = AfterStop::Pause;
@@ -598,7 +829,6 @@ impl Inner {
                     async move { inner.supervise(id, handle).await },
                 ));
                 started.push(entry.snapshot());
-                running += 1;
             }
         }
         for task in started {
@@ -750,6 +980,7 @@ impl Inner {
 /// Borrowed pieces of [`State`] handed to entry callbacks.
 struct StateParts<'a> {
     store: &'a mut Store,
+    settings: &'a Settings,
 }
 
 impl Entry {
@@ -773,6 +1004,58 @@ impl Entry {
         req.max_connections = Some(self.record.max_connections.unwrap_or(per_download) as usize);
         req.relink = self.relink;
         req
+    }
+}
+
+fn next_position(tasks: &[Entry]) -> i64 {
+    tasks
+        .iter()
+        .map(|e| e.record.position + 1)
+        .max()
+        .unwrap_or(0)
+}
+
+fn dedup(items: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for item in items {
+        if !out.contains(&item) {
+            out.push(item);
+        }
+    }
+    out
+}
+
+/// Reorder `members` (task indices in queue order) so the picked ones move
+/// as asked; relative order inside both groups is kept.
+fn reorder(members: &mut Vec<usize>, picked: &impl Fn(usize) -> bool, to: QueueMove) {
+    match to {
+        QueueMove::Top | QueueMove::Bottom => {
+            let (mut sel, rest): (Vec<usize>, Vec<usize>) =
+                members.iter().partition(|&&i| picked(i));
+            let mut out = if to == QueueMove::Top {
+                sel.extend(rest);
+                sel
+            } else {
+                let mut r = rest;
+                r.extend(sel);
+                r
+            };
+            std::mem::swap(members, &mut out);
+        }
+        QueueMove::Up => {
+            for k in 1..members.len() {
+                if picked(members[k]) && !picked(members[k - 1]) {
+                    members.swap(k, k - 1);
+                }
+            }
+        }
+        QueueMove::Down => {
+            for k in (0..members.len().saturating_sub(1)).rev() {
+                if picked(members[k]) && !picked(members[k + 1]) {
+                    members.swap(k, k + 1);
+                }
+            }
+        }
     }
 }
 

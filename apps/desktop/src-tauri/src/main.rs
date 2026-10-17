@@ -2,13 +2,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod background;
+mod clipboard;
 mod power;
 mod tray;
 
 use std::path::PathBuf;
 
 use background::{Background, WhenDone, WhenDoneView};
-use downpipe_core::{AddOptions, CoreError, Manager, Settings, TaskSnapshot, TaskState};
+use downpipe_core::{
+    AddOptions, ConfirmOptions, CoreError, Manager, QueueMove, Settings, TaskSnapshot, TaskState,
+};
 use downpipe_native_host::ipc::Endpoint;
 use downpipe_native_host::manifest::{self, Layout, Stale, Status};
 use downpipe_native_host::server::BridgeServer;
@@ -121,6 +124,47 @@ async fn update_settings(
         let _ = tauri::async_runtime::spawn_blocking(register_browser_host).await;
     }
     Ok(saved)
+}
+
+/// Name, folder and queue for a download the browser sent, then start it
+/// or keep it for later.
+#[tauri::command]
+fn confirm_download(
+    manager: State<'_, Manager>,
+    id: String,
+    options: ConfirmOptions,
+) -> CmdResult<()> {
+    Ok(manager.confirm(&id, options)?)
+}
+
+/// Download a finished file again; `replace` deletes the old copy first.
+#[tauri::command]
+fn redownload(manager: State<'_, Manager>, id: String, replace: bool) -> CmdResult<()> {
+    Ok(manager.redownload(&id, replace)?)
+}
+
+#[tauri::command]
+fn move_downloads(manager: State<'_, Manager>, ids: Vec<String>, to: QueueMove) -> CmdResult<()> {
+    Ok(manager.move_tasks(&ids, to)?)
+}
+
+#[tauri::command]
+fn set_download_queue(
+    manager: State<'_, Manager>,
+    ids: Vec<String>,
+    queue: String,
+) -> CmdResult<()> {
+    Ok(manager.set_queue(&ids, &queue)?)
+}
+
+#[tauri::command]
+fn start_queue(manager: State<'_, Manager>, queue: String) {
+    manager.start_queue(&queue);
+}
+
+#[tauri::command]
+fn stop_queue(manager: State<'_, Manager>, queue: String) {
+    manager.stop_queue(&queue);
 }
 
 /// IDM's "refresh download address": a new link for a paused or failed
@@ -504,6 +548,7 @@ fn main() {
             start_browser_bridge(manager.clone());
             app.manage(Background::default());
             background::spawn(app.handle().clone(), manager.clone());
+            clipboard::spawn(app.handle().clone(), manager.clone());
             if let Err(err) = tray::create(app.handle()) {
                 tracing::warn!("no tray icon: {err}");
             }
@@ -546,6 +591,12 @@ fn main() {
             reveal_download,
             open_download,
             change_download_url,
+            confirm_download,
+            redownload,
+            move_downloads,
+            set_download_queue,
+            start_queue,
+            stop_queue,
             export_downloads,
             start_drag,
             get_when_done,

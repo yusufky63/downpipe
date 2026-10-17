@@ -9,6 +9,7 @@ No external programs (yt-dlp, FFmpeg, aria2) are bundled.
 | Crate | Version | License |
 |---|---|---|
 | anyhow | 1.0.104 | MIT OR Apache-2.0 |
+| arboard (desktop: clipboard watching) | 3.6.1 | MIT OR Apache-2.0 |
 | axum (test server only) | 0.8.9 | MIT |
 | bytes | 1.12.1 | MIT |
 | chrono | 0.4.45 | MIT OR Apache-2.0 |
@@ -20,6 +21,7 @@ No external programs (yt-dlp, FFmpeg, aria2) are bundled.
 | hex | 0.4.3 | MIT OR Apache-2.0 |
 | httpdate | 1.0.3 | MIT OR Apache-2.0 |
 | indicatif | 0.18.6 | MIT |
+| keepawake (desktop: keep the computer awake while downloading) | 0.6.1 | MIT |
 | parking_lot | 0.12.5 | MIT OR Apache-2.0 |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 |
 | reqwest | 0.13.5 | MIT OR Apache-2.0 |
@@ -45,7 +47,7 @@ No external programs (yt-dlp, FFmpeg, aria2) are bundled.
 
 ## Rust: all transitive dependencies by license
 
-597 crates in total. Most are MIT and/or Apache-2.0; the others are permissive (BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, Unlicense, 0BSD, CC0-1.0, BSL-1.0, CDLA-Permissive-2.0) except for these weak-copyleft crates, all pulled in by Tauri's HTML tooling or `dirs`:
+611 crates in total. Most are MIT and/or Apache-2.0; the others are permissive (BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, Unlicense, 0BSD, CC0-1.0, BSL-1.0, CDLA-Permissive-2.0) except for these weak-copyleft crates, all pulled in by Tauri's HTML tooling or `dirs`:
 
 | Crate | Version | License |
 |---|---|---|

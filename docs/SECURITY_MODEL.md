@@ -30,6 +30,10 @@ A download manager handles untrusted data from servers and, through the browser 
 - **When done** runs fixed commands with argument arrays (`rundll32 powrprof.dll,SetSuspendState`, `shutdown /s /t 0` from `System32` by absolute path; `pmset`/`osascript` on macOS; `systemctl` on Linux). Nothing from the web view or a server reaches them, and they run only after a visible 60-second countdown with Cancel. There is no "run a program" action.
 - The sign-in item is created only when the user turns on **Start Downpipe when you sign in**, and removed when it is turned off.
 - **Save list** writes the stored URLs, which never contain `user:password@` credentials; headers are not exported.
+- **Offer to download copied links** is off by default. While it is on, the app reads the clipboard's text (on Windows only after the clipboard's change counter moved), keeps the last text in memory to notice changes, and does nothing with it unless it is a single http(s) link to a listed file type. That link is only put into the Add dialog; nothing is downloaded until the user confirms, and nothing is written to disk or sent anywhere. What was on the clipboard when watching started is never offered.
+- The web view's own context menu and the browser keys (reload, print, save, view source, find, history, back and forward) are cancelled, and so are the developer tools keys in release builds, so the window cannot be navigated away from the bundled UI by a stray key.
+- **Download again** with **Replace the existing file** deletes the old file before downloading; the dialog says so and the box is off by default. Without it the old file is never touched.
+- **Ask before downloads from the browser start** (on by default) keeps a download sent through the bridge paused until the user picks its name and folder in the app. Any program running as the same user can reach the pipe; with the setting on, such a program cannot start a download through it unnoticed either.
 
 ## Integrity
 

@@ -38,6 +38,10 @@ export interface Task {
   category: string | null;
   /** Downpipe picked the folder (it may move the file into its category). */
   auto_dir: boolean;
+  /** Queue id; see `Settings.queues`. */
+  queue: string;
+  /** Order in the queue: lower starts first. */
+  position: number;
   created_at: number;
   updated_at: number;
   completed_at: number | null;
@@ -47,6 +51,8 @@ export interface Task {
   resumable: boolean;
   segments: SegmentView[];
   notices: string[];
+  /** Sent by the browser and waiting for the user to pick its name and folder. */
+  awaiting_confirmation: boolean;
   eta_secs: number | null;
 }
 
@@ -68,6 +74,24 @@ export interface Settings {
   use_categories: boolean;
   categories: Category[];
   schedule: Schedule;
+  /** Offer to download links copied to the clipboard. */
+  watch_clipboard: boolean;
+  /** Keep the computer from sleeping while downloads run. */
+  keep_awake: boolean;
+  /** Ask for name, folder and queue before a download from the browser starts. */
+  confirm_browser_downloads: boolean;
+  /** The first is always the main queue, whose limit is `max_concurrent_downloads`. */
+  queues: Queue[];
+}
+
+export const MAIN_QUEUE = "main";
+
+export interface Queue {
+  /** Empty for a new queue; the app makes one from the name. */
+  id: string;
+  name: string;
+  /** Downloads at once, 1 to 16. Ignored for the main queue. */
+  max_concurrent: number;
 }
 
 export interface Category {
@@ -86,6 +110,8 @@ export interface Schedule {
   stop: string;
   /** Monday first. */
   days: boolean[];
+  /** Queue id to start and stop; empty for every queue. */
+  queue: string;
 }
 
 export type WhenDone = "nothing" | "quit" | "sleep" | "shutdown";
@@ -121,7 +147,20 @@ export interface AddOptions {
   checksum?: string | null;
   max_connections?: number | null;
   paused?: boolean;
+  queue?: string | null;
 }
+
+/** What the user chose for a download from the browser. */
+export interface ConfirmOptions {
+  file_name: string | null;
+  /** Null keeps the automatic folder. */
+  dir: string | null;
+  queue: string | null;
+  /** False: keep it paused ("Download later"). */
+  start: boolean;
+}
+
+export type QueueMove = "up" | "down" | "top" | "bottom";
 
 export type ManagerEvent =
   | { type: "updated"; task: Task }
@@ -152,6 +191,13 @@ export const api = {
   reveal: (id: string) => invoke<null>("reveal_download", { id }),
   open: (id: string) => invoke<null>("open_download", { id }),
   changeUrl: (id: string, url: string) => invoke<null>("change_download_url", { id, url }),
+  confirm: (id: string, options: ConfirmOptions) => invoke<null>("confirm_download", { id, options }),
+  /** With `replace`, the old file is deleted first and the new one takes its name. */
+  redownload: (id: string, replace: boolean) => invoke<null>("redownload", { id, replace }),
+  move: (ids: string[], to: QueueMove) => invoke<null>("move_downloads", { ids, to }),
+  setQueue: (ids: string[], queue: string) => invoke<null>("set_download_queue", { ids, queue }),
+  startQueue: (queue: string) => invoke<null>("start_queue", { queue }),
+  stopQueue: (queue: string) => invoke<null>("stop_queue", { queue }),
   /** Number of links written, or null when the save dialog was closed. */
   exportLinks: () => invoke<number | null>("export_downloads"),
   startDrag: (id: string) => invoke<null>("start_drag", { id }),
@@ -166,6 +212,11 @@ export function onWhenDone(cb: (view: WhenDoneView) => void): Promise<UnlistenFn
 
 export function onManagerEvent(cb: (event: ManagerEvent) => void): Promise<UnlistenFn> {
   return listen<ManagerEvent>("downpipe://event", (e) => cb(e.payload));
+}
+
+/** A download link was copied to the clipboard (when watching is on). */
+export function onClipboardLink(cb: (url: string) => void): Promise<UnlistenFn> {
+  return listen<{ url: string }>("downpipe://clipboard", (e) => cb(e.payload.url));
 }
 
 /** The event stream fell behind; the full list should be reloaded. */

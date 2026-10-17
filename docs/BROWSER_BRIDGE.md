@@ -125,6 +125,8 @@ The filters are stored with the other extension settings in `storage.local`. Set
 - Before sending, the page checks the bridge. If Downpipe is not running, or the bridge is missing or refuses the extension, nothing is sent and the page shows the same guidance as the popup. If the app goes away halfway, the page stops at the first such answer instead of failing every remaining link.
 - Pages the browser does not let extensions read (its own settings pages, extension stores, some built-in viewers) open the links page with a note saying so.
 
+While **Ask before downloads from the browser start** is on in the app (Settings → App, on by default), the app still answers `accepted` at once, so the browser never waits for a person. The download is created paused and the app's window comes forward with a dialog for its file name, folder and queue: **Start download** queues it, **Download later** keeps it paused, and **Cancel** removes it. Nothing is requested from the server before the answer. Until then the popup lists it as Paused.
+
 Every hand-over from the link menu or capture is confirmed in three places:
 
 - **A notification:** "Downloading in Downpipe" with the file name. When Downpipe could not take a download, the notification says so and stays until dismissed, for example "Downloaded by the browser" when the app was closed. **Notifications** in the popup turns them off.

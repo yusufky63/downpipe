@@ -1,8 +1,9 @@
-import { ArrowDown, ArrowUp, FolderOpen, Pause, Play, RotateCw, Trash2 } from "lucide-react";
-import type { DragEvent, KeyboardEvent } from "react";
+import { ArrowDown, ArrowUp, FolderOpen, MoreHorizontal, Pause, Play, RotateCw } from "lucide-react";
+import type { DragEvent, MouseEvent } from "react";
 
-import type { Task } from "../lib/api";
+import { MAIN_QUEUE, type Task } from "../lib/api";
 import { formatBytes, formatDuration, formatSpeed, hostOf, percent, sentence } from "../lib/format";
+import type { Modifiers } from "../lib/selection";
 import type { Sort, SortKey } from "../lib/sort";
 import { canPause, canResume, displayName, isRunning, stateInfo } from "../lib/tasks";
 import { Badge, IconButton } from "./primitives";
@@ -15,34 +16,43 @@ const COLUMNS =
   "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 md:grid-cols-[minmax(0,1fr)_88px_minmax(120px,220px)_96px_100px] lg:grid-cols-[minmax(0,1fr)_96px_minmax(160px,260px)_104px_72px_100px]";
 
 export interface RowActions {
-  onSelect: (id: string) => void;
+  /** Click: select, with Ctrl or Shift for several. */
+  onSelect: (id: string, mods: Modifiers) => void;
+  /** Double click: the details dialog. */
+  onProperties: (id: string) => void;
+  /** Right click or the More button; `keyboard` starts on the first entry. */
+  onMenu: (id: string, x: number, y: number, keyboard: boolean) => void;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
   onReveal: (id: string) => void;
-  onRemove: (id: string) => void;
-  onOpen: (id: string) => void;
   /** Start dragging a finished file out of the window. */
   onDragOut: (id: string) => void;
 }
 
+/** For focusing a row from the keyboard handler. */
+export const rowSelector = (id: string) => `[data-row-id="${CSS.escape(id)}"]`;
+
 export function DownloadList({
   tasks,
-  selectedId,
+  selected,
   actions,
   sort,
   onSort,
+  queueNames,
 }: {
   tasks: Task[];
-  selectedId: string | null;
+  selected: ReadonlySet<string>;
   actions: RowActions;
   sort: Sort;
   onSort: (key: SortKey) => void;
+  /** Shown on rows outside the main queue. */
+  queueNames: ReadonlyMap<string, string>;
 }) {
   const header = (key: SortKey, label: string, className: string, align: "left" | "right" = "left") => (
     <SortHeader sortKey={key} label={label} sort={sort} onSort={onSort} className={className} align={align} />
   );
   return (
-    <div role="table" aria-label="Downloads" className="min-w-0">
+    <div role="grid" aria-label="Downloads" aria-multiselectable="true" className="min-w-0">
       <div role="row" className={`${COLUMNS} sticky top-0 z-20 border-b border-line bg-canvas px-4 py-1.5`}>
         {header("name", "Name", "")}
         {header("size", "Size", "hidden md:flex", "right")}
@@ -55,7 +65,13 @@ export function DownloadList({
       </div>
       <div className="divide-y divide-line">
         {tasks.map((task) => (
-          <DownloadRow key={task.id} task={task} selected={task.id === selectedId} actions={actions} />
+          <DownloadRow
+            key={task.id}
+            task={task}
+            selected={selected.has(task.id)}
+            actions={actions}
+            queueName={task.queue === MAIN_QUEUE ? null : (queueNames.get(task.queue) ?? null)}
+          />
         ))}
       </div>
     </div>
@@ -97,14 +113,24 @@ function SortHeader({
   );
 }
 
-function DownloadRow({ task, selected, actions }: { task: Task; selected: boolean; actions: RowActions }) {
+function DownloadRow({
+  task,
+  selected,
+  actions,
+  queueName,
+}: {
+  task: Task;
+  selected: boolean;
+  actions: RowActions;
+  queueName: string | null;
+}) {
   const info = stateInfo(task);
   const pct = percent(task.downloaded, task.total);
   const running = isRunning(task.state);
   const barTone = task.state === "completed" ? "positive" : task.state === "failed" ? "danger" : running ? "primary" : "neutral";
   const sizeText = task.total !== null ? formatBytes(task.total) : task.downloaded > 0 ? formatBytes(task.downloaded) : "–";
   const detail =
-    task.state === "failed" && task.error ? sentence(task.error) : [hostOf(task.url), task.category].filter(Boolean).join(" · ");
+    task.state === "failed" && task.error ? sentence(task.error) : [hostOf(task.url), task.category, queueName].filter(Boolean).join(" · ");
   const done = task.state === "completed";
 
   // A native drag needs the mouse button still down, so it starts from the
@@ -114,28 +140,31 @@ function DownloadRow({ task, selected, actions }: { task: Task; selected: boolea
     actions.onDragOut(task.id);
   };
 
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      actions.onSelect(task.id);
-    }
+  const onMore = (e: MouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    // detail is 0 when Enter or Space pressed the button.
+    actions.onMenu(task.id, r.right - 232, r.bottom + 4, e.detail === 0);
   };
 
   return (
     <div
       role="row"
       tabIndex={0}
+      data-row-id={task.id}
       aria-selected={selected}
-      aria-label={`${displayName(task)}, ${info.label}. Open details`}
-      title={done ? "Drag the file into another app, or click for details" : undefined}
+      aria-label={`${displayName(task)}, ${info.label}`}
+      title={done ? "Drag the file into another app" : undefined}
       draggable={done}
       onDragStart={done ? onDragStart : undefined}
-      onClick={() => actions.onSelect(task.id)}
-      onKeyDown={onKeyDown}
-      className={`${COLUMNS} rail cursor-pointer px-4 py-3 ${selected ? "rail-active bg-surface" : "hover:bg-surface"}`}
+      onClick={(e) => actions.onSelect(task.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}
+      onDoubleClick={() => actions.onProperties(task.id)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        actions.onMenu(task.id, e.clientX, e.clientY, false);
+      }}
+      className={`${COLUMNS} rail cursor-default px-4 py-3 ${selected ? "rail-active bg-primary-soft" : "hover:bg-surface"}`}
     >
-      <div role="cell" className="flex min-w-0 flex-col gap-1">
+      <div role="gridcell" className="flex min-w-0 flex-col gap-1">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-[14px] font-medium text-ink" title={displayName(task)}>
             {displayName(task)}
@@ -154,22 +183,27 @@ function DownloadRow({ task, selected, actions }: { task: Task; selected: boolea
           </span>
         </div>
       </div>
-      <span role="cell" className="num hidden text-right font-mono text-[13px] text-ink-secondary md:block">
+      <span role="gridcell" className="num hidden text-right font-mono text-[13px] text-ink-secondary md:block">
         {sizeText}
       </span>
-      <div role="cell" className="hidden items-center gap-2 md:flex">
+      <div role="gridcell" className="hidden items-center gap-2 md:flex">
         <SegmentBar segments={task.segments} total={task.total} downloaded={task.downloaded} tone={barTone} />
         <span className="num w-10 shrink-0 text-right font-mono text-[12px] text-ink-secondary">
           {pct === null ? "–" : `${Math.floor(pct)}%`}
         </span>
       </div>
-      <span role="cell" className="num hidden text-right font-mono text-[13px] text-ink-secondary md:block">
+      <span role="gridcell" className="num hidden text-right font-mono text-[13px] text-ink-secondary md:block">
         {running ? formatSpeed(task.speed) : "–"}
       </span>
-      <span role="cell" className="num hidden text-right font-mono text-[13px] text-ink-secondary lg:block">
+      <span role="gridcell" className="num hidden text-right font-mono text-[13px] text-ink-secondary lg:block">
         {running ? formatDuration(task.eta_secs) : "–"}
       </span>
-      <div role="cell" className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
+      <div
+        role="gridcell"
+        className="flex items-center justify-end gap-0.5"
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
         {canPause(task) && (
           <IconButton label="Pause" onClick={() => actions.onPause(task.id)}>
             <Pause size={16} strokeWidth={1.75} />
@@ -183,8 +217,8 @@ function DownloadRow({ task, selected, actions }: { task: Task; selected: boolea
         <IconButton label="Show in folder" onClick={() => actions.onReveal(task.id)}>
           <FolderOpen size={16} strokeWidth={1.75} />
         </IconButton>
-        <IconButton label="Remove from list" tone="danger" onClick={() => actions.onRemove(task.id)}>
-          <Trash2 size={16} strokeWidth={1.75} />
+        <IconButton label="More actions" aria-haspopup="menu" onClick={onMore}>
+          <MoreHorizontal size={16} strokeWidth={1.75} />
         </IconButton>
       </div>
     </div>

@@ -2,7 +2,8 @@ import type { Task } from "./api";
 import { percent } from "./format";
 import { displayName, isRunning } from "./tasks";
 
-export type SortKey = "added" | "name" | "size" | "progress" | "speed" | "left";
+/** `order` is the order downloads start in: queue position. */
+export type SortKey = "added" | "name" | "size" | "progress" | "speed" | "left" | "order";
 export type SortDir = "asc" | "desc";
 
 export interface Sort {
@@ -16,7 +17,7 @@ export const DEFAULT_SORT: Sort = { key: "added", dir: "desc" };
 export function nextSort(current: Sort, key: SortKey): Sort {
   if (current.key === key) return { key, dir: current.dir === "asc" ? "desc" : "asc" };
   // Text reads best A to Z; numbers are most useful largest first.
-  return { key, dir: key === "name" || key === "left" ? "asc" : "desc" };
+  return { key, dir: key === "name" || key === "left" || key === "order" ? "asc" : "desc" };
 }
 
 const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
@@ -36,6 +37,8 @@ function value(task: Task, key: SortKey): number | string | null {
       return isRunning(task.state) ? task.speed : null;
     case "left":
       return isRunning(task.state) ? task.eta_secs : null;
+    case "order":
+      return task.position;
   }
 }
 
@@ -63,7 +66,7 @@ export function matchesSearch(task: Task, query: string): boolean {
 export function parseSort(raw: string | null): Sort {
   if (!raw) return DEFAULT_SORT;
   const [key, dir] = raw.split(":");
-  const keys: SortKey[] = ["added", "name", "size", "progress", "speed", "left"];
+  const keys: SortKey[] = ["added", "name", "size", "progress", "speed", "left", "order"];
   if (keys.includes(key as SortKey) && (dir === "asc" || dir === "desc")) return { key: key as SortKey, dir };
   return DEFAULT_SORT;
 }

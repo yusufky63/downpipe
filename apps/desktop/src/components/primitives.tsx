@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 import type { Tone } from "../lib/tasks";
 
@@ -178,6 +178,9 @@ export function Dialog({
 }) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // Callers pass a new onClose on every render (the list updates every
+  // second); focus must be set once, not each time.
+  const close = useEffectEvent(() => onClose());
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -186,14 +189,14 @@ export function Dialog({
       : null;
     (first ?? panel.current)?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") close();
     };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
-      previous?.focus();
+      if (previous?.isConnected) previous.focus();
     };
-  }, [onClose, focusFirstField]);
+  }, [focusFirstField]);
 
   return (
     <div className="fixed inset-0 z-100 flex items-end justify-center md:items-center md:p-6">

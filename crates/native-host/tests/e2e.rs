@@ -7,7 +7,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use downpipe_core::http::{EngineConfig, KIB};
-use downpipe_core::{Manager, Settings, TaskSnapshot, TaskState};
+use downpipe_core::{ConfirmOptions, Manager, Settings, TaskSnapshot, TaskState};
 use downpipe_native_host::frame;
 use downpipe_native_host::ipc::{self, AppRequest, AppResponse, ENDPOINT_ENV, Endpoint};
 use downpipe_native_host::protocol::DownloadRequest;
@@ -50,13 +50,19 @@ struct App {
 }
 
 impl App {
+    /// Downloads from the browser start at once.
     async fn start() -> Self {
+        Self::start_with(false).await
+    }
+
+    async fn start_with(confirm_browser_downloads: bool) -> Self {
         let data = tempfile::tempdir().unwrap();
         let downloads = tempfile::tempdir().unwrap();
         let manager = Manager::open_with(data.path(), config()).await.unwrap();
         manager
             .update_settings(Settings {
                 download_dir: downloads.path().to_path_buf(),
+                confirm_browser_downloads,
                 ..manager.settings()
             })
             .unwrap();
@@ -218,6 +224,55 @@ async fn link_from_the_browser_downloads_in_the_manager() {
         assert_eq!(request.referer.as_deref(), Some(page.as_str()));
         assert_eq!(request.cookie, None);
     }
+}
+
+/// The browser is answered at once; the download waits in the app until
+/// the user picks its name and folder.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn browser_downloads_wait_for_the_user() {
+    let web = TestServer::start().await.unwrap();
+    let app = App::start_with(true).await;
+    let mut host = Host::spawn(&app.endpoint);
+
+    let size = 64 * KIB;
+    let accepted = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "download",
+        "id": "d1",
+        "resource_url": web.url(&format!("/file/{size}?name=asked.bin")),
+    }));
+    assert_eq!(accepted["type"], "accepted", "{accepted}");
+    assert!(host.finish().success());
+    let id = accepted["task_id"].as_str().unwrap().to_string();
+
+    let waiting = app.manager.get(&id).unwrap();
+    assert_eq!(waiting.record.state, TaskState::Paused);
+    assert!(waiting.live.awaiting_confirmation);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        web.state.requests().is_empty(),
+        "nothing is fetched before the answer"
+    );
+
+    let chosen = tempfile::tempdir().unwrap();
+    app.manager
+        .confirm(
+            &id,
+            ConfirmOptions {
+                file_name: Some("renamed.bin".into()),
+                dir: Some(chosen.path().to_path_buf()),
+                queue: None,
+                start: true,
+            },
+        )
+        .unwrap();
+    let done = wait_for(&app.manager, &id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+    let path = done.record.path.unwrap();
+    assert_eq!(path, chosen.path().join("renamed.bin"));
+    assert_eq!(std::fs::read(&path).unwrap(), content(size, 0));
 }
 
 /// What the popup does: ask for the downloads it sent until they finish.

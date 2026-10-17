@@ -110,6 +110,12 @@ pub struct TaskRecord {
     /// the finished file to the folder of its real type.
     #[serde(default)]
     pub auto_dir: bool,
+    /// Queue id; see `Settings::queues`.
+    #[serde(default = "main_queue")]
+    pub queue: String,
+    /// Order inside the queue: lower starts first.
+    #[serde(default)]
+    pub position: i64,
     pub created_at: i64,
     pub updated_at: i64,
     pub completed_at: Option<i64>,
@@ -124,6 +130,9 @@ pub struct Live {
     pub resumable: bool,
     pub segments: Vec<SegmentView>,
     pub notices: Vec<String>,
+    /// Sent by the browser and waiting for the user to confirm its name,
+    /// folder and queue before it starts.
+    pub awaiting_confirmation: bool,
 }
 
 impl Live {
@@ -135,6 +144,7 @@ impl Live {
             resumable: p.resumable,
             segments: p.segments.clone(),
             notices: p.notices.clone(),
+            awaiting_confirmation: false,
         }
     }
 }
@@ -180,6 +190,37 @@ pub struct AddOptions {
     pub headers: Vec<(String, String)>,
     /// Add without starting.
     pub paused: bool,
+    /// Queue id; the main queue when missing or unknown.
+    pub queue: Option<String>,
+    /// Hold the download until the user confirms it (see
+    /// [`crate::Manager::confirm`]).
+    pub confirm: bool,
+}
+
+/// What the user chose in the confirmation dialog.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ConfirmOptions {
+    pub file_name: Option<String>,
+    /// A folder picked by the user; `None` keeps the automatic one.
+    pub dir: Option<PathBuf>,
+    pub queue: Option<String>,
+    /// Start now; otherwise it stays paused ("Download later").
+    pub start: bool,
+}
+
+/// Where selected downloads move inside their queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueMove {
+    Up,
+    Down,
+    Top,
+    Bottom,
+}
+
+fn main_queue() -> String {
+    crate::settings::MAIN_QUEUE.to_string()
 }
 
 #[cfg(test)]

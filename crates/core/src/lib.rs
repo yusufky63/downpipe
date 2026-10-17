@@ -9,9 +9,12 @@ mod task;
 
 pub use manager::{CoreError, Manager, ManagerEvent};
 pub use settings::{
-    Category, Schedule, Settings, default_categories, default_download_dir, extension_of,
+    Category, MAIN_QUEUE, Queue, Schedule, Settings, default_categories, default_download_dir,
+    default_queues, extension_of,
 };
 pub use store::Store;
-pub use task::{AddOptions, Live, TaskId, TaskRecord, TaskSnapshot, TaskState};
+pub use task::{
+    AddOptions, ConfirmOptions, Live, QueueMove, TaskId, TaskRecord, TaskSnapshot, TaskState,
+};
 
 pub use downpipe_http as http;

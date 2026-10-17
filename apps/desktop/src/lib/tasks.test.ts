@@ -2,36 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Task } from "./api";
 import { applyEvent, canPause, canResume, countByFilter, displayName, sortForDisplay, totals } from "./tasks";
-
-function task(id: string, patch: Partial<Task> = {}): Task {
-  return {
-    id,
-    url: `https://example.org/${id}.bin`,
-    dir: "C:/Downloads",
-    file_name: null,
-    path: null,
-    state: "queued",
-    total: null,
-    downloaded: 0,
-    error: null,
-    error_kind: null,
-    checksum: null,
-    max_connections: null,
-    category: null,
-    auto_dir: true,
-    created_at: 1,
-    updated_at: 1,
-    completed_at: null,
-    speed: 0,
-    connections: 0,
-    target_connections: 0,
-    resumable: false,
-    segments: [],
-    notices: [],
-    eta_secs: null,
-    ...patch,
-  };
-}
+import { makeTask as task } from "./testing";
 
 describe("applyEvent", () => {
   it("inserts, replaces and removes", () => {

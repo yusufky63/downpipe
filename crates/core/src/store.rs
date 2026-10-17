@@ -11,7 +11,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use crate::settings::Settings;
 use crate::task::{TaskRecord, TaskState};
 
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 #[derive(Debug)]
 pub struct Store {
@@ -67,6 +67,15 @@ impl Store {
                 "ALTER TABLE downloads ADD COLUMN category TEXT;
                  ALTER TABLE downloads ADD COLUMN auto_dir INTEGER NOT NULL DEFAULT 0;",
             )?;
+            conn.pragma_update(None, "user_version", 2)?;
+        }
+        if version < 3 {
+            // Existing downloads join the main queue in the order they were
+            // added; the manager renumbers positions when it opens.
+            conn.execute_batch(
+                "ALTER TABLE downloads ADD COLUMN queue TEXT NOT NULL DEFAULT 'main';
+                 ALTER TABLE downloads ADD COLUMN position INTEGER NOT NULL DEFAULT 0;",
+            )?;
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         Ok(Self { conn })
@@ -76,8 +85,10 @@ impl Store {
         self.conn.execute(
             "INSERT INTO downloads (id, url, dir, file_name, path, state, total, downloaded,
                                     error, error_kind, checksum, max_connections,
-                                    created_at, updated_at, completed_at, category, auto_dir)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                                    created_at, updated_at, completed_at, category, auto_dir,
+                                    queue, position)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                     ?18, ?19)
              ON CONFLICT(id) DO UPDATE SET
                 url = excluded.url, dir = excluded.dir, file_name = excluded.file_name,
                 path = excluded.path, state = excluded.state, total = excluded.total,
@@ -85,7 +96,8 @@ impl Store {
                 error_kind = excluded.error_kind, checksum = excluded.checksum,
                 max_connections = excluded.max_connections,
                 updated_at = excluded.updated_at, completed_at = excluded.completed_at,
-                category = excluded.category, auto_dir = excluded.auto_dir",
+                category = excluded.category, auto_dir = excluded.auto_dir,
+                queue = excluded.queue, position = excluded.position",
             params![
                 r.id,
                 r.url,
@@ -104,6 +116,8 @@ impl Store {
                 r.completed_at,
                 r.category,
                 r.auto_dir,
+                r.queue,
+                r.position,
             ],
         )?;
         Ok(())
@@ -119,7 +133,7 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT id, url, dir, file_name, path, state, total, downloaded, error, error_kind,
                     checksum, max_connections, created_at, updated_at, completed_at,
-                    category, auto_dir
+                    category, auto_dir, queue, position
              FROM downloads ORDER BY created_at, rowid",
         )?;
         let rows = stmt.query_map([], row_to_record)?;
@@ -172,6 +186,8 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<TaskRecord> {
         completed_at: row.get(14)?,
         category: row.get(15)?,
         auto_dir: row.get(16)?,
+        queue: row.get(17)?,
+        position: row.get(18)?,
     })
 }
 
@@ -207,6 +223,8 @@ mod tests {
             max_connections: Some(4),
             category: Some("Disk images".into()),
             auto_dir: true,
+            queue: "night".into(),
+            position: created * 10,
             created_at: created,
             updated_at: created,
             completed_at: None,
@@ -280,6 +298,8 @@ mod tests {
         assert_eq!(old.id, "old");
         assert_eq!(old.category, None);
         assert!(!old.auto_dir);
+        assert_eq!(old.queue, "main");
+        assert_eq!(old.position, 0);
         store.upsert(&record("new", 2)).unwrap();
         assert_eq!(store.all().unwrap().len(), 2);
     }

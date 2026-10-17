@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use downpipe_core::http::{EngineConfig, KIB, MIB, meta};
 use downpipe_core::{
-    AddOptions, CoreError, Manager, ManagerEvent, Settings, TaskSnapshot, TaskState,
+    AddOptions, ConfirmOptions, CoreError, Manager, ManagerEvent, QueueMove, Settings,
+    TaskSnapshot, TaskState,
 };
 use downpipe_test_server::{TestServer, content};
 
@@ -520,4 +521,226 @@ async fn proxy_and_user_agent_settings() {
     })
     .await;
     assert_eq!(failed.record.error_kind.as_deref(), Some("network"));
+}
+
+#[tokio::test]
+async fn queues_run_side_by_side_with_their_own_limits() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open(data.path()).await;
+    let mut s = manager.settings();
+    s.max_concurrent_downloads = 1;
+    s.queues.push(downpipe_core::Queue {
+        id: String::new(),
+        name: "Night".into(),
+        max_concurrent: 1,
+    });
+    let s = manager.update_settings(s).unwrap();
+    let night = s.queues[1].id.clone();
+
+    let slow = |i: u32| server.url(&format!("/file/{}?rate=1048576&n={i}", 4 * MIB));
+    let a = add(&manager, slow(1), out.path()).record.id;
+    let b = add(&manager, slow(2), out.path()).record.id;
+    let c = add(&manager, slow(3), out.path()).record.id;
+    manager.set_queue(std::slice::from_ref(&c), &night).unwrap();
+
+    // Main runs one at a time; Night runs its own download beside it.
+    wait_for(&manager, &c, |t| t.record.state.is_running()).await;
+    let state = |id: &str| manager.get(id).unwrap().record.state;
+    assert!(state(&a).is_running());
+    assert_eq!(state(&b), TaskState::Queued);
+    assert_eq!(manager.get(&c).unwrap().record.queue, night);
+
+    manager.stop_queue(&night);
+    wait_for(&manager, &c, |t| t.record.state == TaskState::Paused).await;
+    assert!(
+        state(&a).is_running(),
+        "stopping one queue leaves the others"
+    );
+    for id in [&a, &b] {
+        manager.cancel(id).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn reordering_decides_what_starts_next() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open(data.path()).await;
+    manager
+        .update_settings(Settings {
+            max_concurrent_downloads: 1,
+            ..manager.settings()
+        })
+        .unwrap();
+    let ids: Vec<String> = (0..4)
+        .map(|i| {
+            add(
+                &manager,
+                server.url(&format!("/file/{}?rate=1048576&n={i}", 4 * MIB)),
+                out.path(),
+            )
+            .record
+            .id
+        })
+        .collect();
+    let position = |id: &str| manager.get(id).unwrap().record.position;
+    let order = |ids: &[String]| {
+        let mut v: Vec<(i64, String)> = ids.iter().map(|id| (position(id), id.clone())).collect();
+        v.sort();
+        v.into_iter().map(|(_, id)| id).collect::<Vec<_>>()
+    };
+    assert_eq!(order(&ids), ids);
+
+    manager
+        .move_tasks(&[ids[3].clone()], QueueMove::Top)
+        .unwrap();
+    assert_eq!(
+        order(&ids),
+        [&ids[3], &ids[0], &ids[1], &ids[2]].map(String::clone)
+    );
+    manager
+        .move_tasks(&[ids[1].clone(), ids[2].clone()], QueueMove::Up)
+        .unwrap();
+    assert_eq!(
+        order(&ids),
+        [&ids[3], &ids[1], &ids[2], &ids[0]].map(String::clone)
+    );
+    manager
+        .move_tasks(&[ids[3].clone()], QueueMove::Bottom)
+        .unwrap();
+    manager
+        .move_tasks(&[ids[1].clone()], QueueMove::Down)
+        .unwrap();
+    assert_eq!(
+        order(&ids),
+        [&ids[2], &ids[1], &ids[0], &ids[3]].map(String::clone)
+    );
+
+    // The first one is already running; when it is paused the next in queue
+    // order (ids[2], moved to the front) starts, not the oldest.
+    wait_for(&manager, &ids[0], |t| t.record.state.is_running()).await;
+    manager.pause(&ids[0]).unwrap();
+    wait_for(&manager, &ids[2], |t| t.record.state.is_running()).await;
+    for id in &ids {
+        let _ = manager.cancel(id);
+    }
+}
+
+#[tokio::test]
+async fn browser_downloads_wait_for_confirmation() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let picked = tempfile::tempdir().unwrap();
+    let manager = open_into(data.path(), out.path()).await;
+
+    let held = manager
+        .add(AddOptions {
+            url: server.url("/file/3000?name=report.pdf"),
+            confirm: true,
+            ..AddOptions::default()
+        })
+        .unwrap();
+    assert_eq!(held.record.state, TaskState::Paused);
+    assert!(held.live.awaiting_confirmation);
+    manager.resume_all();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        manager.get(&held.record.id).unwrap().record.state,
+        TaskState::Paused,
+        "held until confirmed"
+    );
+
+    manager
+        .confirm(
+            &held.record.id,
+            ConfirmOptions {
+                file_name: Some("../renamed.pdf".into()),
+                dir: Some(picked.path().to_path_buf()),
+                queue: None,
+                start: true,
+            },
+        )
+        .unwrap();
+    let done = wait_for(&manager, &held.record.id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+    assert_eq!(done.record.path.unwrap(), picked.path().join("renamed.pdf"));
+    assert!(!done.live.awaiting_confirmation);
+    assert!(matches!(
+        manager.confirm(&held.record.id, ConfirmOptions::default()),
+        Err(CoreError::InvalidState { .. })
+    ));
+
+    // "Download later": confirmed but left paused.
+    let later = manager
+        .add(AddOptions {
+            url: server.url("/file/1000?later"),
+            dir: Some(out.path().to_path_buf()),
+            confirm: true,
+            ..AddOptions::default()
+        })
+        .unwrap();
+    manager
+        .confirm(
+            &later.record.id,
+            ConfirmOptions {
+                start: false,
+                ..ConfirmOptions::default()
+            },
+        )
+        .unwrap();
+    let t = manager.get(&later.record.id).unwrap();
+    assert_eq!(t.record.state, TaskState::Paused);
+    assert!(!t.live.awaiting_confirmation);
+}
+
+#[tokio::test]
+async fn finished_downloads_can_be_downloaded_again() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open(data.path()).await;
+    let id = add(&manager, server.url("/file/5000?name=data.bin"), out.path())
+        .record
+        .id;
+    let first = wait_for(&manager, &id, |t| t.record.state == TaskState::Completed).await;
+    let path = first.record.path.unwrap();
+
+    // Keep the old file: the new one gets a free name.
+    manager.redownload(&id, false).unwrap();
+    let again = wait_for(&manager, &id, |t| {
+        t.record.state == TaskState::Completed && t.record.path.is_some()
+    })
+    .await;
+    assert_eq!(again.record.path.unwrap(), out.path().join("data (1).bin"));
+    assert!(path.exists());
+
+    // Replace: the old file is deleted first and the name is reused.
+    server.state.set_version(2);
+    manager.redownload(&id, true).unwrap();
+    let replaced = wait_for(&manager, &id, |t| {
+        t.record.state == TaskState::Completed && t.record.path.is_some()
+    })
+    .await;
+    let replaced_path = replaced.record.path.unwrap();
+    assert_eq!(replaced_path, out.path().join("data (1).bin"));
+    assert_eq!(std::fs::read(&replaced_path).unwrap(), content(5000, 2));
+
+    let running = add(
+        &manager,
+        server.url(&format!("/file/{}?rate=1048576", 4 * MIB)),
+        out.path(),
+    )
+    .record
+    .id;
+    assert!(matches!(
+        manager.redownload(&running, false),
+        Err(CoreError::InvalidState { .. })
+    ));
+    manager.cancel(&running).unwrap();
 }

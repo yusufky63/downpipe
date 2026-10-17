@@ -1,6 +1,7 @@
 //! Everything that reacts to the queue while the window may be hidden:
 //! forwarding events to the web view, finish notifications, the tray
-//! tooltip, the time-of-day schedule and "when all downloads finish".
+//! tooltip, taskbar progress, keeping the computer awake, the time-of-day
+//! schedule and "when all downloads finish".
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,6 +11,7 @@ use downpipe_core::schedule::{DoneWatcher, LocalStamp, ScheduleAction, due};
 use downpipe_core::{Manager, ManagerEvent, TaskSnapshot, TaskState};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use tauri::window::{ProgressBarState, ProgressBarStatus};
 use tauri::{AppHandle, Emitter, Manager as _};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::broadcast::error::RecvError;
@@ -54,12 +56,40 @@ struct WhenDoneState {
     deadline: Option<std::time::Instant>,
 }
 
+/// What the loop remembers about one download, from the event stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Seen {
+    state: TaskState,
+    speed: u64,
+    downloaded: u64,
+    total: Option<u64>,
+}
+
+impl Seen {
+    fn of(task: &TaskSnapshot) -> Self {
+        Self {
+            state: task.record.state,
+            speed: task.live.speed,
+            downloaded: task.record.downloaded,
+            total: task.record.total,
+        }
+    }
+}
+
+/// The taskbar button's progress.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Taskbar {
+    Off,
+    /// Running, but some size is not known yet.
+    Busy,
+    Percent(u64),
+}
+
 /// Shared state, managed by Tauri.
 #[derive(Debug, Default)]
 pub struct Background {
     when_done: Mutex<WhenDoneState>,
-    /// Last known state and speed per download, from the event stream.
-    tasks: Mutex<HashMap<String, (TaskState, u64)>>,
+    tasks: Mutex<HashMap<String, Seen>>,
     told_about_tray: AtomicBool,
 }
 
@@ -119,15 +149,44 @@ impl Background {
         self.tasks
             .lock()
             .values()
-            .filter(|(s, _)| s.is_running() || *s == TaskState::Queued)
+            .filter(|s| s.state.is_running() || s.state == TaskState::Queued)
             .count()
+    }
+
+    fn running(&self) -> usize {
+        self.tasks
+            .lock()
+            .values()
+            .filter(|s| s.state.is_running())
+            .count()
+    }
+
+    /// Bytes done out of the total of every running download.
+    fn taskbar(&self) -> Taskbar {
+        let map = self.tasks.lock();
+        let (mut any, mut busy, mut done, mut total) = (false, false, 0u128, 0u128);
+        for s in map.values().filter(|s| s.state.is_running()) {
+            any = true;
+            match s.total {
+                Some(t) if t > 0 => {
+                    total += u128::from(t);
+                    done += u128::from(s.downloaded.min(t));
+                }
+                _ => busy = true,
+            }
+        }
+        match (any, busy) {
+            (false, _) => Taskbar::Off,
+            (true, true) => Taskbar::Busy,
+            (true, false) => Taskbar::Percent(u64::try_from(done * 100 / total).unwrap_or(100)),
+        }
     }
 
     fn seed(&self, tasks: &[TaskSnapshot]) {
         let mut map = self.tasks.lock();
         map.clear();
         for t in tasks {
-            map.insert(t.record.id.clone(), (t.record.state, t.live.speed));
+            map.insert(t.record.id.clone(), Seen::of(t));
         }
     }
 
@@ -212,10 +271,12 @@ fn perform(app: &AppHandle, action: WhenDone) {
 pub fn spawn(app: AppHandle, manager: Manager) {
     let mut events = manager.subscribe();
     app.state::<Background>().seed(&manager.list());
+    let awake = power::KeepAwake::spawn(app.config().identifier.clone());
     tauri::async_runtime::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut last_tooltip = String::new();
+        let mut last_taskbar = Taskbar::Off;
         let mut last_schedule_check = std::time::Instant::now();
         let mut prev_stamp = LocalStamp::now();
         loop {
@@ -229,11 +290,18 @@ pub fn spawn(app: AppHandle, manager: Manager) {
                     Err(RecvError::Closed) => break,
                 },
                 _ = tick.tick() => {
-                    let tooltip = tooltip_text(&app.state::<Background>());
+                    let bg = app.state::<Background>();
+                    let tooltip = tooltip_text(&bg);
                     if tooltip != last_tooltip {
                         tray::set_tooltip(&app, &tooltip);
                         last_tooltip = tooltip;
                     }
+                    let taskbar = bg.taskbar();
+                    if taskbar != last_taskbar {
+                        set_taskbar(&app, taskbar);
+                        last_taskbar = taskbar;
+                    }
+                    awake.set(manager.settings().keep_awake && bg.running() > 0);
                     if last_schedule_check.elapsed() >= SCHEDULE_EVERY {
                         last_schedule_check = std::time::Instant::now();
                         let now = LocalStamp::now();
@@ -255,12 +323,17 @@ fn on_event(app: &AppHandle, manager: &Manager, event: &ManagerEvent) {
             let prev = bg
                 .tasks
                 .lock()
-                .insert(task.record.id.clone(), (state, task.live.speed))
-                .map(|(s, _)| s);
+                .insert(task.record.id.clone(), Seen::of(task))
+                .map(|s| s.state);
             let finished_now = matches!(state, TaskState::Completed | TaskState::Failed)
                 && prev.is_some_and(|p| p != state);
             if finished_now && manager.settings().notify_on_finish && !window_in_front(app) {
                 notify_finished(app, task);
+            }
+            // A download from the browser waits for its name and folder;
+            // the question must be visible to be answered.
+            if task.live.awaiting_confirmation && prev.is_none() {
+                tray::show_main(app);
             }
         }
         ManagerEvent::Removed { id } => {
@@ -304,24 +377,56 @@ fn notify_finished(app: &AppHandle, task: &TaskSnapshot) {
     let _ = app.notification().builder().title(title).body(body).show();
 }
 
+fn set_taskbar(app: &AppHandle, taskbar: Taskbar) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let (status, progress) = match taskbar {
+        Taskbar::Off => (ProgressBarStatus::None, None),
+        Taskbar::Busy => (ProgressBarStatus::Indeterminate, None),
+        Taskbar::Percent(p) => (ProgressBarStatus::Normal, Some(p)),
+    };
+    let _ = window.set_progress_bar(ProgressBarState {
+        status: Some(status),
+        progress,
+    });
+}
+
 fn run_schedule(app: &AppHandle, manager: &Manager, prev: LocalStamp, now: LocalStamp) {
     let settings = manager.settings();
-    let (title, body) = match due(&settings.schedule, prev, now) {
-        Some(ScheduleAction::Start) => {
+    let queue = &settings.schedule.queue;
+    // Empty means every queue; `normalized` already dropped unknown ids.
+    let name = settings.queue(queue).map(|q| q.name.clone());
+    let (title, body) = match (due(&settings.schedule, prev, now), name) {
+        (Some(ScheduleAction::Start), None) => {
             manager.resume_all();
             (
                 "Scheduled downloads started",
-                "Paused and failed downloads are running again.",
+                "Paused and failed downloads are running again.".to_string(),
             )
         }
-        Some(ScheduleAction::Stop) => {
+        (Some(ScheduleAction::Start), Some(name)) => {
+            manager.start_queue(queue);
+            (
+                "Scheduled downloads started",
+                format!("Paused and failed downloads in {name} are running again."),
+            )
+        }
+        (Some(ScheduleAction::Stop), None) => {
             manager.pause_all();
             (
                 "Scheduled stop",
-                "All downloads are paused until the next start time.",
+                "All downloads are paused until the next start time.".to_string(),
             )
         }
-        None => return,
+        (Some(ScheduleAction::Stop), Some(name)) => {
+            manager.stop_queue(queue);
+            (
+                "Scheduled stop",
+                format!("Downloads in {name} are paused until the next start time."),
+            )
+        }
+        (None, _) => return,
     };
     tracing::info!("{title}");
     let _ = app.notification().builder().title(title).body(body).show();
@@ -332,10 +437,8 @@ fn tooltip_text(bg: &Background) -> String {
         .tasks
         .lock()
         .values()
-        .filter(|(s, _)| s.is_running())
-        .fold((0usize, 0u64), |(n, total), (_, speed)| {
-            (n + 1, total + speed)
-        });
+        .filter(|s| s.state.is_running())
+        .fold((0usize, 0u64), |(n, total), s| (n + 1, total + s.speed));
     match running {
         0 => "Downpipe".to_string(),
         1 => format!("Downpipe: 1 download, {}/s", format_bytes(speed)),
@@ -369,20 +472,58 @@ mod tests {
         assert_eq!(format_bytes(1024 * 1024 - 1), "1.0 MiB");
     }
 
+    fn seen(state: TaskState, speed: u64, downloaded: u64, total: Option<u64>) -> Seen {
+        Seen {
+            state,
+            speed,
+            downloaded,
+            total,
+        }
+    }
+
     #[test]
     fn tooltip_counts_running_downloads() {
         let bg = Background::default();
         assert_eq!(tooltip_text(&bg), "Downpipe");
+        bg.tasks.lock().insert(
+            "a".into(),
+            seen(TaskState::Downloading, 2 * 1024 * 1024, 0, None),
+        );
         bg.tasks
             .lock()
-            .insert("a".into(), (TaskState::Downloading, 2 * 1024 * 1024));
-        bg.tasks.lock().insert("b".into(), (TaskState::Paused, 0));
+            .insert("b".into(), seen(TaskState::Paused, 0, 0, None));
         assert_eq!(tooltip_text(&bg), "Downpipe: 1 download, 2.0 MiB/s");
         bg.tasks
             .lock()
-            .insert("c".into(), (TaskState::Waiting, 1024 * 1024));
+            .insert("c".into(), seen(TaskState::Waiting, 1024 * 1024, 0, None));
         assert_eq!(tooltip_text(&bg), "Downpipe: 2 downloads, 3.0 MiB/s");
         assert_eq!(bg.active(), 2);
+        assert_eq!(bg.running(), 2);
+    }
+
+    #[test]
+    fn taskbar_shows_progress_of_running_downloads() {
+        let bg = Background::default();
+        assert_eq!(bg.taskbar(), Taskbar::Off);
+        bg.tasks
+            .lock()
+            .insert("done".into(), seen(TaskState::Completed, 0, 50, Some(50)));
+        assert_eq!(
+            bg.taskbar(),
+            Taskbar::Off,
+            "finished downloads do not count"
+        );
+        bg.tasks
+            .lock()
+            .insert("a".into(), seen(TaskState::Downloading, 1, 30, Some(100)));
+        bg.tasks
+            .lock()
+            .insert("b".into(), seen(TaskState::Downloading, 1, 60, Some(100)));
+        assert_eq!(bg.taskbar(), Taskbar::Percent(45));
+        bg.tasks
+            .lock()
+            .insert("c".into(), seen(TaskState::Starting, 0, 0, None));
+        assert_eq!(bg.taskbar(), Taskbar::Busy, "a size is still unknown");
     }
 
     #[test]

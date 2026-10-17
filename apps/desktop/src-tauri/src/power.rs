@@ -1,5 +1,6 @@
-//! Sleep and shut down the computer for "when all downloads finish".
-//! Fixed commands with argument arrays: nothing user-supplied reaches them.
+//! Sleep and shut down the computer for "when all downloads finish", and
+//! keep it awake while downloads run. Fixed commands with argument arrays:
+//! nothing user-supplied reaches them.
 
 use std::io;
 use std::process::Command;
@@ -46,4 +47,59 @@ fn system32(program: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(root)
         .join("System32")
         .join(program)
+}
+
+/// Keeps the computer from sleeping while downloads run. The display may
+/// still turn off.
+///
+/// On Windows the request belongs to the thread that made it, so one thread
+/// owns it for the life of the app instead of whichever async worker
+/// happens to run the background loop.
+pub struct KeepAwake {
+    tx: std::sync::mpsc::Sender<bool>,
+    on: std::sync::atomic::AtomicBool,
+}
+
+impl KeepAwake {
+    pub fn spawn(app_id: String) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel::<bool>();
+        let started = std::thread::Builder::new()
+            .name("keep-awake".into())
+            .spawn(move || {
+                let mut guard = None;
+                for on in rx {
+                    if !on {
+                        guard = None;
+                        continue;
+                    }
+                    if guard.is_some() {
+                        continue;
+                    }
+                    match keepawake::Builder::default()
+                        .idle(true)
+                        .reason("Downloading files")
+                        .app_name("Downpipe")
+                        .app_reverse_domain(app_id.clone())
+                        .create()
+                    {
+                        Ok(awake) => guard = Some(awake),
+                        Err(err) => tracing::warn!("could not keep the computer awake: {err}"),
+                    }
+                }
+            });
+        if let Err(err) = started {
+            tracing::warn!("keeping the computer awake is off: {err}");
+        }
+        Self {
+            tx,
+            on: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    pub fn set(&self, on: bool) {
+        use std::sync::atomic::Ordering;
+        if self.on.swap(on, Ordering::Relaxed) != on {
+            let _ = self.tx.send(on);
+        }
+    }
 }

@@ -1,7 +1,8 @@
-import { Check, Copy, ExternalLink, FolderOpen, Link2, Pause, Play, RotateCw } from "lucide-react";
+import { Check, Copy, ExternalLink, FolderOpen, Link2, Pause, Play, RefreshCcw, RotateCw } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { errorMessage, type Task } from "../lib/api";
+import { canRelink } from "../lib/menu";
 import { formatBytes, formatDate, formatDuration, formatSpeed, percent, sentence } from "../lib/format";
 import { canCancel, canPause, canResume, displayName, isRunning, stateInfo } from "../lib/tasks";
 import { Badge, Banner, Button, Dialog, IconButton, inputClass } from "./primitives";
@@ -17,9 +18,22 @@ export interface DetailActions {
   onRemove: (id: string) => void;
   /** Rejects with the reason the link was refused. */
   onChangeUrl: (id: string, url: string) => Promise<void>;
+  onRedownload: (id: string) => void;
 }
 
-export function DetailsDialog({ task, actions }: { task: Task; actions: DetailActions }) {
+export function DetailsDialog({
+  task,
+  actions,
+  queueName,
+  startRelink = false,
+}: {
+  task: Task;
+  actions: DetailActions;
+  /** Null for the main queue, which needs no mention. */
+  queueName: string | null;
+  /** Opened from "Use a new link…": the form is already open. */
+  startRelink?: boolean;
+}) {
   const info = stateInfo(task);
   const pct = percent(task.downloaded, task.total);
   const running = isRunning(task.state);
@@ -117,7 +131,7 @@ export function DetailsDialog({ task, actions }: { task: Task; actions: DetailAc
           </div>
         ) : null}
 
-        {canChangeLink(task) && <ChangeLink task={task} onChangeUrl={actions.onChangeUrl} />}
+        {canRelink(task) && <ChangeLink task={task} startOpen={startRelink} onChangeUrl={actions.onChangeUrl} />}
 
         <dl className="divide-y divide-line rounded-lg border border-line">
           <Row label={task.path ? "Saved to" : "Folder"}>
@@ -126,6 +140,11 @@ export function DetailsDialog({ task, actions }: { task: Task; actions: DetailAc
           <Row label="Source">
             <CopyValue value={task.url} />
           </Row>
+          {queueName && (
+            <Row label="Queue">
+              <span className="text-[13px] text-ink-secondary">{queueName}</span>
+            </Row>
+          )}
           {task.checksum && (
             <Row label="Checksum">
               <CopyValue value={task.checksum} />
@@ -145,14 +164,12 @@ export function DetailsDialog({ task, actions }: { task: Task; actions: DetailAc
   );
 }
 
-const canChangeLink = (t: Task) => t.state === "paused" || t.state === "failed" || t.state === "canceled" || t.state === "queued";
-
 /**
  * IDM's "refresh download address": links from file hosts and CDNs expire.
  * Paste a fresh one and the download continues if it is the same file.
  */
-function ChangeLink({ task, onChangeUrl }: { task: Task; onChangeUrl: DetailActions["onChangeUrl"] }) {
-  const [open, setOpen] = useState(task.error_kind === "forbidden" || task.error_kind === "not_found");
+function ChangeLink({ task, startOpen, onChangeUrl }: { task: Task; startOpen: boolean; onChangeUrl: DetailActions["onChangeUrl"] }) {
+  const [open, setOpen] = useState(startOpen || task.error_kind === "forbidden" || task.error_kind === "not_found");
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -250,6 +267,14 @@ function PrimaryAction({ task, actions }: { task: Task; actions: DetailActions }
       <Button size="sm" variant="primary" onClick={() => actions.onResume(task.id)}>
         {task.state === "paused" ? <Play size={16} strokeWidth={1.75} /> : <RotateCw size={16} strokeWidth={1.75} />}
         {task.state === "paused" ? "Resume" : task.state === "canceled" ? "Download again" : "Retry"}
+      </Button>
+    );
+  }
+  if (task.state === "completed") {
+    return (
+      <Button size="sm" onClick={() => actions.onRedownload(task.id)}>
+        <RefreshCcw size={16} strokeWidth={1.75} />
+        Download again…
       </Button>
     );
   }

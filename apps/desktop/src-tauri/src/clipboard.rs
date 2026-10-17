@@ -1,0 +1,184 @@
+//! Clipboard watching: a copied download link brings up the Add dialog, as
+//! in IDM. Only http(s) links whose file type belongs to a category are
+//! offered, and never one that is already in the list, so "Copy link" in
+//! Downpipe's own menu does not offer the link back.
+
+use std::time::{Duration, Instant};
+
+use downpipe_core::Manager;
+use serde::Serialize;
+use tauri::{AppHandle, Emitter};
+
+use crate::tray;
+
+/// Sent to the web view with the link to offer.
+pub const EVENT: &str = "downpipe://clipboard";
+
+const EVERY: Duration = Duration::from_millis(750);
+/// Some programs write the clipboard several times for one copy; one offer
+/// is enough.
+const SAME_OFFER: Duration = Duration::from_secs(3);
+
+#[derive(Debug, Clone, Serialize)]
+struct Offer {
+    url: String,
+}
+
+/// Start the watcher thread. It sleeps while the setting is off.
+pub fn spawn(app: AppHandle, manager: Manager) {
+    let started = std::thread::Builder::new()
+        .name("clipboard".into())
+        .spawn(move || watch(&app, &manager));
+    if let Err(err) = started {
+        tracing::warn!("clipboard watching is off: {err}");
+    }
+}
+
+fn watch(app: &AppHandle, manager: &Manager) {
+    let mut clipboard: Option<arboard::Clipboard> = None;
+    // Unset until the first look after watching is switched on, so what was
+    // copied before that is never offered.
+    let mut primed = false;
+    let mut last_stamp: Option<u32> = None;
+    let mut last_text: Option<String> = None;
+    let mut last_offer: Option<(String, Instant)> = None;
+    loop {
+        std::thread::sleep(EVERY);
+        let settings = manager.settings();
+        if !settings.watch_clipboard {
+            primed = false;
+            clipboard = None;
+            continue;
+        }
+        let stamp = sequence();
+        if primed && stamp.is_some() && stamp == last_stamp {
+            continue;
+        }
+        let text = match read(&mut clipboard) {
+            Ok(text) => text,
+            // Another program holds the clipboard open; look again next time.
+            Err(()) => continue,
+        };
+        let first = !primed;
+        primed = true;
+        last_stamp = stamp;
+        // Without a change counter the same text copied twice looks like
+        // no change at all.
+        let unchanged = stamp.is_none() && text == last_text;
+        last_text.clone_from(&text);
+        if first || unchanged {
+            continue;
+        }
+        let Some(url) = text
+            .as_deref()
+            .and_then(|t| offer(t, &settings.watched_extensions()))
+        else {
+            continue;
+        };
+        if last_offer
+            .as_ref()
+            .is_some_and(|(prev, at)| *prev == url && at.elapsed() < SAME_OFFER)
+        {
+            continue;
+        }
+        let key = url::Url::parse(&url)
+            .map(|u| downpipe_core::http::redact_url(&u))
+            .unwrap_or_else(|_| url.clone());
+        if manager.list().iter().any(|t| t.record.url == key) {
+            continue;
+        }
+        last_offer = Some((url.clone(), Instant::now()));
+        tray::show_main(app);
+        let _ = app.emit(EVENT, Offer { url });
+    }
+}
+
+/// Text on the clipboard, `Ok(None)` when it holds something else, `Err`
+/// when it could not be read this time.
+fn read(clipboard: &mut Option<arboard::Clipboard>) -> Result<Option<String>, ()> {
+    if clipboard.is_none() {
+        *clipboard = arboard::Clipboard::new().ok();
+    }
+    let Some(board) = clipboard.as_mut() else {
+        return Err(());
+    };
+    match board.get_text() {
+        Ok(text) => Ok(Some(text)),
+        Err(arboard::Error::ContentNotAvailable | arboard::Error::ConversionFailure) => Ok(None),
+        Err(arboard::Error::ClipboardOccupied) => Err(()),
+        Err(_) => {
+            // Rebuilt next time: on Linux the connection to the display
+            // server may have gone away.
+            *clipboard = None;
+            Err(())
+        }
+    }
+}
+
+/// Windows counts every clipboard change, so the text is read only when it
+/// changed.
+#[cfg(windows)]
+fn sequence() -> Option<u32> {
+    // SAFETY: takes no arguments and only reads a counter.
+    Some(unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() })
+}
+
+#[cfg(not(windows))]
+fn sequence() -> Option<u32> {
+    None
+}
+
+/// The link to offer for copied text: one http(s) URL, nothing else, whose
+/// file name ends in one of `extensions`.
+fn offer(text: &str, extensions: &[String]) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() || text.len() > 4096 || text.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let url = url::Url::parse(text).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return None;
+    }
+    let name = url.path_segments()?.next_back()?;
+    let (_, ext) = name.rsplit_once('.')?;
+    let ext = ext.to_ascii_lowercase();
+    extensions.contains(&ext).then(|| text.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn exts() -> Vec<String> {
+        ["iso", "zip", "mp4"].map(String::from).to_vec()
+    }
+
+    #[test]
+    fn offers_single_links_to_known_file_types() {
+        assert_eq!(
+            offer("  https://example.org/a/Disk.ISO?x=1#top \n", &exts()).as_deref(),
+            Some("https://example.org/a/Disk.ISO?x=1#top")
+        );
+        assert!(offer("http://example.org/a.zip", &exts()).is_some());
+    }
+
+    #[test]
+    fn ignores_everything_else() {
+        for text in [
+            "",
+            "hello world",
+            "https://example.org/",
+            "https://example.org/page.html",
+            "https://example.org/a.zip https://example.org/b.zip",
+            "ftp://example.org/a.zip",
+            "file:///C:/a.zip",
+            "C:\\Downloads\\a.zip",
+            "https://example.org/zip",
+            "https://example.org/a.zip/",
+        ] {
+            assert_eq!(offer(text, &exts()), None, "{text:?}");
+        }
+        let long = format!("https://example.org/{}.zip", "a".repeat(5000));
+        assert_eq!(offer(&long, &exts()), None);
+    }
+}

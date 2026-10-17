@@ -2,36 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Task } from "./api";
 import { DEFAULT_SORT, formatSort, matchesSearch, nextSort, parseSort, sortTasks } from "./sort";
-
-function task(id: string, patch: Partial<Task> = {}): Task {
-  return {
-    id,
-    url: `https://example.org/${id}.bin`,
-    dir: "C:/Downloads",
-    file_name: null,
-    path: null,
-    state: "queued",
-    total: null,
-    downloaded: 0,
-    error: null,
-    error_kind: null,
-    checksum: null,
-    max_connections: null,
-    category: null,
-    auto_dir: true,
-    created_at: 1,
-    updated_at: 1,
-    completed_at: null,
-    speed: 0,
-    connections: 0,
-    target_connections: 0,
-    resumable: false,
-    segments: [],
-    notices: [],
-    eta_secs: null,
-    ...patch,
-  };
-}
+import { makeTask as task } from "./testing";
 
 const ids = (list: Task[]) => list.map((t) => t.id);
 
@@ -50,6 +21,12 @@ describe("sortTasks", () => {
     expect(ids(sortTasks(list, { key: "name", dir: "asc" }))).toEqual(["c", "a", "b"]);
     expect(ids(sortTasks(list, { key: "size", dir: "desc" }))).toEqual(["a", "b", "c"]);
     expect(ids(sortTasks(list, { key: "size", dir: "asc" }))).toEqual(["b", "a", "c"]);
+  });
+
+  it("sorts by queue order, first to start on top", () => {
+    const queue = [task("x", { position: 2 }), task("y", { position: 0 }), task("z", { position: 1 })];
+    expect(ids(sortTasks(queue, nextSort(DEFAULT_SORT, "order")))).toEqual(["y", "z", "x"]);
+    expect(parseSort("order:asc")).toEqual({ key: "order", dir: "asc" });
   });
 
   it("only running downloads have a speed", () => {

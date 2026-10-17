@@ -20,14 +20,25 @@ The IDM features that save the most time day to day.
 - Capture filters in the browser extension (its options page, opened from **Capture filters** in the popup): capture only listed file types (an IDM-like default list of archives, programs, disk images, documents, audio and video, or **Capture all file types**), never capture on excluded sites (`example.com`, `*.example.com`, checked against the download, its redirect target and the page it came from), and leave files under a minimum size to the browser. **Pause capture on this site** in the popup excludes the current site in one click.
 - **Download links on this page with Downpipe…** in the page context menu (and **Download selected links…** for a text selection), or **Links on this page…** in the popup, lists the page's http(s) links in a new tab with a text filter, file type chips, **Hide web pages**, select all or none, and sends the chosen links to Downpipe with a result for each. Nothing is sent while Downpipe is not running.
 - The extension asks for `activeTab` and `scripting` for this: it reads a page only when you choose the menu item or open the popup on it, once, without content scripts or host permissions.
+- Downpipe's own right-click menu on downloads: Open, Show in folder, Resume or Retry, Pause, Download again…, Use a new link…, Move to queue, Queue order, Copy link, Copy file path, Properties and Remove…. It acts on every selected download. The More button on each row, the Menu key and Shift+F10 open it too.
+- Selection as in a file manager: click, Ctrl+click, Shift+click, arrow keys, Ctrl+A and Escape. Double click or Enter opens the details, Delete removes, Ctrl+C copies the links, Ctrl+F jumps to the search box and Ctrl+N opens Add link.
+- Queues: add queues in **Settings → Queues**, each with its own number of downloads at once, running next to the others. Move downloads between queues and reorder them (Move to top, up, down, to bottom; Ctrl+Home, Ctrl+Up, Ctrl+Down, Ctrl+End) from the menu; inside a queue, downloads start top to bottom. A queue filter next to the search box shows one queue in its order, with Start and Stop buttons. The Add dialog has a queue field, and the schedule can start and stop a single queue.
+- **Ask before downloads from the browser start** (on by default, Settings → App): a download sent by the extension waits in a dialog for its file name, folder and queue, with **Start download**, **Download later** and **Cancel**. Nothing is fetched before the answer, and closing the dialog keeps it, paused.
+- **Offer to download copied links** (off by default, Settings → App): copying a link to a file type listed under Categories brings up the Add dialog with it. Links already in the list are skipped.
+- **Keep the computer awake while downloading** (on by default): sleep waits until downloads stop running; the screen can still turn off.
+- Progress of the running downloads on the Downpipe button in the taskbar.
+- **Download again…** for a finished download, from the same link: the new copy is saved next to the old one, or replaces it when **Replace the existing file** is ticked.
 
 ### Changed
 
 - Download capture takes the default file types only, unless **Capture all file types** is switched on.
+- Clicking a download selects it; double click or Enter opens its details. The rows' Remove button moved into the menu (and the Delete key).
+- The window behaves like an app rather than a web page: the browser's own menu (Back, Reload, Inspect) and keys such as F5, Ctrl+R, Ctrl+P and Ctrl+F do nothing; text fields keep their cut, copy and paste menu. Labels and rows no longer highlight like page text.
 
 ### Fixed
 
 - Pausing a download in the moment it was resuming (before the server answered) deleted the partial file from earlier sessions. It is now kept.
+- Dialogs moved the keyboard focus back to their first field whenever the list updated, so typing in a later field of the Add dialog jumped while downloads ran.
 
 ## 0.2.0 — unreleased
 
