@@ -17,7 +17,8 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use tauri::{
-    AppHandle, Emitter, Manager as _, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager as _, PhysicalSize, UserAttentionType, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
 };
 
 use crate::tray;
@@ -139,7 +140,7 @@ fn apply(app: &AppHandle, act: Act) {
             };
             let _ = window.unminimize();
             let _ = window.show();
-            let _ = window.set_focus();
+            bring_forward(&window);
             if act == Act::ShowAgain {
                 let _ = app.emit_to(LABEL, AGAIN, ());
             }
@@ -182,11 +183,21 @@ fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .resizable(false)
         .maximizable(false)
         .center()
-        // Over the browser the download came from, as IDM's dialog is.
-        .always_on_top(true)
         .visible(false)
         .disable_drag_drop_handler()
         .build()
+}
+
+/// Over the browser the download came from, once, as IDM's dialog comes:
+/// on top for a moment and then back in the normal order, so a click on
+/// another window puts it behind again. Windows does not always let an app
+/// in the background take the focus; the taskbar button flashes then, and
+/// stops once the window is looked at.
+pub(crate) fn bring_forward(window: &WebviewWindow) {
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_always_on_top(false);
+    let _ = window.set_focus();
+    let _ = window.request_user_attention(Some(UserAttentionType::Informational));
 }
 
 /// The inner size, in physical pixels, for a page that needs `height` CSS

@@ -409,8 +409,8 @@ async fn pick_folder(
     initial: Option<String>,
 ) -> Option<String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
-    // Owned by the window that asked, so it opens in front of it: the
-    // confirmation window stays on top of everything else.
+    // Owned by the window that asked, so it opens in front of it rather
+    // than behind it (the confirmation window has just come over the browser).
     let mut dialog = app.dialog().file().set_parent(&window);
     if let Some(dir) = initial.map(PathBuf::from).filter(|d| d.is_dir()) {
         dialog = dialog.set_directory(dir);

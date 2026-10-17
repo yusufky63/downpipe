@@ -85,7 +85,7 @@ pub fn open(app: &AppHandle, id: &str) {
     if let Some(window) = app.get_webview_window(&label) {
         let _ = window.unminimize();
         let _ = window.show();
-        let _ = window.set_focus();
+        confirm::bring_forward(&window);
         return;
     }
     let manager = app.state::<Manager>();
@@ -141,7 +141,9 @@ pub fn open(app: &AppHandle, id: &str) {
     });
 }
 
-/// The page drew the download and the window has its height: show it.
+/// The page drew the download and the window has its height: show it. It
+/// follows a click on Start download, so it may take the focus; like every
+/// Downpipe window it then keeps the normal order.
 pub fn drawn(window: &WebviewWindow) {
     if id_of(window.label()).is_some() && !window.is_visible().unwrap_or(false) {
         let _ = window.show();
