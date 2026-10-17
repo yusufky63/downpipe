@@ -77,7 +77,7 @@ export function ConfirmWindow() {
   const fit = useCallback(
     (height: number) => {
       void api
-        .fitConfirmWindow(height)
+        .fitWindow(height)
         .catch(() => undefined)
         .then(() => {
           if (question === null || shown.current === question) return;
@@ -101,6 +101,8 @@ export function ConfirmWindow() {
           onFit={fit}
           onConfirm={async (options) => {
             await api.confirm(asking.id, options);
+            // IDM's download dialog: the question turns into the download's progress.
+            if (options.start) api.watchDownload(asking.id).catch(() => undefined);
           }}
           onDiscard={() => run(() => api.remove(asking.id, true))}
           onStopAsking={() =>

@@ -355,8 +355,15 @@ export const api = {
   whenDoneNow: () => invoke<null>("when_done_now"),
   /** The confirmation window drew a question and may be shown. */
   confirmWindowDrawn: () => invoke<null>("confirm_window_drawn"),
-  /** The confirmation window's content needs this height, in CSS pixels at this `devicePixelRatio`. */
-  fitConfirmWindow: (height: number) => invoke<null>("fit_confirm_window", { height, scale: window.devicePixelRatio }),
+  /** This dialog window's content (confirmation or progress) needs this height, in CSS pixels at this `devicePixelRatio`. */
+  fitWindow: (height: number) => invoke<null>("fit_window", { height, scale: window.devicePixelRatio }),
+  /** After "Start download" in the confirmation window: follow it in a progress window of its own. */
+  watchDownload: (id: string) => invoke<null>("watch_download", { id }),
+  /** This progress window drew its download and may be shown. */
+  progressWindowDrawn: () => invoke<null>("progress_window_drawn"),
+  setProgressTitle: (title: string) => invoke<null>("set_progress_title", { title }),
+  /** Close this progress window; the download goes on. */
+  closeProgressWindow: () => invoke<null>("close_progress_window"),
   /** From the confirmation window: the main window opens on Settings, Media. */
   openMediaSettings: () => invoke<null>("open_media_settings"),
   /** The main window's Settings closed; a question waiting for them returns. */

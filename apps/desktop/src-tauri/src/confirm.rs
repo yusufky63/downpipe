@@ -35,7 +35,7 @@ pub const MEDIA_SETTINGS: &str = "downpipe://media-settings";
 
 /// IDM's dialog is as wide as this, in CSS pixels; the page asks for the
 /// height its question needs (`fit`), which only the screen limits.
-const WIDTH: f64 = 520.0;
+pub(crate) const WIDTH: f64 = 520.0;
 const HEIGHT: f64 = 300.0;
 const MIN_HEIGHT: f64 = 160.0;
 /// Room for rounding: at 125 % display scaling a fraction of a pixel too
@@ -193,7 +193,7 @@ fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 /// pixels at `scale` physical pixels per CSS pixel, no taller than `limit`.
 /// The page's `devicePixelRatio` is the scale rather than the window's,
 /// since it also counts a zoom of the web view, and pixels are rounded up.
-fn fitted(height: f64, scale: f64, limit: u32) -> PhysicalSize<u32> {
+pub(crate) fn fitted(height: f64, scale: f64, limit: u32) -> PhysicalSize<u32> {
     let scale = if scale.is_finite() && scale > 0.0 {
         scale.clamp(0.5, 8.0)
     } else {
@@ -224,15 +224,15 @@ fn room(window: &WebviewWindow) -> u32 {
         })
 }
 
-/// The page's question needs `height` CSS pixels at `scale` (its
-/// `devicePixelRatio`). A window about to show is centred again for it, as
-/// IDM's dialog opens in the middle.
-pub fn fit(app: &AppHandle, height: f64, scale: f64) {
-    let Some(window) = app.get_webview_window(LABEL) else {
-        return;
-    };
-    let _ = window.set_size(fitted(height, scale, room(&window)));
-    if *app.state::<ConfirmWindow>().phase.lock() == Phase::Opening {
+/// A dialog window's page (this one or a download's progress window)
+/// needs `height` CSS pixels at `scale` (its `devicePixelRatio`). The
+/// confirmation window, about to show, is centred again for it, as IDM's
+/// dialog opens in the middle.
+pub fn fit(window: &WebviewWindow, height: f64, scale: f64) {
+    let _ = window.set_size(fitted(height, scale, room(window)));
+    if window.label() == LABEL
+        && *window.app_handle().state::<ConfirmWindow>().phase.lock() == Phase::Opening
+    {
         let _ = window.center();
     }
 }

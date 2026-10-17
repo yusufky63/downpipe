@@ -5,6 +5,7 @@ mod background;
 mod clipboard;
 mod confirm;
 mod power;
+mod progress;
 mod tray;
 
 use std::path::PathBuf;
@@ -319,11 +320,37 @@ async fn confirm_window_drawn(app: AppHandle) {
     confirm::drawn(&app);
 }
 
-/// The confirmation page's question needs this height, in CSS pixels at
-/// the page's `devicePixelRatio`.
+/// The calling dialog window's page (the confirmation window or a progress
+/// window) needs this height, in CSS pixels at its `devicePixelRatio`.
 #[tauri::command]
-async fn fit_confirm_window(app: AppHandle, height: f64, scale: f64) {
-    confirm::fit(&app, height, scale);
+async fn fit_window(window: tauri::WebviewWindow, height: f64, scale: f64) {
+    confirm::fit(&window, height, scale);
+}
+
+/// After "Start download" in the confirmation window: follow the download
+/// in a progress window of its own.
+#[tauri::command]
+async fn watch_download(app: AppHandle, id: String) {
+    progress::open(&app, &id);
+}
+
+/// A progress page drew its download: show its window.
+#[tauri::command]
+async fn progress_window_drawn(window: tauri::WebviewWindow) {
+    progress::drawn(&window);
+}
+
+/// A progress page names its window after its download's progress.
+#[tauri::command]
+async fn set_progress_title(window: tauri::WebviewWindow, title: String) {
+    progress::set_title(&window, &title);
+}
+
+/// A progress page's Hide, Close and Cancel: its window goes, the download
+/// stays.
+#[tauri::command]
+async fn close_progress_window(window: tauri::WebviewWindow) {
+    progress::close(&window);
 }
 
 /// The confirmation page's Settings links: the main window opens on
@@ -640,7 +667,10 @@ fn main() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
-                if window.label() == confirm::LABEL {
+                if progress::id_of(window.label()).is_some() {
+                    // Closing a progress window hides the download's
+                    // progress only; the download goes on.
+                } else if window.label() == confirm::LABEL {
                     // Kept for the next question; the page decides what
                     // closing means for the download shown.
                     api.prevent_close();
@@ -694,7 +724,11 @@ fn main() {
             set_when_done,
             when_done_now,
             confirm_window_drawn,
-            fit_confirm_window,
+            fit_window,
+            watch_download,
+            progress_window_drawn,
+            set_progress_title,
+            close_progress_window,
             open_media_settings,
             settings_closed,
         ])
