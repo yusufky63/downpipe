@@ -4,7 +4,8 @@ import {
   DEFAULT_MEDIA_TYPES,
   MAX_MEDIA_TYPES,
   MAX_TAB_MEDIA,
-  addCandidate,
+  MAX_TAB_PARTS,
+  addMedia,
   classifyResponse,
   classifySource,
   cleanTitle,
@@ -14,18 +15,27 @@ import {
   isPartOf,
   kindLabel,
   mediaExtension,
+  mediaLabels,
   mediaName,
   pageHeaders,
   parseMediaFilters,
   parseMediaTypeList,
+  parsePlaylist,
   parseTabMedia,
+  parseTabParts,
+  playlistKey,
+  readPlaylist,
+  readPlaylistText,
   responseSize,
+  shouldReadPlaylist,
   tabMediaKey,
+  tabPartsKey,
   titleFileName,
   validMediaFilters,
   withoutRangeParams,
-  type MediaCandidate,
+  type PlaylistInfo,
   type ResponseLike,
+  type TabMedia,
 } from "./media";
 
 function response(patch: Partial<ResponseLike> & { headers?: Record<string, string> }): ResponseLike {
@@ -224,33 +234,285 @@ describe("media settings", () => {
 });
 
 const base = { kind: "hls" as const };
+const empty: TabMedia = { items: [], parts: [] };
 
-describe("addCandidate", () => {
-  it("adds newest first and ignores repeats and fragments", () => {
-    let list: MediaCandidate[] = [];
-    list = addCandidate(list, { ...base, url: "https://v.example.net/a/master.m3u8#x", referrer: undefined }, "a", 1) ?? list;
-    expect(list).toEqual([{ ...base, url: "https://v.example.net/a/master.m3u8", id: "a", at: 1 }]);
-    expect(addCandidate(list, { ...base, url: "https://v.example.net/a/master.m3u8" }, "b", 2)).toBeNull();
-    // The quality and audio playlists the master lists.
-    expect(addCandidate(list, { ...base, url: "https://v.example.net/a/720p/index.m3u8" }, "c", 3)).toBeNull();
-    const next = addCandidate(list, { kind: "direct", url: "https://v.example.net/b.mp4", size: 9, origin: "https://p.example" }, "d", 4);
-    expect(next?.map((c) => c.id)).toEqual(["d", "a"]);
-    expect(next?.[0]?.origin).toBe("https://p.example");
+/** Adds each in turn, as the service worker does; `null` playlist info means it could not be read. */
+function play(steps: [url: string, playlist?: PlaylistInfo | null][], start: TabMedia = empty): TabMedia {
+  return steps.reduce(
+    (tab, [url, playlist], i) => addMedia(tab, { ...base, url }, `id${i}`, i, playlist) ?? tab,
+    start,
+  );
+}
+
+const urls = (tab: TabMedia) => tab.items.map((c) => c.url);
+
+// X's layout, as video.twimg.com serves it (October 2026): the quality and
+// audio playlists sit in folders below the master.
+const X_MASTER = "https://video.twimg.com/amplify_video/2110883883948314624/pl/jSDqt-Zcg5sAxPk9.m3u8?v=1ea";
+const X_BODY = `#EXTM3U
+#EXT-X-VERSION:6
+#EXT-X-INDEPENDENT-SEGMENTS
+#EXT-X-MEDIA:NAME="Audio",TYPE=AUDIO,GROUP-ID="audio-32000",AUTOSELECT=YES,URI="/amplify_video/2110883883948314624/pl/mp4a/32000/w459BU6Ge5oSDhrJ.m3u8"
+#EXT-X-MEDIA:NAME="Audio",TYPE=AUDIO,GROUP-ID="audio-128000",AUTOSELECT=YES,URI="/amplify_video/2110883883948314624/pl/mp4a/128000/7e0vLpc_DftLQFBT.m3u8"
+
+#EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=82090,BANDWIDTH=136339,RESOLUTION=480x270,CODECS="mp4a.40.2,avc1.4D4015",AUDIO="audio-32000"
+/amplify_video/2110883883948314624/pl/avc1/480x270/WSXbxxPdKZVvWWM4.m3u8
+#EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=587439,BANDWIDTH=1044799,RESOLUTION=1280x720,CODECS="mp4a.40.2,avc1.64001F",AUDIO="audio-128000"
+/amplify_video/2110883883948314624/pl/avc1/1280x720/ukCKNrwZwVL2gfYS.m3u8
+#EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=2632011,BANDWIDTH=4458865,RESOLUTION=1920x1080,CODECS="mp4a.40.2,avc1.640032",AUDIO="audio-128000"
+/amplify_video/2110883883948314624/pl/avc1/1920x1080/wa0X4bxE_xmzp8eh.m3u8
+`;
+const X_720 = "https://video.twimg.com/amplify_video/2110883883948314624/pl/avc1/1280x720/ukCKNrwZwVL2gfYS.m3u8";
+const X_AUDIO = "https://video.twimg.com/amplify_video/2110883883948314624/pl/mp4a/128000/7e0vLpc_DftLQFBT.m3u8";
+
+// X's broadcast replays (Periscope): the qualities sit in a sibling folder
+// (`transcode/` next to `non_transcode/`), shortened here.
+const P_ROOT = "https://prod-fastly-us-west-1.video.pscp.tv/Transcoding/v1/hls/080fQE";
+const P_MASTER = `${P_ROOT}/non_transcode/us-west-1/public/master_dynamic_1665.m3u8?type=replay`;
+const P_BODY = `#EXTM3U
+#EXT-X-DYNAMICALLY-GENERATED
+#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=1200000,RESOLUTION=848x480,CODECS="avc1.64001e,mp4a.40.2"
+/Transcoding/v1/hls/080fQE/transcode/us-west-1/public/eyJ480/playlist_1665.m3u8?type=replay
+#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=2750000,RESOLUTION=1280x720,CODECS="avc1.64001f,mp4a.40.2"
+/Transcoding/v1/hls/080fQE/transcode/us-west-1/public/eyJ720/playlist_1665.m3u8?type=replay
+`;
+const P_480 = `${P_ROOT}/transcode/us-west-1/public/eyJ480/playlist_1665.m3u8?type=replay`;
+const P_720 = `${P_ROOT}/transcode/us-west-1/public/eyJ720/playlist_1665.m3u8?type=replay`;
+
+// Everything in one folder with relative URIs, like the test server's
+// `/hls/flat/` stream and many CDNs.
+const F_MASTER = "https://cdn.example.net/v/77/8k4_FZTUGeXpWu9v.m3u8";
+const F_BODY = `#EXTM3U\r
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="English",URI="srcE71IRxCs1PHFJ.m3u8"\r
+#EXT-X-STREAM-INF:BANDWIDTH=800000,AUDIO="aud"\r
+qLow0000000000aa.m3u8?token=t#frag\r
+#EXT-X-STREAM-INF:BANDWIDTH=2400000,AUDIO="aud"\r
+https://cdn.example.net/v/77/qHigh000000000bb.m3u8?token=t\r
+#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=90000,URI="iframes.m3u8"\r
+`;
+const F_AUDIO = "https://cdn.example.net/v/77/srcE71IRxCs1PHFJ.m3u8";
+const F_LOW = "https://cdn.example.net/v/77/qLow0000000000aa.m3u8?token=t";
+const F_HIGH = "https://cdn.example.net/v/77/qHigh000000000bb.m3u8?token=t";
+const MEDIA_BODY = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4.0,\nseg-0.m4s\n#EXT-X-ENDLIST\n";
+
+const parsed = (body: string, url: string) => parsePlaylist(body, url) ?? undefined;
+
+describe("parsePlaylist", () => {
+  it("lists a master's quality and audio playlists, resolved against it", () => {
+    expect(parsePlaylist(X_BODY, X_MASTER)).toEqual({
+      master: true,
+      parts: [
+        "https://video.twimg.com/amplify_video/2110883883948314624/pl/mp4a/32000/w459BU6Ge5oSDhrJ.m3u8",
+        X_AUDIO,
+        "https://video.twimg.com/amplify_video/2110883883948314624/pl/avc1/480x270/WSXbxxPdKZVvWWM4.m3u8",
+        X_720,
+        "https://video.twimg.com/amplify_video/2110883883948314624/pl/avc1/1920x1080/wa0X4bxE_xmzp8eh.m3u8",
+      ],
+      qualities: 3,
+    });
+    expect(parsePlaylist(P_BODY, P_MASTER)).toEqual({ master: true, parts: [P_480, P_720], qualities: 2 });
+  });
+
+  it("reads relative and absolute URIs, CRLF lines, and I-frame playlists", () => {
+    expect(parsePlaylist(F_BODY, F_MASTER)).toEqual({
+      master: true,
+      parts: [F_AUDIO, F_LOW, F_HIGH, "https://cdn.example.net/v/77/iframes.m3u8"],
+      // No resolutions: each variant counts.
+      qualities: 2,
+    });
+  });
+
+  it("counts qualities by resolution, so codec twins are one", () => {
+    const body = [
+      "#EXTM3U",
+      "#EXT-X-STREAM-INF:BANDWIDTH=1,RESOLUTION=1920x1080,CODECS=\"avc1.640028\"",
+      "h264.m3u8",
+      "#EXT-X-STREAM-INF:BANDWIDTH=1,RESOLUTION=1920x1080,CODECS=\"hvc1.2.4.L123\"",
+      "hevc.m3u8",
+    ].join("\n");
+    expect(parsePlaylist(body, "https://a.org/m.m3u8")).toMatchObject({ qualities: 1 });
+  });
+
+  it("tells a media playlist and rejects what is not a playlist", () => {
+    expect(parsePlaylist(MEDIA_BODY, "https://a.org/v/720.m3u8")).toEqual({ master: false });
+    expect(parsePlaylist("\uFEFF#EXTM3U\n#EXTINF:4,\na.ts\n", "https://a.org/v.m3u8")).toEqual({ master: false });
+    expect(parsePlaylist("<html>Sign in</html>", "https://a.org/v.m3u8")).toBeNull();
+    expect(parsePlaylist("", "https://a.org/v.m3u8")).toBeNull();
+  });
+
+  it("leaves out URIs that are not web addresses", () => {
+    const body = `#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,URI="data:text/plain,x"\n#EXT-X-STREAM-INF:BANDWIDTH=1\njavascript:alert(1)\n#EXT-X-STREAM-INF:BANDWIDTH=2\nok.m3u8\n`;
+    expect(parsePlaylist(body, "https://a.org/m.m3u8")).toEqual({ master: true, parts: ["https://a.org/ok.m3u8"], qualities: 1 });
+  });
+});
+
+describe("playlistKey", () => {
+  it("drops the fragment and low-latency reload parameters only", () => {
+    expect(playlistKey("https://a.org/v.m3u8?token=1&_HLS_msn=12&_HLS_part=3#t")).toBe("https://a.org/v.m3u8?token=1");
+    expect(playlistKey("https://a.org/v.m3u8?tag=12")).toBe("https://a.org/v.m3u8?tag=12");
+  });
+});
+
+/** A body that hands out one chunk per read, counting them. */
+function stream(chunks: string[], seen = { pulled: 0, canceled: false }): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        const chunk = chunks[seen.pulled++];
+        if (chunk === undefined) controller.close();
+        else controller.enqueue(encoder.encode(chunk));
+      },
+      cancel() {
+        seen.canceled = true;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+}
+
+describe("readPlaylistText", () => {
+  it("reads a whole master", async () => {
+    expect(await readPlaylistText(stream([X_BODY.slice(0, 100), X_BODY.slice(100)]))).toBe(X_BODY);
+  });
+
+  it("stops at the size cap, on a whole line", async () => {
+    const seen = { pulled: 0, canceled: false };
+    const text = await readPlaylistText(stream(["#EXTM3U\nline-one\n", "line-two-is-long\n", "more\n"], seen), 20);
+    expect(text).toBe("#EXTM3U\nline-one\n");
+    expect(seen).toEqual({ pulled: 2, canceled: true });
+  });
+
+  it("stops at the first segment of a media playlist", async () => {
+    const seen = { pulled: 0, canceled: false };
+    const chunks = ["#EXTM3U\n#EXT-X-TARGETDURATION:4\n", "#EXTINF:4,\nseg-0.ts\n", "#EXTINF:4,\nseg-1.ts\n"];
+    expect(parsePlaylist(await readPlaylistText(stream(chunks, seen)), "https://a.org/v.m3u8")).toEqual({ master: false });
+    expect(seen).toEqual({ pulled: 2, canceled: true });
+  });
+});
+
+describe("readPlaylist", () => {
+  it("fetches without cookies or referrer and parses against the final address", async () => {
+    let seen: RequestInit | undefined;
+    const fetchFn = (url: string, init: RequestInit) => {
+      seen = init;
+      expect(url).toBe(F_MASTER);
+      // Redirected to another server: the relative URIs point there.
+      const response = new Response(F_BODY);
+      Object.defineProperty(response, "url", { value: "https://edge.example.net/v/77/master.m3u8" });
+      return Promise.resolve(response);
+    };
+    const info = await readPlaylist(fetchFn, F_MASTER);
+    expect(info).toMatchObject({ master: true, qualities: 2 });
+    expect(info?.master && info.parts[0]).toBe("https://edge.example.net/v/77/srcE71IRxCs1PHFJ.m3u8");
+    expect(seen).toMatchObject({ credentials: "omit", referrerPolicy: "no-referrer" });
+  });
+
+  it("gives up on errors, refusals and slow servers", async () => {
+    expect(await readPlaylist(() => Promise.reject(new TypeError("offline")), F_MASTER)).toBeNull();
+    expect(await readPlaylist(() => Promise.resolve(new Response("no", { status: 403 })), F_MASTER)).toBeNull();
+    const hang = (_url: string, init: RequestInit) =>
+      new Promise<Response>((_, reject) => init.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+    expect(await readPlaylist(hang, F_MASTER, 20)).toBeNull();
+  });
+});
+
+describe("addMedia", () => {
+  it("adds newest first and ignores repeats", () => {
+    let tab = empty;
+    tab = addMedia(tab, { ...base, url: "https://v.example.net/a/master.m3u8#x", referrer: undefined }, "a", 1) ?? tab;
+    expect(tab.items).toEqual([{ ...base, url: "https://v.example.net/a/master.m3u8", id: "a", at: 1 }]);
+    expect(addMedia(tab, { ...base, url: "https://v.example.net/a/master.m3u8" }, "b", 2)).toBeNull();
+    const next = addMedia(tab, { kind: "direct", url: "https://v.example.net/b.mp4", size: 9, origin: "https://p.example" }, "d", 4);
+    expect(next?.items.map((c) => c.id)).toEqual(["d", "a"]);
+    expect(next?.items[0]?.origin).toBe("https://p.example");
+    expect(next?.parts).toBe(tab.parts);
+  });
+
+  it("hides playlists in folders below a listed one (X), even unread", () => {
+    expect(urls(play([[X_MASTER], [X_720], [X_AUDIO]]))).toEqual([X_MASTER]);
+    // And the other way round: a quality playlist the player fetched first.
+    expect(urls(play([[X_720], [X_AUDIO], [X_MASTER, null]]))).toEqual([X_MASTER]);
+  });
+
+  it("lists only the master of a stream whose parts sit beside it", () => {
+    const master = parsed(F_BODY, F_MASTER);
+    const tab = play([[F_MASTER, master], [F_LOW], [F_AUDIO], [F_HIGH]]);
+    expect(urls(tab)).toEqual([F_MASTER]);
+    expect(tab.items[0]?.qualities).toBe(2);
+    expect(tab.parts).toContain(F_AUDIO);
+    // Periscope: parts in a sibling folder.
+    expect(urls(play([[P_MASTER, parsed(P_BODY, P_MASTER)], [P_480], [P_720]]))).toEqual([P_MASTER]);
+  });
+
+  it("replaces quality playlists listed before their master shows up", () => {
+    const media = { master: false } as const;
+    const before = play([[F_LOW, media], [F_AUDIO, media], [P_720, media]]);
+    expect(before.items).toHaveLength(3);
+    const after = play([[F_MASTER, parsed(F_BODY, F_MASTER)]], before);
+    expect(urls(after)).toEqual([F_MASTER, P_720]);
+    // Remembered after the master has left the list too.
+    const later = { items: [], parts: after.parts };
+    expect(addMedia(later, { ...base, url: `${F_HIGH}#t` }, "x", 9)).toBeNull();
+  });
+
+  it("keeps masters of different videos, even in one folder", () => {
+    const other = "https://cdn.example.net/v/77/0therMaster00000.m3u8";
+    const otherBody = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1,RESOLUTION=640x360\nlow360.m3u8\n";
+    const tab = play([
+      [F_MASTER, parsed(F_BODY, F_MASTER)],
+      [other, parsed(otherBody, other)],
+    ]);
+    expect(urls(tab)).toEqual([other, F_MASTER]);
+    // A master in a folder below another is still a master once read.
+    const deeper = "https://cdn.example.net/v/77/clips/master.m3u8";
+    expect(urls(play([[deeper, parsed(otherBody, deeper)]], tab))).toEqual([deeper, other, F_MASTER]);
+  });
+
+  it("lets a media playlist that was read hide nothing", () => {
+    const top = "https://v.example.net/a/index.m3u8";
+    const listed = play([["https://v.example.net/a/hd/index.m3u8", { master: false }]]);
+    expect(play([[top, { master: false }]], listed).items).toHaveLength(2);
   });
 
   it("keeps playlists from other folders and sites apart", () => {
-    const list = [{ ...base, url: "https://v.example.net/a/master.m3u8", id: "a", at: 1 }];
-    expect(addCandidate(list, { ...base, url: "https://v.example.net/a/other.m3u8" }, "b", 2)).toHaveLength(2);
-    expect(addCandidate(list, { ...base, url: "https://w.example.net/a/hd/index.m3u8" }, "c", 2)).toHaveLength(2);
+    const tab = play([["https://v.example.net/a/master.m3u8"]]);
+    expect(addMedia(tab, { ...base, url: "https://v.example.net/a/other.m3u8" }, "b", 2)?.items).toHaveLength(2);
+    expect(addMedia(tab, { ...base, url: "https://w.example.net/a/hd/index.m3u8" }, "c", 2)?.items).toHaveLength(2);
   });
 
-  it("keeps a bounded list", () => {
-    let list: MediaCandidate[] = [];
+  it("treats low-latency reloads of a playlist as the same playlist", () => {
+    const tab = play([["https://v.example.net/live/720.m3u8"]]);
+    expect(addMedia(tab, { ...base, url: "https://v.example.net/live/720.m3u8?_HLS_msn=40&_HLS_part=1" }, "b", 2)).toBeNull();
+  });
+
+  it("keeps the list and the parts bounded", () => {
+    let tab = empty;
     for (let i = 0; i < MAX_TAB_MEDIA + 5; i++) {
-      list = addCandidate(list, { kind: "direct", url: `https://v.example.net/${i}.mp4` }, `id${i}`, i) ?? list;
+      tab = addMedia(tab, { kind: "direct", url: `https://v.example.net/${i}.mp4` }, `id${i}`, i) ?? tab;
     }
-    expect(list).toHaveLength(MAX_TAB_MEDIA);
-    expect(list[0]?.id).toBe(`id${MAX_TAB_MEDIA + 4}`);
+    expect(tab.items).toHaveLength(MAX_TAB_MEDIA);
+    expect(tab.items[0]?.id).toBe(`id${MAX_TAB_MEDIA + 4}`);
+    const many: PlaylistInfo = {
+      master: true,
+      parts: Array.from({ length: MAX_TAB_PARTS }, (_, i) => `https://v.example.net/p/${i}.m3u8`),
+      qualities: 1,
+    };
+    const full = play([["https://v.example.net/m1.m3u8", many]]);
+    const more = play([["https://v.example.net/m2.m3u8", { master: true, parts: ["https://v.example.net/new.m3u8"], qualities: 1 }]], full);
+    expect(more.parts).toHaveLength(MAX_TAB_PARTS);
+    expect(more.parts[0]).toBe("https://v.example.net/new.m3u8");
+  });
+});
+
+describe("shouldReadPlaylist", () => {
+  it("reads only playlists that are new to the tab", () => {
+    const tab = play([[F_MASTER, parsed(F_BODY, F_MASTER)], [X_MASTER]]);
+    expect(shouldReadPlaylist(tab, P_MASTER)).toBe(true);
+    expect(shouldReadPlaylist(tab, `${F_MASTER}#again`)).toBe(false);
+    expect(shouldReadPlaylist(tab, F_HIGH)).toBe(false);
+    // Below a listed playlist: hidden without a request.
+    expect(shouldReadPlaylist(tab, X_720)).toBe(false);
   });
 });
 
@@ -285,17 +547,32 @@ describe("parseTabMedia", () => {
         { ...good, referrer: "about:blank" },
         { ...good, origin: 3 },
         { ...good, size: -1 },
+        { ...good, qualities: 1.5 },
         null,
       ]),
     ).toEqual([good]);
+    expect(parseTabMedia([{ ...good, qualities: 3 }])).toEqual([{ ...good, qualities: 3 }]);
     expect(parseTabMedia("nope")).toEqual([]);
     expect(tabMediaKey(12)).toBe("media:12");
+  });
+
+  it("keeps a tab's playlist parts under the same prefix", () => {
+    expect(parseTabParts(["https://a.org/1.m3u8", "file:///x.m3u8", 3, "https://a.org/2.m3u8"])).toEqual([
+      "https://a.org/1.m3u8",
+      "https://a.org/2.m3u8",
+    ]);
+    expect(parseTabParts({})).toEqual([]);
+    expect(tabPartsKey(12).startsWith(tabMediaKey(12))).toBe(true);
   });
 });
 
 describe("labels and names", () => {
   it("names the kind of media", () => {
     expect(kindLabel({ kind: "hls", url: "https://a.org/x.m3u8" })).toBe("HLS stream");
+    expect(kindLabel({ kind: "hls", url: "https://a.org/x.m3u8", qualities: 3 })).toBe("HLS · 3 qualities");
+    expect(kindLabel({ kind: "hls", url: "https://a.org/x.m3u8", qualities: 1 })).toBe("HLS · 1 quality");
+    // A master with only audio renditions.
+    expect(kindLabel({ kind: "hls", url: "https://a.org/x.m3u8", qualities: 0 })).toBe("HLS stream");
     expect(kindLabel({ kind: "dash", url: "https://a.org/x.mpd" })).toBe("DASH stream");
     expect(kindLabel({ kind: "direct", url: "https://a.org/x.mp4", mime: "video/mp4" })).toBe("MP4 video");
     expect(kindLabel({ kind: "direct", url: "https://a.org/x.mp3" })).toBe("MP3 audio");
@@ -306,6 +583,18 @@ describe("labels and names", () => {
   it("shows the file name from the URL", () => {
     expect(mediaName("https://a.org/v/My%20clip.mp4?x=1")).toBe("My clip.mp4");
     expect(mediaName("https://a.org/")).toBe("a.org");
+  });
+
+  it("names rows after the page, numbered from the oldest when several share it", () => {
+    const one = [{ url: "https://video.twimg.com/a/pl/8k4_FZTUGeXpWu9v.m3u8" }];
+    expect(mediaLabels(one, "  Home / X ")).toEqual(["Home / X"]);
+    // Newest first, as the list is kept.
+    const three = [{ url: "https://a.org/c.m3u8" }, { url: "https://a.org/b.mp4" }, { url: "https://a.org/a.m3u8" }];
+    expect(mediaLabels(three, "Home / X")).toEqual(["Home / X (3)", "Home / X (2)", "Home / X"]);
+    // Without a title, the file names.
+    expect(mediaLabels(one, undefined)).toEqual(["8k4_FZTUGeXpWu9v.m3u8"]);
+    expect(mediaLabels(one, "\u0007")).toEqual(["8k4_FZTUGeXpWu9v.m3u8"]);
+    expect(mediaLabels([], "Home / X")).toEqual([]);
   });
 
   it("cleans page titles", () => {

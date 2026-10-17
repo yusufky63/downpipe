@@ -17,19 +17,27 @@ import {
 import { formatBytes } from "./lib/format";
 import {
   WEB_ORIGINS,
-  addCandidate,
+  addMedia,
   classifyResponse,
   classifySource,
   cleanTitle,
   excludeMatchesFor,
   frameOf,
   kindLabel,
+  mediaLabels,
   mediaName,
   pageHeaders,
   parseTabMedia,
+  parseTabParts,
+  playlistKey,
+  readPlaylist,
+  shouldReadPlaylist,
   tabMediaKey,
+  tabPartsKey,
   titleFileName,
   type MediaCandidate,
+  type PlaylistInfo,
+  type TabMedia,
 } from "./lib/media";
 import {
   PAGE_ITEM_ID,
@@ -397,7 +405,9 @@ ext.permissions.onRemoved.addListener((p) => {
 // On only while the optional `webRequest` permission and access to web
 // pages are granted; the popup's switch requests or removes both. The
 // listeners only read response headers: nothing is blocked or changed, and
-// nothing leaves the browser until the user picks a download.
+// nothing leaves the browser until the user picks a download. The one
+// request of its own is reading each new HLS playlist once, without
+// cookies, to tell a master from its quality playlists (lib/media.ts).
 
 const MEDIA_PERMISSIONS: chrome.permissions.Permissions = { permissions: ["webRequest"], origins: WEB_ORIGINS };
 const OVERLAY_SCRIPT_ID = "downpipe-overlay";
@@ -423,19 +433,79 @@ function onMediaRequest(details: chrome.webRequest.OnSendHeadersDetails): void {
   }
 }
 
+/** HLS playlists being read or added, by tab and address. */
+const playlistsInHand = new Set<string>();
+/**
+ * Playlist reads at once. A player fetches a master and several quality
+ * playlists within a moment, a feed several of each; the rest wait their
+ * turn, since a master read late still hides its parts.
+ */
+const MAX_PLAYLIST_READS = 4;
+/** Beyond this many waiting, a playlist is listed unread. */
+const MAX_PLAYLIST_QUEUE = 40;
+let playlistReads = 0;
+const playlistQueue: (() => void)[] = [];
+
+async function inReadSlot<T>(run: () => Promise<T>): Promise<T | undefined> {
+  if (playlistReads < MAX_PLAYLIST_READS) {
+    playlistReads += 1;
+  } else {
+    if (playlistQueue.length >= MAX_PLAYLIST_QUEUE) return undefined;
+    // The slot is handed over by the read that ends.
+    await new Promise<void>((resolve) => playlistQueue.push(resolve));
+  }
+  try {
+    return await run();
+  } finally {
+    const next = playlistQueue.shift();
+    if (next) next();
+    else playlistReads -= 1;
+  }
+}
+
+/**
+ * What a new HLS playlist is: undefined when it was not read (already
+ * listed or known by its turn, which `addMedia` then leaves out, or too
+ * many waiting), null when reading failed.
+ */
+function examinePlaylist(tabId: number, url: string): Promise<PlaylistInfo | null | undefined> {
+  return inReadSlot(async () => {
+    // Checked when its turn comes: the master may have named it meanwhile.
+    if (!shouldReadPlaylist(await tabState(tabId), url)) return undefined;
+    // The extension's own request has no tab, so the listeners here skip it.
+    return readPlaylist((input, init) => fetch(input, init), playlistKey(url));
+  });
+}
+
 function onMediaResponse(details: chrome.webRequest.OnResponseStartedDetails): void {
   const sent = sentHeaders.get(details.requestId);
   sentHeaders.delete(details.requestId);
   void cachedSettings()
-    .then((prefs) => {
+    .then(async (prefs) => {
       const found = classifyResponse(details, prefs);
       if (!found) return;
       const frameUrl = frameOf(details as { documentUrl?: string; initiator?: string });
       // IDM's site exceptions: the excluded sites leave detection alone too.
       if (matchingSite([hostOf(found.url), hostOf(frameUrl), hostOf(sent?.referrer)], prefs.excludedSites)) return;
-      return changeTabMedia(details.tabId, (list) =>
-        addCandidate(list, { ...found, frameUrl, ...sent }, crypto.randomUUID(), Date.now()),
-      );
+      const entry = { ...found, frameUrl, ...sent };
+      if (found.kind !== "hls") {
+        await changeTabMedia(details.tabId, (tab) => addMedia(tab, entry, crypto.randomUUID(), Date.now()));
+        return;
+      }
+      // Players reload live playlists every few seconds; the first response
+      // in hand decides, and the rest are repeats.
+      const key = `${details.tabId} ${playlistKey(found.url)}`;
+      if (playlistsInHand.has(key)) return;
+      playlistsInHand.add(key);
+      const page = tabPages.get(details.tabId);
+      try {
+        const playlist = await examinePlaylist(details.tabId, found.url);
+        // The tab loaded another page while the playlist was read.
+        if (tabPages.get(details.tabId) !== page) return;
+        await changeTabMedia(details.tabId, (tab) => addMedia(tab, entry, crypto.randomUUID(), Date.now(), playlist));
+      } finally {
+        playlistsInHand.delete(key);
+      }
     })
     .catch(() => undefined);
 }
@@ -477,6 +547,7 @@ function startMediaDetection(): void {
 function stopMediaDetection(): void {
   ext.webRequest?.onSendHeaders.removeListener(onMediaRequest);
   sentHeaders.clear();
+  playlistsInHand.clear();
   ext.webRequest?.onResponseStarted.removeListener(onMediaResponse);
   ext.webRequest?.onBeforeRequest.removeListener(onPageRequest);
 }
@@ -522,29 +593,44 @@ async function syncOverlay(): Promise<void> {
 // arriving together cannot overwrite each other's entry.
 let mediaWrites: Promise<unknown> = Promise.resolve();
 
-function changeTabMedia(
-  tabId: number,
-  change: (list: MediaCandidate[]) => MediaCandidate[] | null,
-): Promise<MediaCandidate[]> {
+function changeTabMedia(tabId: number, change: (tab: TabMedia) => TabMedia | null): Promise<TabMedia> {
   const key = tabMediaKey(tabId);
+  const partsKey = tabPartsKey(tabId);
   const next = mediaWrites.then(async () => {
     // Session storage: in memory only, cleared when the browser closes.
-    const stored = await ext.storage.session.get(key).catch((): Record<string, unknown> => ({}));
-    const list = parseTabMedia(stored[key]);
-    const changed = change(list);
-    if (changed) await ext.storage.session.set({ [key]: changed });
-    return changed ?? list;
+    const stored = await ext.storage.session.get([key, partsKey]).catch((): Record<string, unknown> => ({}));
+    const tab: TabMedia = { items: parseTabMedia(stored[key]), parts: parseTabParts(stored[partsKey]) };
+    const changed = change(tab);
+    if (!changed) return tab;
+    await ext.storage.session.set(
+      changed.parts === tab.parts ? { [key]: changed.items } : { [key]: changed.items, [partsKey]: changed.parts },
+    );
+    return changed;
   });
   mediaWrites = next.catch(() => undefined);
   return next;
 }
 
-function tabMedia(tabId: number): Promise<MediaCandidate[]> {
+function tabState(tabId: number): Promise<TabMedia> {
   return changeTabMedia(tabId, () => null);
 }
 
+async function tabMedia(tabId: number): Promise<MediaCandidate[]> {
+  return (await tabState(tabId)).items;
+}
+
+/** The tab's title, which names the rows and the downloads. */
+async function tabTitle(tabId: number): Promise<string | undefined> {
+  // Readable because detection holds access to every site.
+  return cleanTitle((await ext.tabs.get(tabId).catch(() => undefined))?.title);
+}
+
+/** How often each tab's list was forgotten, so a playlist read for one page is not added to the next. */
+const tabPages = new Map<number, number>();
+
 function forgetTabMedia(tabId: number): Promise<void> {
-  const next = mediaWrites.then(() => ext.storage.session.remove(tabMediaKey(tabId)));
+  tabPages.set(tabId, (tabPages.get(tabId) ?? 0) + 1);
+  const next = mediaWrites.then(() => ext.storage.session.remove([tabMediaKey(tabId), tabPartsKey(tabId)]));
   mediaWrites = next.catch(() => undefined);
   return next.catch(() => undefined);
 }
@@ -598,9 +684,9 @@ async function sendMedia(tabId: number, mediaId: string): Promise<LinkResult> {
   return { ...outcome, stop: bridgeDown(result) };
 }
 
-function overlayItem(c: MediaCandidate): OverlayItem {
+function overlayItem(c: MediaCandidate, label: string): OverlayItem {
   const size = c.size !== undefined ? ` · ${formatBytes(c.size)}` : "";
-  return { mediaId: c.id, label: mediaName(c.url), detail: `${kindLabel(c)}${size}` };
+  return { mediaId: c.id, label, detail: `${kindLabel(c)}${size}` };
 }
 
 function pageOverlayItem(page: PageItem): OverlayItem {
@@ -621,14 +707,16 @@ async function overlayAnswer(
       // The element's own source, when it is a plain http(s) file or playlist.
       const src = request.src;
       const found = src ? classifySource(src) : null;
-      const items =
+      const { items } =
         src && found && !isSiteMedia(src)
-          ? await changeTabMedia(tabId, (list) =>
-              addCandidate(list, { ...found, url: src, frameUrl }, crypto.randomUUID(), Date.now()),
+          ? await changeTabMedia(tabId, (tab) =>
+              addMedia(tab, { ...found, url: src, frameUrl }, crypto.randomUUID(), Date.now()),
             )
-          : await tabMedia(tabId);
+          : await tabState(tabId);
       const page = await videoPageOf(tabId, frameUrl);
-      const listed = items.filter((c) => !isSiteMedia(c.url)).map(overlayItem);
+      const media = items.filter((c) => !isSiteMedia(c.url));
+      const labels = mediaLabels(media, await tabTitle(tabId));
+      const listed = media.map((c, i) => overlayItem(c, labels[i] ?? mediaName(c.url)));
       return { items: page ? [pageOverlayItem(page.item), ...listed] : listed };
     }
     case "overlay_send":
@@ -829,7 +917,7 @@ async function answer(request: PopupRequest): Promise<Reply> {
       const excludedBy = matchingSite([hostOf(tab?.url)], (await cachedSettings()).excludedSites);
       if (excludedBy) return withPage({ enabled, items: [], excludedBy });
       const items = (await tabMedia(request.tabId)).filter((c) => !isSiteMedia(c.url));
-      return withPage({ enabled, items });
+      return withPage({ enabled, items, title: cleanTitle(tab?.title) });
     }
     case "save_media":
       return changeSettings((s) => ({ ...s, ...request.media }));

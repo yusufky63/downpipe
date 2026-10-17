@@ -94,6 +94,29 @@ async fn hls_takes_the_best_quality_and_joins_its_segments() {
 }
 
 #[tokio::test]
+async fn hls_playlists_beside_the_master_are_followed() {
+    // Many CDNs keep the quality playlists in the master's own folder.
+    let server = TestServer::start().await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let q = "segments=3&size=1000&flat=1";
+    let path = completed(
+        engine()
+            .start(stream(
+                server.url(&format!("/hls/master.m3u8?{q}")),
+                dir.path(),
+                MediaKind::Hls,
+            ))
+            .wait()
+            .await
+            .unwrap(),
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), joined("v1", q));
+    let requests = server.state.requests();
+    assert!(requests.iter().any(|r| r.path == "/hls/v1.m3u8"));
+    assert!(!requests.iter().any(|r| r.path.ends_with("index.m3u8")));
+}
+
+#[tokio::test]
 async fn a_chosen_quality_is_downloaded() {
     let server = TestServer::start().await.unwrap();
     let dir = tempfile::tempdir().unwrap();

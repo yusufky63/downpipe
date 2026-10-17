@@ -15,8 +15,10 @@
 //! | `drm=1`          | HLS `SAMPLE-AES`, DASH `ContentProtection`                  |
 //! | `fail_seg=I`     | fragment I answers 500 for the first `fail_times` requests  |
 //! | `rate=N`         | at most N bytes/s per fragment response                     |
+//! | `flat=1`         | HLS: quality and audio playlists beside the master          |
 //!
-//! `/hls/master.m3u8`, `/hls/{track}/index.m3u8`, `/hls/{track}/{file}`,
+//! `/hls/master.m3u8`, `/hls/{track}/index.m3u8` (or `/hls/{track}.m3u8`
+//! with `flat=1`, the layout of many CDNs), `/hls/{track}/{file}`,
 //! `/hls/key.bin`, `/dash/manifest.mpd` and `/dash/{track}/{file}`.
 
 use std::collections::HashMap;
@@ -58,6 +60,7 @@ pub struct StreamOptions {
     pub fail_seg: Option<u64>,
     pub fail_times: u64,
     pub rate: Option<u64>,
+    pub flat: bool,
     /// The query as received, copied onto every URI.
     query: String,
 }
@@ -81,6 +84,7 @@ impl StreamOptions {
             fail_seg: num("fail_seg"),
             fail_times: num("fail_times").unwrap_or(1),
             rate: num("rate"),
+            flat: flag("flat"),
             query: query.unwrap_or("").to_string(),
         }
     }
@@ -160,6 +164,7 @@ pub(crate) fn routes(router: Router<Arc<ServerState>>) -> Router<Arc<ServerState
     router
         .route("/hls/master.m3u8", get(hls_master))
         .route("/hls/key.bin", get(hls_key))
+        .route("/hls/{file}", get(hls_flat_media))
         .route("/hls/{track}/index.m3u8", get(hls_media))
         .route("/hls/{track}/{file}", get(hls_fragment))
         .route("/dash/manifest.mpd", get(dash_manifest))
@@ -173,13 +178,27 @@ fn text(body: String, mime: &'static str) -> Response {
     resp
 }
 
+/// Where the master points for a track's playlist.
+fn media_uri(track: &str, opts: &StreamOptions) -> String {
+    let s = opts.suffix();
+    if opts.flat {
+        format!("{track}.m3u8{s}")
+    } else {
+        format!("{track}/index.m3u8{s}")
+    }
+}
+
 async fn hls_master(
     State(state): State<Arc<ServerState>>,
     RawQuery(q): RawQuery,
     headers: HeaderMap,
 ) -> Response {
     let opts = StreamOptions::parse(q.as_deref());
-    let s = opts.suffix();
+    state.record("/hls/master.m3u8", &headers, StatusCode::OK);
+    text(master_playlist(&opts), "application/vnd.apple.mpegurl")
+}
+
+fn master_playlist(opts: &StreamOptions) -> String {
     let mut out = String::from("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n");
     if opts.drm {
         out.push_str(
@@ -188,20 +207,22 @@ async fn hls_master(
     }
     let audio = if opts.split {
         out.push_str(&format!(
-            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",NAME=\"English\",LANGUAGE=\"en\",DEFAULT=YES,AUTOSELECT=YES,URI=\"audio/index.m3u8{s}\"\n"
+            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",NAME=\"English\",LANGUAGE=\"en\",DEFAULT=YES,AUTOSELECT=YES,URI=\"{}\"\n",
+            media_uri("audio", opts)
         ));
         ",AUDIO=\"aud\""
     } else {
         ""
     };
     out.push_str(&format!(
-        "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS=\"avc1.4d401e,mp4a.40.2\"{audio}\nv0/index.m3u8{s}\n"
+        "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS=\"avc1.4d401e,mp4a.40.2\"{audio}\n{}\n",
+        media_uri("v0", opts)
     ));
     out.push_str(&format!(
-        "#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720,CODECS=\"avc1.4d401f,mp4a.40.2\"{audio}\nv1/index.m3u8{s}\n"
+        "#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720,CODECS=\"avc1.4d401f,mp4a.40.2\"{audio}\n{}\n",
+        media_uri("v1", opts)
     ));
-    state.record("/hls/master.m3u8", &headers, StatusCode::OK);
-    text(out, "application/vnd.apple.mpegurl")
+    out
 }
 
 async fn hls_media(
@@ -211,12 +232,44 @@ async fn hls_media(
     headers: HeaderMap,
 ) -> Response {
     let opts = StreamOptions::parse(q.as_deref());
-    let s = opts.suffix();
     state.record(
         &format!("/hls/{track}/index.m3u8"),
         &headers,
         StatusCode::OK,
     );
+    text(
+        media_playlist(&track, &opts, ""),
+        "application/vnd.apple.mpegurl",
+    )
+}
+
+/// `/hls/{track}.m3u8`: a playlist beside the master, whose fragments stay
+/// in the track's folder.
+async fn hls_flat_media(
+    State(state): State<Arc<ServerState>>,
+    Path(file): Path<String>,
+    RawQuery(q): RawQuery,
+    headers: HeaderMap,
+) -> Response {
+    let path = format!("/hls/{file}");
+    let Some(track) = file
+        .strip_suffix(".m3u8")
+        .filter(|t| tracks(true).contains(t))
+    else {
+        state.record(&path, &headers, StatusCode::NOT_FOUND);
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let opts = StreamOptions::parse(q.as_deref());
+    state.record(&path, &headers, StatusCode::OK);
+    text(
+        media_playlist(track, &opts, &format!("{track}/")),
+        "application/vnd.apple.mpegurl",
+    )
+}
+
+/// A track's media playlist; `prefix` leads its fragment URIs to the track's folder.
+fn media_playlist(track: &str, opts: &StreamOptions, prefix: &str) -> String {
+    let s = opts.suffix();
     let ext = if opts.split { "m4s" } else { "ts" };
     let mut out = format!(
         "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:{SEGMENT_SECONDS}\n#EXT-X-MEDIA-SEQUENCE:{MEDIA_SEQUENCE}\n"
@@ -237,17 +290,17 @@ async fn hls_media(
         ));
     }
     if opts.split {
-        out.push_str(&format!("#EXT-X-MAP:URI=\"init.mp4{s}\"\n"));
+        out.push_str(&format!("#EXT-X-MAP:URI=\"{prefix}init.mp4{s}\"\n"));
     }
     for i in 0..opts.segments {
         out.push_str(&format!(
-            "#EXTINF:{SEGMENT_SECONDS}.000,\nseg-{i}.{ext}{s}\n"
+            "#EXTINF:{SEGMENT_SECONDS}.000,\n{prefix}seg-{i}.{ext}{s}\n"
         ));
     }
     if !opts.live {
         out.push_str("#EXT-X-ENDLIST\n");
     }
-    text(out, "application/vnd.apple.mpegurl")
+    out
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -425,6 +478,22 @@ mod tests {
         assert_ne!(fragment("v0", 0, 64), fragment("v1", 0, 64));
         assert_eq!(joined("v1", "segments=2&size=8").len(), 16);
         assert_eq!(joined("audio", "segments=2&size=8&split=1").len(), 1016);
+    }
+
+    #[test]
+    fn a_flat_stream_keeps_its_playlists_beside_the_master() {
+        let opts = StreamOptions::parse(Some("flat=1&split=1"));
+        let master = master_playlist(&opts);
+        assert!(master.contains("URI=\"audio.m3u8?flat=1&split=1\""));
+        assert!(master.contains("\nv1.m3u8?flat=1&split=1\n"));
+        assert!(!master.contains("index.m3u8"));
+        let media = media_playlist("v1", &opts, "v1/");
+        assert!(media.contains("#EXT-X-MAP:URI=\"v1/init.mp4?flat=1&split=1\""));
+        assert!(media.contains("\nv1/seg-0.m4s?flat=1&split=1\n"));
+        // The usual layout is unchanged.
+        let usual = StreamOptions::parse(Some("split=1"));
+        assert!(master_playlist(&usual).contains("\nv0/index.m3u8?split=1\n"));
+        assert!(media_playlist("v0", &usual, "").contains("\nseg-0.m4s?split=1\n"));
     }
 
     #[test]

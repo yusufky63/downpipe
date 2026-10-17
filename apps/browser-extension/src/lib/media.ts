@@ -35,6 +35,11 @@ export interface MediaCandidate {
   referrer?: string;
   /** The `Origin` it sent (players fetching with CORS send one). */
   origin?: string;
+  /**
+   * Set on an HLS master playlist the extension read: how many video
+   * qualities it lists (0 when it only lists audio).
+   */
+  qualities?: number;
 }
 
 /** The parts of a `webRequest` response event classification looks at. */
@@ -301,15 +306,168 @@ export function excludeMatchesFor(sites: readonly string[]): string[] {
   return sites.filter((s) => !s.includes("[")).map((s) => `*://${s}/*`);
 }
 
+// ---------- HLS playlists ----------
+// A player loads the master playlist and then the quality and audio
+// playlists it lists. Only the master is worth offering: Downpipe picks the
+// quality from it. The service worker reads each new playlist once to tell
+// which is which; these functions do the rest.
+
+/** What reading a playlist showed. */
+export type PlaylistInfo =
+  | {
+      master: true;
+      /** Its quality, audio and I-frame playlists, as `playlistKey`s. */
+      parts: string[];
+      /** Distinct video qualities (by resolution, else by playlist). */
+      qualities: number;
+    }
+  | { master: false };
+
+/** A master is a few KiB; a media playlist is known by its first segment long before this. */
+export const MAX_PLAYLIST_BYTES = 256 * 1024;
+export const PLAYLIST_TIMEOUT_MS = 5_000;
+/** Parts a tab remembers, so they stay hidden after their master falls off the list. */
+export const MAX_TAB_PARTS = 400;
+const MAX_MASTER_PARTS = 200;
+/**
+ * Low-latency HLS asks for each reload of a media playlist with these
+ * query parameters; without them it is the same playlist.
+ */
+const HLS_DIRECTIVE_PREFIX = "_HLS_";
+
+/** A playlist's address for comparing: no fragment, no low-latency reload parameters. */
+export function playlistKey(raw: string): string {
+  const url = webUrl(raw);
+  if (!url) return raw;
+  url.hash = "";
+  for (const name of [...url.searchParams.keys()]) {
+    if (name.startsWith(HLS_DIRECTIVE_PREFIX)) url.searchParams.delete(name);
+  }
+  return url.href;
+}
+
+/** An attribute of a tag line, quoted (`URI="..."`) or not (`RESOLUTION=1280x720`). */
+function tagAttribute(line: string, name: string): string | undefined {
+  const match = new RegExp(`[:,]${name}=(?:"([^"]*)"|([^,]*))`).exec(line);
+  return match ? (match[1] ?? match[2]) : undefined;
+}
+
+function resolvedPart(uri: string, base: string): string | undefined {
+  try {
+    const url = webUrl(new URL(uri, base).href);
+    return url && url.href.length <= MAX_URL_LENGTH ? playlistKey(url.href) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a playlist is a master and, if so, the playlists it lists,
+ * resolved against `base` (its address after redirects). Only the URI
+ * lines are read: `#EXT-X-STREAM-INF` and the line after it, and the `URI`
+ * of `#EXT-X-MEDIA` and `#EXT-X-I-FRAME-STREAM-INF`. Null for anything
+ * that is not a playlist.
+ */
+export function parsePlaylist(text: string, base: string): PlaylistInfo | null {
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n|\r/);
+  if (!lines[0]?.trimEnd().startsWith("#EXTM3U")) return null;
+  const parts = new Set<string>();
+  const qualities = new Set<string>();
+  let master = false;
+  // Set after `#EXT-X-STREAM-INF`: the quality its URI line belongs to.
+  let quality: string | null = null;
+  const add = (uri: string | undefined) => {
+    const part = uri ? resolvedPart(uri.trim(), base) : undefined;
+    if (part && parts.size < MAX_MASTER_PARTS) parts.add(part);
+    return part;
+  };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith("#EXT-X-STREAM-INF:")) {
+      master = true;
+      quality = tagAttribute(line, "RESOLUTION") ?? "";
+    } else if (line.startsWith("#EXT-X-MEDIA:") || line.startsWith("#EXT-X-I-FRAME-STREAM-INF:")) {
+      master = true;
+      add(tagAttribute(line, "URI"));
+    } else if (!line.startsWith("#") && quality !== null) {
+      const part = add(line);
+      if (part) qualities.add(quality || part);
+      quality = null;
+    }
+  }
+  return master ? { master: true, parts: [...parts], qualities: qualities.size } : { master: false };
+}
+
+/**
+ * A playlist's text, read until `max` bytes and cut to whole lines. It
+ * stops at the first segment (`#EXTINF`): from there on it is a media
+ * playlist, which can run to megabytes and has nothing more to say.
+ */
+export async function readPlaylistText(body: ReadableStream<Uint8Array>, max = MAX_PLAYLIST_BYTES): Promise<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytes = 0;
+  const wholeLines = () => text.slice(0, text.lastIndexOf("\n") + 1);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return text + decoder.decode();
+      const room = max - bytes;
+      bytes += value.byteLength;
+      if (value.byteLength >= room) {
+        text += decoder.decode(value.subarray(0, room));
+        return wholeLines();
+      }
+      text += decoder.decode(value, { stream: true });
+      if (text.includes("#EXTINF")) return wholeLines();
+    }
+  } finally {
+    // Stops the download when it ended early.
+    void reader.cancel().catch(() => undefined);
+  }
+}
+
+type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
+
+/**
+ * Reads a playlist a page loaded: once, without cookies or a referrer,
+ * at most `MAX_PLAYLIST_BYTES` and `PLAYLIST_TIMEOUT_MS`. Null when it
+ * could not be read (a playlist that needs the page's cookies, for one).
+ */
+export async function readPlaylist(
+  fetchFn: FetchLike,
+  url: string,
+  timeoutMs = PLAYLIST_TIMEOUT_MS,
+): Promise<PlaylistInfo | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchFn(url, {
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) return null;
+    return parsePlaylist(await readPlaylistText(response.body), response.url || url);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function directory(url: URL): string {
   return url.pathname.slice(0, url.pathname.lastIndexOf("/") + 1);
 }
 
 /**
- * A playlist below another one of the same site: players load the master
- * playlist first and then the quality and audio playlists it lists, which
- * usually sit in folders under it. Those are parts of the stream already
- * listed, and Downpipe picks the quality from the master itself.
+ * A playlist below another one of the same site. Some sites (X among
+ * them) keep a master's quality and audio playlists in folders under it,
+ * so this hides them without reading anything, and still does when the
+ * master cannot be read.
  */
 export function isPartOf(child: string, parent: string): boolean {
   const c = webUrl(child);
@@ -327,25 +485,69 @@ function withoutFragment(raw: string): string {
   return url.href;
 }
 
+/** One tab's media list and the playlists known to belong to a master. */
+export interface TabMedia {
+  /** Newest first. */
+  items: MediaCandidate[];
+  /** `playlistKey`s of the quality and audio playlists of masters this tab played, newest first. */
+  parts: string[];
+}
+
+function isKnownMaster(c: MediaCandidate): boolean {
+  return c.kind === "hls" && c.qualities !== undefined;
+}
+
 /**
- * The tab's list with `found` added, newest first, or null when nothing
- * changed: the same URL seen again, or a playlist that is part of one
- * already listed.
+ * Whether a newly seen HLS playlist is worth reading: not listed, not a
+ * known part of a master, and not below a listed playlist.
  */
-export function addCandidate(
-  list: readonly MediaCandidate[],
+export function shouldReadPlaylist(tab: TabMedia, url: string): boolean {
+  const key = playlistKey(url);
+  if (tab.parts.includes(key) || tab.items.some((c) => c.url === key)) return false;
+  return !tab.items.some((c) => c.kind === "hls" && isPartOf(key, c.url));
+}
+
+/**
+ * The tab with `found` added, newest first, or null when nothing changed.
+ * `playlist` is what reading an HLS playlist showed, when it was read.
+ *
+ * - The same address seen again changes nothing.
+ * - A known part of a master is never listed. A master that was read
+ *   adds its parts and drops any already listed: a player can fetch a
+ *   quality playlist before its master, or the master only later.
+ * - Without that knowledge, playlists in folders below a listed one are
+ *   parts of it, both ways round; a master that was read is never hidden
+ *   that way.
+ */
+export function addMedia(
+  tab: TabMedia,
   found: Omit<MediaCandidate, "id" | "at">,
   id: string,
   now: number,
-): MediaCandidate[] | null {
-  const url = withoutFragment(found.url);
-  if (list.some((c) => c.url === url)) return null;
-  if (found.kind === "hls" && list.some((c) => c.kind === "hls" && isPartOf(url, c.url))) return null;
+  playlist?: PlaylistInfo | null,
+): TabMedia | null {
+  const hls = found.kind === "hls";
+  const url = hls ? playlistKey(found.url) : withoutFragment(found.url);
+  if (tab.items.some((c) => c.url === url)) return null;
+  if (hls && tab.parts.includes(url)) return null;
+  const master = playlist?.master ? playlist : undefined;
+  if (hls && !master && tab.items.some((c) => c.kind === "hls" && isPartOf(url, c.url))) return null;
+
+  let { items, parts } = tab;
+  if (master) {
+    const own = new Set(master.parts);
+    parts = [...new Set([...master.parts, ...parts])].slice(0, MAX_TAB_PARTS);
+    items = items.filter((c) => !(c.kind === "hls" && own.has(c.url)));
+  }
+  // A media playlist that was read has no parts; anything else may.
+  if (hls && playlist?.master !== false) {
+    items = items.filter((c) => !(c.kind === "hls" && !isKnownMaster(c) && isPartOf(c.url, url)));
+  }
   // Stored without empty fields, so the session storage entry stays small.
   const entry = Object.fromEntries(
-    Object.entries({ ...found, url, id, at: now }).filter(([, value]) => value !== undefined),
+    Object.entries({ ...found, url, id, at: now, qualities: master?.qualities }).filter(([, value]) => value !== undefined),
   ) as unknown as MediaCandidate;
-  return [entry, ...list].slice(0, MAX_TAB_MEDIA);
+  return { items: [entry, ...items].slice(0, MAX_TAB_MEDIA), parts };
 }
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -373,15 +575,29 @@ export function parseTabMedia(value: unknown): MediaCandidate[] {
         optionalUrl(v.frameUrl) &&
         optionalUrl(v.referrer) &&
         optionalUrl(v.origin) &&
-        (v.size === undefined || (typeof v.size === "number" && v.size >= 0))
+        (v.size === undefined || (typeof v.size === "number" && v.size >= 0)) &&
+        (v.qualities === undefined || (Number.isInteger(v.qualities) && (v.qualities as number) >= 0))
       );
     })
     .slice(0, MAX_TAB_MEDIA);
 }
 
+/** Whatever was stored as a tab's playlist parts, reduced to web addresses. */
+export function parseTabParts(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((p): p is string => typeof p === "string" && p.length <= MAX_URL_LENGTH && webUrl(p) !== null)
+    .slice(0, MAX_TAB_PARTS);
+}
+
 /** Storage key of one tab's list in `storage.session`. */
 export function tabMediaKey(tabId: number): string {
   return `media:${tabId}`;
+}
+
+/** Storage key of one tab's playlist parts; under the same `media:` prefix, so it is forgotten with the list. */
+export function tabPartsKey(tabId: number): string {
+  return `media:${tabId}:parts`;
 }
 
 const KIND_WORDS: Record<Exclude<MediaKind, "direct">, string> = {
@@ -391,8 +607,9 @@ const KIND_WORDS: Record<Exclude<MediaKind, "direct">, string> = {
 
 const AUDIO_EXTENSIONS = new Set(["mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "weba"]);
 
-/** "HLS stream", "MP4 video", "MP3 audio", "Video". */
-export function kindLabel(c: Pick<MediaCandidate, "kind" | "mime" | "url">): string {
+/** "HLS · 3 qualities" (a master that was read), "HLS stream", "MP4 video", "MP3 audio", "Video". */
+export function kindLabel(c: Pick<MediaCandidate, "kind" | "mime" | "url" | "qualities">): string {
+  if (c.kind === "hls" && c.qualities) return `HLS · ${c.qualities} ${c.qualities === 1 ? "quality" : "qualities"}`;
   if (c.kind !== "direct") return KIND_WORDS[c.kind];
   const ext = mediaExtension(c.url, c.mime) ?? "";
   const audio = c.mime ? c.mime.startsWith("audio/") : AUDIO_EXTENSIONS.has(ext);
@@ -412,6 +629,22 @@ export function mediaName(raw: string): string {
     // Keep the encoded form.
   }
   return (name || url.hostname).slice(0, 80);
+}
+
+/**
+ * What each row of a tab's list (newest first) is called: the page's
+ * title, which is also what Downpipe names the download, numbered from the
+ * oldest entry when several rows share it (a feed of videos). Playlist file
+ * names are often random (`8k4_FZTUGeXpWu9v.m3u8`), so they are only used
+ * when the page has no title.
+ */
+export function mediaLabels(items: readonly Pick<MediaCandidate, "url">[], title: string | undefined): string[] {
+  const clean = cleanTitle(title);
+  if (!clean) return items.map((c) => mediaName(c.url));
+  return items.map((_, i) => {
+    const n = items.length - i;
+    return n === 1 ? clean : `${clean} (${n})`;
+  });
 }
 
 const MAX_TITLE_LENGTH = 200;

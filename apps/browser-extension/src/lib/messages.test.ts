@@ -253,6 +253,8 @@ describe("media requests", () => {
     expect(isMediaReply({ enabled: false, items: [], page: { site: "YouTube", title: "Me at the zoo" } })).toBe(true);
     expect(isMediaReply({ enabled: false, items: [], page: { site: "YouTube" } })).toBe(true);
     expect(isMediaReply({ enabled: false, items: [], page: { title: "x" } })).toBe(false);
+    expect(isMediaReply({ enabled: true, items: [], title: "Home / X" })).toBe(true);
+    expect(isMediaReply({ enabled: true, items: [], title: 3 })).toBe(false);
   });
 
   it("keeps media hand-overs in the activity list", () => {
