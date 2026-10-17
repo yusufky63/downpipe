@@ -37,6 +37,10 @@ async fn main() -> anyhow::Result<()> {
     println!();
     println!("Streams with checkable fragments (not playable media):");
     println!("  {}", server.url("/hls/master.m3u8?split=1"));
+    println!(
+        "  {}  (playlists beside the master)",
+        server.url("/hls/master.m3u8?split=1&flat=1")
+    );
     println!("  {}", server.url("/dash/manifest.mpd?split=1"));
     println!();
     println!("Ctrl+C to stop.");

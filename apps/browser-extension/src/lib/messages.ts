@@ -157,6 +157,8 @@ export interface MediaReply {
   excludedBy?: string;
   /** Set on a video page (YouTube), whether detection is on or not. */
   page?: PageItem;
+  /** The tab's title, which names the rows (and the downloads). */
+  title?: string;
 }
 
 function isPageItem(value: unknown): value is PageItem {
@@ -173,7 +175,8 @@ export function isMediaReply(value: unknown): value is MediaReply {
     Array.isArray(v.items) &&
     parseTabMedia(v.items).length === v.items.length &&
     (v.excludedBy === undefined || typeof v.excludedBy === "string") &&
-    (v.page === undefined || isPageItem(v.page))
+    (v.page === undefined || isPageItem(v.page)) &&
+    (v.title === undefined || typeof v.title === "string")
   );
 }
 

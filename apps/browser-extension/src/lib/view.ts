@@ -160,8 +160,9 @@ export interface MediaRowView {
 /**
  * `streams`: whether the connected Downpipe can download HLS and DASH
  * streams; single media files go through the ordinary download message.
+ * `label`: the row's name from `mediaLabels`, the file name without one.
  */
-export function mediaRowView(c: MediaCandidate, streams: boolean): MediaRowView {
+export function mediaRowView(c: MediaCandidate, streams: boolean, label = mediaName(c.url)): MediaRowView {
   let host = "";
   try {
     host = new URL(c.url).hostname;
@@ -171,7 +172,7 @@ export function mediaRowView(c: MediaCandidate, streams: boolean): MediaRowView 
   const parts = [kindLabel(c), c.size !== undefined ? formatBytes(c.size) : "", host].filter(Boolean);
   const sendable = c.kind === "direct" || streams;
   return {
-    label: mediaName(c.url),
+    label,
     detail: sendable ? parts.join(" · ") : "Update Downpipe to download streams",
     sendable,
   };
