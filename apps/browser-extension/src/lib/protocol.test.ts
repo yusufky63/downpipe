@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 // so a change on one side that the other does not accept fails a test.
 import capturedFixture from "../../../../crates/native-host/tests/fixtures/download-captured.json";
 import linkFixture from "../../../../crates/native-host/tests/fixtures/download-link.json";
+import mediaFixture from "../../../../crates/native-host/tests/fixtures/media-hls.json";
 import pingFixture from "../../../../crates/native-host/tests/fixtures/ping.json";
 import tasksFixture from "../../../../crates/native-host/tests/fixtures/tasks.json";
 import rustProtocol from "../../../../crates/native-host/src/protocol.rs?raw";
@@ -11,15 +12,18 @@ import {
   HOST_NAME,
   MAX_FILE_NAME_LENGTH,
   MAX_TASK_IDS,
+  MAX_TITLE_LENGTH,
   PROTOCOL_VERSION,
   downloadMessage,
   fileNameHint,
+  mediaMessage,
   mimeEssence,
   parseResponse,
   pingMessage,
   tasksMessage,
+  titleHint,
 } from "./protocol";
-import { MAX_URL_LENGTH } from "./url";
+import { MAX_URL_LENGTH, referrerFor } from "./url";
 
 describe("messages match the host's fixtures", () => {
   it("ping", () => {
@@ -47,6 +51,23 @@ describe("messages match the host's fixtures", () => {
     expect(message).toEqual(capturedFixture);
   });
 
+  it("stream from the media list", () => {
+    const manifest = "https://video.example.net/streams/clip/master.m3u8#t=10";
+    const page = "https://example.org/watch/clip";
+    const message = mediaMessage(
+      {
+        manifestUrl: manifest,
+        kind: "hls",
+        pageUrl: page,
+        referrer: referrerFor(page, manifest),
+        origin: "https://example.org",
+        title: " Clip of the week ",
+      },
+      "s1",
+    );
+    expect(message).toEqual(mediaFixture);
+  });
+
   it("progress query", () => {
     expect(tasksMessage(tasksFixture.task_ids, "t1")).toEqual(tasksFixture);
   });
@@ -57,6 +78,7 @@ describe("messages match the host's fixtures", () => {
     expect(MAX_URL_LENGTH).toBe(8 * 1024);
     expect(rustProtocol).toContain(`pub const MAX_FILE_NAME_LEN: usize = ${MAX_FILE_NAME_LENGTH};`);
     expect(rustProtocol).toContain(`pub const MAX_TASK_IDS: usize = ${MAX_TASK_IDS};`);
+    expect(rustProtocol).toContain(`pub const MAX_TITLE_LEN: usize = ${MAX_TITLE_LENGTH};`);
     expect(HOST_NAME).toBe("dev.downpipe.native_host");
   });
 });
@@ -136,7 +158,7 @@ describe("parseResponse", () => {
   it("reads each response type", () => {
     expect(
       parseResponse({ protocol_version: 1, id: "p", type: "pong", host_version: "0.2.0", app_running: true, app_version: "0.2.0" }),
-    ).toEqual({ type: "pong", id: "p", hostVersion: "0.2.0", appRunning: true, appVersion: "0.2.0" });
+    ).toEqual({ type: "pong", id: "p", hostVersion: "0.2.0", appRunning: true, appVersion: "0.2.0", features: [] });
     expect(parseResponse({ protocol_version: 1, type: "accepted", task_id: "t", file_name: "a.zip" })).toEqual({
       type: "accepted",
       id: undefined,
@@ -225,5 +247,35 @@ describe("parseResponse", () => {
   it("caps strings that end up in the popup", () => {
     const r = parseResponse({ protocol_version: 1, type: "error", code: "x", message: "m".repeat(5000) });
     expect(r?.type === "error" && r.message.length).toBe(300);
+  });
+});
+
+describe("mediaMessage", () => {
+  it("refuses manifests the host would refuse and drops unusable hints", () => {
+    expect(mediaMessage({ manifestUrl: "blob:https://a.org/1", kind: "hls" }, "s")).toBeNull();
+    expect(mediaMessage({ manifestUrl: `https://a.org/${"a".repeat(MAX_URL_LENGTH)}.mpd`, kind: "dash" }, "s")).toBeNull();
+    expect(
+      mediaMessage({ manifestUrl: "https://a.org/m.mpd", kind: "dash", title: "a\u0000b", pageUrl: "file:///x" }, "s"),
+    ).toEqual({ protocol_version: 1, type: "media", id: "s", manifest_url: "https://a.org/m.mpd", kind: "dash" });
+  });
+
+  it("accepts titles the host accepts", () => {
+    expect(titleHint("  Clip ")).toBe("Clip");
+    expect(titleHint("x".repeat(MAX_TITLE_LENGTH))).toHaveLength(MAX_TITLE_LENGTH);
+    expect(titleHint("x".repeat(MAX_TITLE_LENGTH + 1))).toBeUndefined();
+    expect(titleHint("line\nbreak")).toBeUndefined();
+    expect(titleHint("")).toBeUndefined();
+  });
+
+  it("reads what the bridge supports from a pong", () => {
+    const pong = parseResponse({
+      protocol_version: 1,
+      type: "pong",
+      host_version: "0.4.0",
+      app_running: true,
+      app_version: "0.4.0",
+      features: ["media", 3, "x".repeat(40)],
+    });
+    expect(pong?.type === "pong" && pong.features).toEqual(["media"]);
   });
 });

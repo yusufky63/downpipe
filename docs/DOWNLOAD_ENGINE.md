@@ -93,6 +93,21 @@ A download from a server without range support cannot resume; pausing it deletes
 3. `name.part` is renamed to `name`; if a file with that name appeared meanwhile, `name (1)` and so on.
 4. The meta file is deleted.
 
+## Streams (HLS and DASH)
+
+A request with `media` set downloads the stream its URL describes instead of the file itself.
+
+1. **Manifest.** Fetched with the request's headers (at most 8 MiB, retried like the first request of a file). HLS: a master playlist lists qualities and audio renditions; a media playlist lists segments. DASH: one static MPD lists everything. Protected streams (HLS `SAMPLE-AES`, key formats other than plain AES-128, session keys; DASH `ContentProtection`) and live streams (HLS without `#EXT-X-ENDLIST` or `PLAYLIST-TYPE:VOD`, DASH `type="dynamic"`) are refused here, before any media request.
+2. **Plan.** The chosen quality, or the best one (height, then bandwidth), and its audio: the chosen one if it fits, else one in the same language, else the default. A quality that carries its own sound is one track; otherwise video and audio are two. HLS fetches the quality's and the audio's media playlists. A stored choice is found again by id, then by height and the closest bandwidth.
+3. **Name.** The request's name (or the URL's) gets the extension of the result: `.mp4` for fragmented MP4 or merged tracks, `.ts` for transport streams without FFmpeg, `.webm`, `.mkv` for mixed containers, `.m4a` or `.aac` for audio only.
+4. **Fragments.** The init section and every segment of every track, `max_connections` at a time. Each is written to `t<track>-<index>.tmp` in the work folder `<name>.part/`, synced, decrypted if it is AES-128 (the key is fetched once per URI and kept in memory), and renamed to `.frag`. A byte-range segment asks for its range; a partial `.tmp` continues with a range request. Failures are retried with the same backoff as file segments, and `429`/`503` halves the number of fragments in flight.
+5. **Join.** Each track's fragments are concatenated into `track<n>.<ext>` and synced; only then are the fragments deleted and `media.json` updated.
+6. **Merge.** With FFmpeg: `ffmpeg -i video -i audio -map 0:v:0 -map 1:a:0 -c copy out.mp4` (no re-encoding; `-bsf:a aac_adtstoasc` for AAC from transport streams), or the same with one input to turn a transport stream into MP4. Without FFmpeg, or if it fails, the video is saved as `name.<ext>` and the audio as `name.audio.<ext>`, with a notice. The result is renamed into place and the work folder removed.
+
+Progress counts finished fragments and the bytes of those in flight. The total is an estimate (from the bandwidth and duration, then from the average finished fragment) until the last fragment is in. The segment bar shows the fragments as equal slices.
+
+**Resume.** `media.json` in the work folder records the manifest URL, the chosen tracks and, per track, a fingerprint of its fragment list (paths, ranges and encryption, not query strings, which carry tokens that change on every fetch). A resume fetches the manifest again; if it lists the same fragments, existing `.frag` files are kept and only the rest is downloaded, otherwise the folder is emptied and the stream starts over. Pausing while FFmpeg runs stops it; the joined tracks stay, and the next start only merges.
+
 ## Speed limit
 
 One token bucket per engine (the desktop app and CLI use one engine). Connections take tokens for each chunk and sleep off any debt, which keeps the total rate exact even with Windows' coarse timer. The rate can change while downloads run.

@@ -44,6 +44,7 @@ for (const [target, esTarget] of Object.entries(TARGETS)) {
       popup: "src/popup/popup.ts",
       options: "src/options/options.ts",
       links: "src/links/links.ts",
+      overlay: "src/overlay/overlay.ts",
     },
     outdir: out,
     bundle: true,

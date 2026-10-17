@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HostResult } from "./host";
-import { bridgeDown, bridgeStatus, downloadOutcome, errorText, keptMessage } from "./status";
+import { STREAMS_UNSUPPORTED, bridgeDown, bridgeStatus, downloadOutcome, errorText, keptMessage, streamOutcome } from "./status";
 import { statusView } from "./view";
 
 const ok = (response: Extract<HostResult, { ok: true }>["response"]): HostResult => ({ ok: true, response });
@@ -12,18 +12,26 @@ const fail = (failure: Extract<HostResult, { ok: false }>["failure"]): HostResul
 
 describe("bridgeStatus", () => {
   it("tells connected, app closed and missing host apart", () => {
-    expect(bridgeStatus(ok({ type: "pong", hostVersion: "0.2.0", appRunning: true, appVersion: "0.2.1" }))).toEqual({
+    expect(
+      bridgeStatus(ok({ type: "pong", hostVersion: "0.2.0", appRunning: true, appVersion: "0.2.1", features: [] })),
+    ).toEqual({
       state: "connected",
       appVersion: "0.2.1",
       hostVersion: "0.2.0",
+      media: false,
     });
-    expect(bridgeStatus(ok({ type: "pong", hostVersion: "0.2.0", appRunning: false }))).toEqual({
+    expect(bridgeStatus(ok({ type: "pong", hostVersion: "0.2.0", appRunning: false, features: [] }))).toEqual({
       state: "app_not_running",
       hostVersion: "0.2.0",
     });
     expect(bridgeStatus(fail("host_missing"))).toEqual({ state: "host_missing" });
     expect(bridgeStatus(fail("host_forbidden"))).toEqual({ state: "host_forbidden" });
     expect(bridgeStatus(fail("timeout"))).toEqual({ state: "error", message: "Downpipe did not answer in time." });
+  });
+
+  it("knows whether streams can be sent", () => {
+    const pong = ok({ type: "pong", hostVersion: "0.4.0", appRunning: true, appVersion: "0.4.0", features: ["media"] });
+    expect(bridgeStatus(pong)).toMatchObject({ state: "connected", media: true });
   });
 
   it("explains app errors in its own words", () => {
@@ -117,7 +125,16 @@ describe("statusView", () => {
 
   it("uses calm tones for working states", () => {
     expect(statusView(null, chromeExt).tone).toBe("muted");
-    expect(statusView({ state: "connected", appVersion: "1", hostVersion: "1" }, chromeExt).tone).toBe("positive");
+    expect(statusView({ state: "connected", appVersion: "1", hostVersion: "1", media: true }, chromeExt).tone).toBe("positive");
     expect(statusView({ state: "app_not_running", hostVersion: "1" }, chromeExt).tone).toBe("warning");
+  });
+});
+
+describe("streamOutcome", () => {
+  it("tells an outdated Downpipe from a broken stream", () => {
+    const old = ok({ type: "error", code: "invalid_message", message: "unknown message type" });
+    expect(streamOutcome(old)).toEqual({ outcome: "failed", message: STREAMS_UNSUPPORTED });
+    const taken = ok({ type: "accepted", taskId: "t", fileName: "Clip.mp4", awaitingConfirmation: true });
+    expect(streamOutcome(taken)).toMatchObject({ outcome: "added", taskId: "t", awaitingConfirmation: true });
   });
 });

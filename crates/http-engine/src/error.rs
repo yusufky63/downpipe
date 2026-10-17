@@ -63,6 +63,18 @@ pub enum DownloadError {
     #[error("resume data is unreadable: {0}")]
     CorruptMeta(String),
 
+    #[error("this stream is protected by DRM; Downpipe does not download protected media")]
+    Protected,
+
+    #[error("this is a live stream; only finished (on-demand) streams can be downloaded")]
+    LiveStream,
+
+    #[error("the stream manifest is not valid: {0}")]
+    InvalidManifest(String),
+
+    #[error("this stream is not supported: {0}")]
+    UnsupportedMedia(String),
+
     #[error("gave up after {attempts} attempts: {last}")]
     RetriesExhausted {
         attempts: u32,
@@ -109,6 +121,10 @@ impl DownloadError {
             Self::ChecksumMismatch { .. } | Self::InvalidChecksum(_) => "checksum",
             Self::Io(_) => "io",
             Self::CorruptMeta(_) => "corrupt_meta",
+            Self::Protected => "drm_protected",
+            Self::LiveStream => "live_stream",
+            Self::InvalidManifest(_) => "invalid_manifest",
+            Self::UnsupportedMedia(_) => "unsupported_media",
             Self::RetriesExhausted { last, .. } => last.kind(),
         }
     }

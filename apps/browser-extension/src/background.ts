@@ -4,7 +4,7 @@
 import { ext } from "./lib/browser";
 import { decideCapture, linkFields, type DownloadItemLike } from "./lib/capture";
 import { collectPageLinks } from "./lib/collect";
-import { withSite } from "./lib/filters";
+import { hostOf, matchingSite, withSite } from "./lib/filters";
 import { callHost } from "./lib/host";
 import {
   MAX_PAGE_LINKS,
@@ -14,14 +14,35 @@ import {
   unreadableCollection,
   type LinkCollection,
 } from "./lib/links";
+import { formatBytes } from "./lib/format";
+import {
+  WEB_ORIGINS,
+  addCandidate,
+  classifyResponse,
+  classifySource,
+  cleanTitle,
+  excludeMatchesFor,
+  frameOf,
+  kindLabel,
+  mediaName,
+  pageHeaders,
+  parseTabMedia,
+  tabMediaKey,
+  titleFileName,
+  type MediaCandidate,
+} from "./lib/media";
 import {
   addActivity,
   parseActivity,
+  parseOverlayRequest,
   parsePopupRequest,
   parseSettings,
   taskIdsOf,
   type Activity,
   type LinkResult,
+  type MediaReply,
+  type OverlayItem,
+  type OverlayRequest,
   type PingReply,
   type PopupRequest,
   type Settings,
@@ -32,14 +53,15 @@ import { notificationFor } from "./lib/notify";
 import {
   downloadMessage,
   fileNameHint,
+  mediaMessage,
   newMessageId,
   pingMessage,
   tasksMessage,
   type TaskStatus,
 } from "./lib/protocol";
-import { isTrustedSender } from "./lib/sender";
-import { bridgeDown, bridgeStatus, downloadOutcome, keptMessage } from "./lib/status";
-import { linkLabel } from "./lib/url";
+import { isOwnContentScript, isTrustedSender } from "./lib/sender";
+import { bridgeDown, bridgeStatus, downloadOutcome, keptMessage, streamOutcome, type HandOver } from "./lib/status";
+import { linkLabel, referrerFor } from "./lib/url";
 
 const MENU_ID = "downpipe-download-link";
 const PAGE_MENU_ID = "downpipe-page-links";
@@ -282,7 +304,275 @@ ext.permissions.onRemoved.addListener((p) => {
   if (p.permissions?.includes("downloads")) stopCapture();
 });
 
+// ---------- Media detection ----------
+// On only while the optional `webRequest` permission and access to web
+// pages are granted; the popup's switch requests or removes both. The
+// listeners only read response headers: nothing is blocked or changed, and
+// nothing leaves the browser until the user picks a download.
+
+const MEDIA_PERMISSIONS: chrome.permissions.Permissions = { permissions: ["webRequest"], origins: WEB_ORIGINS };
+const OVERLAY_SCRIPT_ID = "downpipe-overlay";
+// Manifests come from XHR or fetch, files from media elements; Firefox files
+// some player requests under "other".
+const MEDIA_REQUEST_TYPES: `${chrome.webRequest.ResourceType}`[] = ["media", "xmlhttprequest", "other"];
+
+/** `Referer` and `Origin` of recent requests, by request id, until their response starts. */
+const sentHeaders = new Map<string, Pick<MediaCandidate, "referrer" | "origin">>();
+/** Requests whose response never starts (blocked, failed) must not pile up. */
+const MAX_SENT_HEADERS = 500;
+
+// What the page's own request sent, so Downpipe can ask the server the same
+// way. Only these two headers are kept; cookies and the rest never are.
+function onMediaRequest(details: chrome.webRequest.OnSendHeadersDetails): void {
+  if (details.tabId < 0) return;
+  const headers = pageHeaders(details.requestHeaders);
+  if (!headers.referrer && !headers.origin) return;
+  sentHeaders.set(details.requestId, headers);
+  if (sentHeaders.size > MAX_SENT_HEADERS) {
+    const oldest = sentHeaders.keys().next().value;
+    if (oldest !== undefined) sentHeaders.delete(oldest);
+  }
+}
+
+function onMediaResponse(details: chrome.webRequest.OnResponseStartedDetails): void {
+  const sent = sentHeaders.get(details.requestId);
+  sentHeaders.delete(details.requestId);
+  void cachedSettings()
+    .then((prefs) => {
+      const found = classifyResponse(details, prefs);
+      if (!found) return;
+      const frameUrl = frameOf(details as { documentUrl?: string; initiator?: string });
+      // IDM's site exceptions: the excluded sites leave detection alone too.
+      if (matchingSite([hostOf(found.url), hostOf(frameUrl), hostOf(sent?.referrer)], prefs.excludedSites)) return;
+      return changeTabMedia(details.tabId, (list) =>
+        addCandidate(list, { ...found, frameUrl, ...sent }, crypto.randomUUID(), Date.now()),
+      );
+    })
+    .catch(() => undefined);
+}
+
+// A new document in the tab: what the old one played is gone.
+function onPageRequest(details: chrome.webRequest.OnBeforeRequestDetails): undefined {
+  if (details.tabId >= 0) void forgetTabMedia(details.tabId);
+  // Observing only: the request goes ahead unchanged.
+  return undefined;
+}
+
+function startMediaDetection(): void {
+  const webRequest = ext.webRequest;
+  // Undefined until the permission is granted. Registered synchronously at
+  // the top level, so a response can wake the service worker.
+  if (!webRequest) return;
+  if (!webRequest.onSendHeaders.hasListener(onMediaRequest)) {
+    const filter = { urls: WEB_ORIGINS, types: MEDIA_REQUEST_TYPES };
+    try {
+      // Chrome shows Referer and Origin to listeners only with `extraHeaders`.
+      webRequest.onSendHeaders.addListener(onMediaRequest, filter, ["requestHeaders", "extraHeaders"]);
+    } catch {
+      // Firefox shows them without it and refuses the option.
+      webRequest.onSendHeaders.addListener(onMediaRequest, filter, ["requestHeaders"]);
+    }
+  }
+  if (!webRequest.onResponseStarted.hasListener(onMediaResponse)) {
+    webRequest.onResponseStarted.addListener(
+      onMediaResponse,
+      { urls: WEB_ORIGINS, types: MEDIA_REQUEST_TYPES },
+      ["responseHeaders"],
+    );
+  }
+  if (!webRequest.onBeforeRequest.hasListener(onPageRequest)) {
+    webRequest.onBeforeRequest.addListener(onPageRequest, { urls: WEB_ORIGINS, types: ["main_frame"] });
+  }
+}
+
+function stopMediaDetection(): void {
+  ext.webRequest?.onSendHeaders.removeListener(onMediaRequest);
+  sentHeaders.clear();
+  ext.webRequest?.onResponseStarted.removeListener(onMediaResponse);
+  ext.webRequest?.onBeforeRequest.removeListener(onPageRequest);
+}
+
+async function mediaEnabled(): Promise<boolean> {
+  return ext.permissions.contains(MEDIA_PERMISSIONS).catch(() => false);
+}
+
+/**
+ * The overlay button on playing videos runs only while detection is on and
+ * the button is not switched off in the options, and never on excluded sites.
+ */
+async function syncOverlay(): Promise<void> {
+  const [enabled, prefs] = await Promise.all([mediaEnabled(), cachedSettings()]);
+  const registered = await ext.scripting
+    .getRegisteredContentScripts({ ids: [OVERLAY_SCRIPT_ID] })
+    .catch((): chrome.scripting.RegisteredContentScript[] => []);
+  const excludeMatches = excludeMatchesFor(prefs.excludedSites);
+  const current = registered[0];
+  if (!enabled || !prefs.mediaOverlay) {
+    if (current) await ext.scripting.unregisterContentScripts({ ids: [OVERLAY_SCRIPT_ID] }).catch(() => undefined);
+    return;
+  }
+  if (current && JSON.stringify(current.excludeMatches ?? []) === JSON.stringify(excludeMatches)) return;
+  if (current) await ext.scripting.unregisterContentScripts({ ids: [OVERLAY_SCRIPT_ID] }).catch(() => undefined);
+  const script: chrome.scripting.RegisteredContentScript = {
+    id: OVERLAY_SCRIPT_ID,
+    js: ["overlay.js"],
+    matches: WEB_ORIGINS,
+    allFrames: true,
+    runAt: "document_idle",
+    ...(excludeMatches.length ? { excludeMatches } : {}),
+  };
+  // Chrome keeps it across restarts with this; a browser that refuses the
+  // field gets it registered again by this function at every start.
+  await ext.scripting
+    .registerContentScripts([{ ...script, persistAcrossSessions: true }])
+    .catch(() => ext.scripting.registerContentScripts([script]))
+    .catch(() => undefined);
+}
+
+// Like settings and reports, list changes are chained so two responses
+// arriving together cannot overwrite each other's entry.
+let mediaWrites: Promise<unknown> = Promise.resolve();
+
+function changeTabMedia(
+  tabId: number,
+  change: (list: MediaCandidate[]) => MediaCandidate[] | null,
+): Promise<MediaCandidate[]> {
+  const key = tabMediaKey(tabId);
+  const next = mediaWrites.then(async () => {
+    // Session storage: in memory only, cleared when the browser closes.
+    const stored = await ext.storage.session.get(key).catch((): Record<string, unknown> => ({}));
+    const list = parseTabMedia(stored[key]);
+    const changed = change(list);
+    if (changed) await ext.storage.session.set({ [key]: changed });
+    return changed ?? list;
+  });
+  mediaWrites = next.catch(() => undefined);
+  return next;
+}
+
+function tabMedia(tabId: number): Promise<MediaCandidate[]> {
+  return changeTabMedia(tabId, () => null);
+}
+
+function forgetTabMedia(tabId: number): Promise<void> {
+  const next = mediaWrites.then(() => ext.storage.session.remove(tabMediaKey(tabId)));
+  mediaWrites = next.catch(() => undefined);
+  return next.catch(() => undefined);
+}
+
+async function forgetAllMedia(): Promise<void> {
+  const stored = await ext.storage.session.get(null).catch((): Record<string, unknown> => ({}));
+  const keys = Object.keys(stored).filter((k) => k.startsWith("media:"));
+  if (keys.length) await ext.storage.session.remove(keys).catch(() => undefined);
+}
+
+/** Hand one detected stream or file to Downpipe, named after the tab's page. */
+async function sendMedia(tabId: number, mediaId: string): Promise<LinkResult> {
+  const item = (await tabMedia(tabId)).find((c) => c.id === mediaId);
+  if (!item) {
+    return { outcome: "failed", message: "This media is no longer listed. Play it again.", stop: false };
+  }
+  // Readable because detection holds access to every site.
+  const tab = await ext.tabs.get(tabId).catch(() => undefined);
+  const pageUrl = tab?.url;
+  const title = cleanTitle(tab?.title);
+  // What the player's own request sent; otherwise what the browser would
+  // send from the frame that requested it (players often sit in a frame
+  // of another site).
+  const referrer = item.referrer ?? referrerFor(item.frameUrl ?? pageUrl, item.url);
+  const id = newMessageId();
+  let result;
+  let outcome: HandOver;
+  if (item.kind === "direct") {
+    const fileName = titleFileName(title, item);
+    const message = downloadMessage({ resourceUrl: item.url, pageUrl, referrer, mimeType: item.mime, fileName }, id);
+    if (!message) return { outcome: "failed", message: "This media cannot be downloaded.", stop: false };
+    result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+    outcome = downloadOutcome(result);
+  } else {
+    const message = mediaMessage(
+      { manifestUrl: item.url, kind: item.kind, pageUrl, referrer, title, origin: item.origin },
+      id,
+    );
+    if (!message) return { outcome: "failed", message: "This stream cannot be downloaded.", stop: false };
+    result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+    outcome = streamOutcome(result);
+  }
+  await report({
+    source: "media",
+    label: outcome.fileName ?? title ?? mediaName(item.url),
+    outcome: outcome.outcome,
+    message: outcome.message,
+    taskId: outcome.taskId,
+    awaitingConfirmation: outcome.awaitingConfirmation,
+  });
+  return { ...outcome, stop: bridgeDown(result) };
+}
+
+function overlayItem(c: MediaCandidate): OverlayItem {
+  const size = c.size !== undefined ? ` · ${formatBytes(c.size)}` : "";
+  return { mediaId: c.id, label: mediaName(c.url), detail: `${kindLabel(c)}${size}` };
+}
+
+async function overlayAnswer(
+  request: OverlayRequest,
+  tabId: number,
+  frameUrl: string | undefined,
+): Promise<{ items: OverlayItem[] } | LinkResult> {
+  switch (request.kind) {
+    case "overlay_list": {
+      // The element's own source, when it is a plain http(s) file or playlist.
+      const src = request.src;
+      const found = src ? classifySource(src) : null;
+      const items =
+        src && found
+          ? await changeTabMedia(tabId, (list) =>
+              addCandidate(list, { ...found, url: src, frameUrl }, crypto.randomUUID(), Date.now()),
+            )
+          : await tabMedia(tabId);
+      return { items: items.map(overlayItem) };
+    }
+    case "overlay_send":
+      return sendMedia(tabId, request.mediaId);
+  }
+}
+
+startMediaDetection();
+void syncOverlay();
+ext.permissions.onAdded.addListener((p) => {
+  if (p.permissions?.includes("webRequest") || p.origins?.length) {
+    startMediaDetection();
+    void syncOverlay();
+  }
+});
+ext.permissions.onRemoved.addListener((p) => {
+  if (!p.permissions?.includes("webRequest") && !p.origins?.length) return;
+  void mediaEnabled().then((on) => {
+    if (on) return;
+    stopMediaDetection();
+    void syncOverlay();
+    void forgetAllMedia();
+  });
+});
+ext.tabs.onRemoved.addListener((tabId) => void forgetTabMedia(tabId));
+
 // ---------- Settings ----------
+
+// Media detection consults the settings for every response it classifies;
+// they are read once and kept until they change.
+let settingsCache: Promise<Settings> | null = null;
+
+function cachedSettings(): Promise<Settings> {
+  settingsCache ??= settings();
+  return settingsCache;
+}
+
+ext.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes[SETTINGS_KEY]) return;
+  settingsCache = null;
+  // The overlay follows its switch and the excluded sites.
+  void syncOverlay();
+});
 
 async function settings(): Promise<Settings> {
   const stored = await ext.storage.local.get(SETTINGS_KEY).catch((): Record<string, unknown> => ({}));
@@ -402,7 +692,7 @@ async function collectFromPopup(tabId: number): Promise<{ opened: boolean }> {
   return { opened: true };
 }
 
-type Reply = StatusReply | TasksReply | PingReply | Settings | LinkResult | { opened: boolean };
+type Reply = StatusReply | TasksReply | PingReply | Settings | LinkResult | MediaReply | { opened: boolean };
 
 async function answer(request: PopupRequest): Promise<Reply> {
   switch (request.kind) {
@@ -424,17 +714,40 @@ async function answer(request: PopupRequest): Promise<Reply> {
       return collectFromPopup(request.tabId);
     case "send_link":
       return sendPageLink(request.url, request.pageUrl);
+    case "media_list": {
+      const enabled = await mediaEnabled();
+      if (!enabled) return { enabled, items: [] };
+      const tab = await ext.tabs.get(request.tabId).catch(() => undefined);
+      const excludedBy = matchingSite([hostOf(tab?.url)], (await cachedSettings()).excludedSites);
+      return excludedBy ? { enabled, items: [], excludedBy } : { enabled, items: await tabMedia(request.tabId) };
+    }
+    case "save_media":
+      return changeSettings((s) => ({ ...s, ...request.media }));
+    case "send_media":
+      return sendMedia(request.tabId, request.mediaId);
   }
 }
 
 ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // Only this extension's own pages (popup, options, links page); it has no
-  // content scripts and does not listen to other extensions (no
-  // onMessageExternal). The injected link collector only returns a value
-  // and never sends messages.
-  if (!isTrustedSender(sender, ext.runtime.id, ext.runtime.getURL(""))) return false;
-  const request = parsePopupRequest(message);
-  if (!request) return false;
-  answer(request).then(sendResponse, () => sendResponse(null));
-  return true;
+  // This extension's own pages (popup, options, links page) may ask
+  // anything above. It does not listen to other extensions (no
+  // onMessageExternal), and the injected link collector only returns a
+  // value and never sends messages.
+  if (isTrustedSender(sender, ext.runtime.id, ext.runtime.getURL(""))) {
+    const request = parsePopupRequest(message);
+    if (!request) return false;
+    answer(request).then(sendResponse, () => sendResponse(null));
+    return true;
+  }
+  // The overlay button inside web pages: two requests, always about the
+  // sender's own tab, which the browser reports and the page cannot choose.
+  if (isOwnContentScript(sender, ext.runtime.id)) {
+    const request = parseOverlayRequest(message);
+    if (!request) return false;
+    overlayAnswer(request, sender.tab.id, frameOf({ documentUrl: sender.url })).then(sendResponse, () =>
+      sendResponse(null),
+    );
+    return true;
+  }
+  return false;
 });

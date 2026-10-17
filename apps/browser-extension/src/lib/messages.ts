@@ -1,6 +1,14 @@
 // What the extension's own pages (popup, options, links page) and the
 // service worker say to each other.
 import { parseFilters, normalizeSitePattern, validFilters, type CaptureFilters } from "./filters";
+import {
+  isMediaId,
+  parseMediaFilters,
+  parseTabMedia,
+  validMediaFilters,
+  type MediaCandidate,
+  type MediaFilters,
+} from "./media";
 import type { TaskStatus } from "./protocol";
 import type { BridgeStatus, Outcome } from "./status";
 import { webUrl } from "./url";
@@ -12,12 +20,28 @@ export type PopupRequest =
   | { kind: "get_settings" }
   | { kind: "set_notify"; enabled: boolean }
   | { kind: "save_filters"; filters: CaptureFilters }
+  /** The options page's media settings. */
+  | { kind: "save_media"; media: MediaFilters }
   /** Adds or removes one exact entry of the excluded sites. */
   | { kind: "set_site_paused"; site: string; paused: boolean }
   /** Collect the links of this tab and open the links page; needs `activeTab` for it. */
   | { kind: "collect_links"; tabId: number }
   /** One link from the links page, sent as if it had been clicked on `pageUrl`. */
-  | { kind: "send_link"; url: string; pageUrl?: string };
+  | { kind: "send_link"; url: string; pageUrl?: string }
+  /** The media detected in this tab. */
+  | { kind: "media_list"; tabId: number }
+  /** Send one of them to Downpipe. */
+  | { kind: "send_media"; tabId: number; mediaId: string };
+
+/**
+ * What the overlay button in a page may ask. The tab is never part of the
+ * message: the service worker takes it from the sender, so a page can only
+ * ever reach its own tab's list.
+ */
+export type OverlayRequest =
+  /** The tab's media; `src` is the playing element's own http(s) source, if it has one. */
+  | { kind: "overlay_list"; src?: string }
+  | { kind: "overlay_send"; mediaId: string };
 
 const SIMPLE_KINDS = ["status", "tasks", "ping", "get_settings"] as const;
 
@@ -28,6 +52,10 @@ function hasKeys(v: Record<string, unknown>, ...keys: string[]): boolean {
 
 function isWebUrl(value: unknown): value is string {
   return typeof value === "string" && webUrl(value) !== null;
+}
+
+function isTabId(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
 }
 
 /**
@@ -48,6 +76,10 @@ export function parsePopupRequest(value: unknown): PopupRequest | null {
       const filters = hasKeys(v, "kind", "filters") ? validFilters(v.filters) : null;
       return filters ? { kind: "save_filters", filters } : null;
     }
+    case "save_media": {
+      const media = hasKeys(v, "kind", "media") ? validMediaFilters(v.media) : null;
+      return media ? { kind: "save_media", media } : null;
+    }
     case "set_site_paused": {
       if (!hasKeys(v, "kind", "site", "paused") || typeof v.site !== "string" || typeof v.paused !== "boolean") {
         return null;
@@ -55,8 +87,11 @@ export function parsePopupRequest(value: unknown): PopupRequest | null {
       return normalizeSitePattern(v.site) === v.site ? { kind: "set_site_paused", site: v.site, paused: v.paused } : null;
     }
     case "collect_links":
-      return hasKeys(v, "kind", "tabId") && Number.isSafeInteger(v.tabId) && (v.tabId as number) >= 0
-        ? { kind: "collect_links", tabId: v.tabId as number }
+    case "media_list":
+      return hasKeys(v, "kind", "tabId") && isTabId(v.tabId) ? { kind: v.kind, tabId: v.tabId } : null;
+    case "send_media":
+      return hasKeys(v, "kind", "tabId", "mediaId") && isTabId(v.tabId) && isMediaId(v.mediaId)
+        ? { kind: "send_media", tabId: v.tabId, mediaId: v.mediaId }
         : null;
     case "send_link": {
       if (!isWebUrl(v.url)) return null;
@@ -70,8 +105,79 @@ export function parsePopupRequest(value: unknown): PopupRequest | null {
   }
 }
 
+/** Exact shapes only, like `parsePopupRequest`. */
+export function parseOverlayRequest(value: unknown): OverlayRequest | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  switch (v.kind) {
+    case "overlay_list":
+      if (hasKeys(v, "kind")) return { kind: "overlay_list" };
+      return hasKeys(v, "kind", "src") && isWebUrl(v.src) ? { kind: "overlay_list", src: v.src } : null;
+    case "overlay_send":
+      return hasKeys(v, "kind", "mediaId") && isMediaId(v.mediaId) ? { kind: "overlay_send", mediaId: v.mediaId } : null;
+    default:
+      return null;
+  }
+}
+
+/** The answer to `media_list`. */
+export interface MediaReply {
+  /** Detection is on: the `webRequest` permission and access to sites are granted. */
+  enabled: boolean;
+  /** Newest first. */
+  items: MediaCandidate[];
+  /** The tab's site is on the excluded sites list, by this entry. */
+  excludedBy?: string;
+}
+
+export function isMediaReply(value: unknown): value is MediaReply {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.enabled === "boolean" &&
+    Array.isArray(v.items) &&
+    parseTabMedia(v.items).length === v.items.length &&
+    (v.excludedBy === undefined || typeof v.excludedBy === "string")
+  );
+}
+
+/** One row of the overlay button's menu: no URLs, only what it shows. */
+export interface OverlayItem {
+  mediaId: string;
+  label: string;
+  detail: string;
+}
+
+export function isOverlayItems(value: unknown): value is { items: OverlayItem[] } {
+  if (typeof value !== "object" || value === null) return false;
+  const items = (value as Record<string, unknown>).items;
+  return (
+    Array.isArray(items) &&
+    items.every((i) => {
+      if (typeof i !== "object" || i === null) return false;
+      const v = i as Record<string, unknown>;
+      return isMediaId(v.mediaId) && typeof v.label === "string" && typeof v.detail === "string";
+    })
+  );
+}
+
+/** What the overlay button says after a send: the service worker's answer in short. */
+export function overlayResultText(reply: unknown): { text: string; failed: boolean } {
+  if (!isLinkResult(reply)) {
+    return { text: "Downpipe's extension did not answer. Reload the page and try again.", failed: true };
+  }
+  switch (reply.outcome) {
+    case "added":
+      return { text: reply.message === "Added to Downpipe" ? "Sent to Downpipe" : reply.message, failed: false };
+    case "duplicate":
+      return { text: "Already in Downpipe", failed: false };
+    case "failed":
+      return { text: reply.message, failed: true };
+  }
+}
+
 /** Stored in `storage.local` under one key. */
-export interface Settings extends CaptureFilters {
+export interface Settings extends CaptureFilters, MediaFilters {
   /** Show a notification when a download is handed over, or could not be. */
   notify: boolean;
 }
@@ -82,18 +188,22 @@ export interface Settings extends CaptureFilters {
  */
 export function parseSettings(value: unknown): Settings {
   const v = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-  return { notify: v.notify !== false, ...parseFilters(v) };
+  return { notify: v.notify !== false, ...parseFilters(v), ...parseMediaFilters(v) };
 }
 
 export function isSettings(value: unknown): value is Settings {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  return typeof v.notify === "boolean" && validFilters({
-    captureAll: v.captureAll,
-    captureTypes: v.captureTypes,
-    excludedSites: v.excludedSites,
-    minSizeBytes: v.minSizeBytes,
-  }) !== null;
+  return (
+    typeof v.notify === "boolean" &&
+    validFilters({
+      captureAll: v.captureAll,
+      captureTypes: v.captureTypes,
+      excludedSites: v.excludedSites,
+      minSizeBytes: v.minSizeBytes,
+    }) !== null &&
+    validMediaFilters({ mediaOverlay: v.mediaOverlay, mediaTypes: v.mediaTypes, mediaMinBytes: v.mediaMinBytes }) !== null
+  );
 }
 
 /** The answer to `send_link`. */
@@ -128,7 +238,8 @@ export interface Activity {
   at: number;
   /** File name or host, never the full URL. */
   label: string;
-  source: "link" | "capture";
+  /** `media`: a stream or media file from the popup's media list or the overlay button. */
+  source: "link" | "capture" | "media";
   /** `kept` means capture failed and the browser downloaded it instead. */
   outcome: Outcome | "kept";
   message: string;
@@ -177,7 +288,7 @@ export function parseActivity(value: unknown): Activity[] {
         typeof v.at === "number" &&
         typeof v.label === "string" &&
         typeof v.message === "string" &&
-        (v.source === "link" || v.source === "capture") &&
+        (v.source === "link" || v.source === "capture" || v.source === "media") &&
         ["added", "duplicate", "failed", "kept"].includes(v.outcome as string) &&
         (v.taskId === undefined || typeof v.taskId === "string") &&
         (v.awaitingConfirmation === undefined || typeof v.awaitingConfirmation === "boolean")

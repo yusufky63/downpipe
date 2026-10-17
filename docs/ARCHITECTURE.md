@@ -32,7 +32,9 @@ One `Engine` owns an HTTP client (connection pool, proxy, user agent) and a `Rat
 - `pause()` / `cancel()` (also available as a cloneable `DownloadControl`),
 - `wait()` resolving to `Outcome::{Completed, Paused, Canceled}` or a `DownloadError`.
 
-Errors carry a stable `kind()` (`auth_required`, `forbidden`, `not_found`, `throttled`, `resource_changed`, `network`, `checksum`, `io`, ...) so UIs can explain failures without parsing messages.
+Errors carry a stable `kind()` (`auth_required`, `forbidden`, `not_found`, `throttled`, `resource_changed`, `network`, `checksum`, `io`, `drm_protected`, `live_stream`, ...) so UIs can explain failures without parsing messages.
+
+**Streams.** A `DownloadRequest` with `media` set (`MediaRequest`: HLS or DASH, the chosen tracks, an optional FFmpeg) runs the stream job in `media/` instead of the file job, behind the same `DownloadHandle` and `Progress` (which then carries `media`: quality, chosen tracks, fragments done). `media/hls.rs` and `media/dash.rs` parse manifests into fragment lists and refuse DRM and live streams while parsing; `media/resolve.rs` fetches manifests and turns a choice into a `Plan` of one or two tracks; `media/job.rs` downloads the fragments; `media/mux.rs` finds and runs FFmpeg. `Engine::media_options` lists a stream's qualities without downloading media, for the quality chooser.
 
 See [DOWNLOAD_ENGINE.md](DOWNLOAD_ENGINE.md).
 
@@ -59,6 +61,8 @@ On start, tasks that were running are put back in the queue and their progress i
 
 **Confirmation.** A download added with `confirm` (the browser bridge sets it while `confirm_browser_downloads` is on) is created paused with `awaiting_confirmation` in its live state. `resume_all`, `start_queue` and the schedule leave it alone; `confirm` applies the chosen name, folder and queue and either queues it or keeps it paused. The bridge passes the flag on to the extension in its `accepted` and `tasks` answers, so the popup shows such a download as waiting rather than paused (see [BROWSER_BRIDGE.md](BROWSER_BRIDGE.md)). The flag is not stored: after a restart such a download is an ordinary paused one.
 
+**Streams.** A record whose URL is an HLS or DASH manifest has `media` (`MediaInfo`: the kind, the chosen tracks and the quality label), stored as JSON in the catalog's `media` column (schema version 4). `add` sets it from `AddOptions::media` or from an `.m3u8` / `.mpd` path, and files such a download under the Video category. `inspect_media` reads the manifest with the download's own headers and returns its qualities for the confirmation dialog; `confirm` stores the user's choice. When the job resolves a choice (or the best quality, when there was none), the manager stores what it resolved to, so a resume after a restart downloads the same tracks. `Settings::ffmpeg_path` (empty: `ffmpeg` on `PATH`) is looked up when a stream starts. Removing or cancelling a stream download deletes its work folder.
+
 **Download again.** `redownload` resets a completed record and queues it from the same link. With `replace`, the old file is deleted first and the name is kept; otherwise the name is cleared so the engine picks a free one (`name (1).ext`) next to the old file.
 
 **Proxy and user agent** are part of the settings. Changing either builds a new `Engine` (a new connection pool); running downloads keep the one they started with.
@@ -83,6 +87,8 @@ The browser extension decides what to capture in `apps/browser-extension/src/lib
 
 `apps/browser-extension` adds **Download with Downpipe** to link context menus and, when the user switches it on, captures downloads the browser starts. Its service worker sends a small, versioned JSON message through Native Messaging. The browser starts `downpipe-native-host` for it, but only because the host manifest lists the extension's id.
 
+With **Media on this page** switched on (the optional `webRequest` permission plus access to `http://*/*` and `https://*/*`), the service worker keeps the `Referer` and `Origin` each media, XHR and fetch request sent (`onSendHeaders`), reads the response headers (`onResponseStarted`) and keeps a list per tab in `storage.session`. `lib/media.ts` decides what counts: manifests by type or extension; files when a media element loaded them or a script fetched them whole, filtered by the media types and minimum size of the options page and by the excluded sites. A content script, registered with `scripting.registerContentScripts` only while the switch is on, puts a Download button over playing videos; it asks the service worker for its own tab's list only. Streams go to the app as a `media` message, single media files as an ordinary `download`.
+
 `downpipe-native-host` validates each message (`protocol.rs`), forwards it over a local named pipe or Unix socket (`ipc.rs`) and returns the app's answer. The app serves that endpoint from a Tokio task (`server.rs`, started in `apps/desktop/src-tauri/src/main.rs`), validates the request again and calls `Manager::add` with the referrer as an in-memory `Referer` header. When the app is not running the host answers `app_not_running`, and captured downloads stay with the browser.
 
 The same crate builds both ends of the pipe, so the end-to-end test (`crates/native-host/tests/e2e.rs`) runs the real host binary against the real server and a real `Manager`, downloading from the test server.
@@ -99,6 +105,5 @@ Protocol, install locations and troubleshooting: [BROWSER_BRIDGE.md](BROWSER_BRI
 
 ## Planned layers
 
-- **Media detection in the extension.** Find the manifest or media request behind a page instead of `blob:` URLs and pass candidates over the existing bridge; `page_url` is already part of the protocol for this.
-- **Media resolver and providers.** `MediaResolver::resolve(page_url) -> MediaDescriptor` with formats, subtitles and playlists; a `DownloadPlan` of direct HTTP, HLS, DASH and mux steps. yt-dlp runs as an optional external process with argument arrays (never a shell string) and its JSON output is validated before use.
+- **Site providers.** For sites whose players need site-specific extraction (YouTube among them): an optional, separately updated adapter around yt-dlp that resolves a page into the same `MediaOptions` the stream job already understands, so the quality chooser and FFmpeg merging are shared. yt-dlp runs as an optional external process with argument arrays (never a shell string) and its JSON output is validated before use.
 - **Local API.** Loopback-only REST + event stream for a web UI, reusing `Manager`.

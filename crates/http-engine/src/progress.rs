@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+use crate::media::MediaSelection;
 use crate::segments::SegmentView;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -36,6 +37,20 @@ pub struct Progress {
     pub segments: Vec<SegmentView>,
     /// Human-readable events worth surfacing ("server ignores ranges", ...).
     pub notices: Vec<String>,
+    /// Set for stream downloads once their manifest is read.
+    pub media: Option<MediaProgress>,
+}
+
+/// Where a stream download stands, beyond bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MediaProgress {
+    /// "1080p" and the like.
+    pub quality: String,
+    /// The tracks being downloaded, to be stored so a resume takes the same.
+    pub selection: MediaSelection,
+    /// Fragments in all tracks, init sections included.
+    pub fragments: usize,
+    pub fragments_done: usize,
 }
 
 impl Progress {
@@ -52,6 +67,7 @@ impl Progress {
             resumable: false,
             segments: Vec::new(),
             notices: Vec::new(),
+            media: None,
         }
     }
 

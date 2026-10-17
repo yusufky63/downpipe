@@ -74,6 +74,14 @@ macOS (moving `Downpipe.app` to the Trash) and the Linux packages have no uninst
 
    Open `http://127.0.0.1:17655/`, right-click a link and choose **Download with Downpipe**. The download appears in the app straight away. Right-click an empty part of the page and choose **Download links on this page with Downpipe…** to try the links page with every sample at once. The sample addresses have no file extension, so they count as web pages: the list shows them all, with none selected.
 
+   Media detection needs a page that really plays something. Make a stream with FFmpeg, add a page that plays it (for example with hls.js), and serve the folder with `--files`:
+
+   ```powershell
+   cargo run -p downpipe-test-server -- --files C:\path\to\media
+   ```
+
+   The folder is then under `http://127.0.0.1:17655/files/`. The server's own `/hls/master.m3u8` and `/dash/manifest.mpd` streams have checkable but unplayable fragments; they are for tests and for adding by hand in the app.
+
 To use the bridge without the app registering it (the setting is off, or you only built the host), register by hand. No administrator rights are needed:
 
 ```powershell
@@ -106,15 +114,15 @@ Before it compiles the app, `tauri build` runs `pnpm sidecar`, which builds `dow
 
 Downpipe never receives browser cookies. Downloads that only work while you are signed in to a site, and downloads that come from submitting a form, fail in Downpipe. Pause capture for those sites, or let the browser download them; a per-site cookie opt-in is on the roadmap.
 
-**Capture filters** opens from the link under the capture switch in the popup (it is also the extension's options page). It works like IDM's file type settings. Nothing changes until **Save** is pressed; invalid entries are pointed out under their field and nothing is saved until they are fixed.
+**Filters** opens from the link under the capture switch in the popup (it is also the extension's options page). Its first three parts are the capture filters; the fourth, **Media on pages**, is for media detection (below). It works like IDM's file type settings. Nothing changes until **Save** is pressed; invalid entries are pointed out under their field and nothing is saved until they are fixed.
 
 - **File types.** Only downloads whose file name ends in one of the listed extensions are captured. The list is separated by spaces or commas; `.zip`, `*.zip` and `ZIP` all mean `zip`, and compound extensions such as `tar.gz` work. The name is the browser's final file name (in Chrome and Edge it already includes the server's `Content-Disposition` name); when the browser has none, the last segment of the URL path, so `get.php?file=a.zip` counts as `php`. The default list covers archives (`zip`, `7z`, `rar`, `tar`, `gz`, `xz` and more), programs and packages (`exe`, `msi`, `apk`, `dmg`, `pkg`, `deb`, `rpm`, `appimage`), disk images (`iso`, `img`, `bin`, `vhd`), documents (`pdf`, `epub`, Office and OpenDocument files), audio (`mp3`, `m4a`, `flac`, `ogg`, `wav` and more) and video (`mp4`, `mkv`, `webm`, `mov`, `avi` and more). Web pages, images and scripts stay in the browser. **Capture all file types** ignores the list (and keeps it for later); **Restore the default list** brings the defaults back.
-- **Excluded sites.** One host per line. `example.com` matches only that host; `*.example.com` matches `example.com` and all of its subdomains. A download is left to the browser when its URL, the address it was redirected to, or the page it started on (the referrer) is on one of these sites. Matching ignores case, ports and paths, and pasted URLs are reduced to their host. International names are stored in their ASCII (punycode) form, which is how URLs carry them, so `bücher.de` is saved as `xn--bcher-kva.de`.
+- **Excluded sites.** One host per line. They apply to media detection too. `example.com` matches only that host; `*.example.com` matches `example.com` and all of its subdomains. A download is left to the browser when its URL, the address it was redirected to, or the page it started on (the referrer) is on one of these sites. Matching ignores case, ports and paths, and pasted URLs are reduced to their host. International names are stored in their ASCII (punycode) form, which is how URLs carry them, so `bücher.de` is saved as `xn--bcher-kva.de`.
 - **Minimum size.** Downloads smaller than this, in KiB or MiB, stay in the browser. 0 turns it off. When the server does not send a size, the browser reports it as unknown, and such downloads are always offered to Downpipe.
 
 The filters are stored with the other extension settings in `storage.local`. Settings saved by an earlier version get the defaults for the new fields.
 
-**Pause capture on this site** appears under the capture switch while capture is on and the current tab is an http or https page. It adds the tab's host to the excluded sites; **Resume capture on this site** removes that entry again. A wildcard entry that already covers the site is shown instead of the button, since removing it would affect other sites; edit it under Capture filters. The popup reads the tab's address through `activeTab`, which the browser grants when the popup is opened.
+**Pause capture on this site** appears under the capture switch while capture is on and the current tab is an http or https page. It adds the tab's host to the excluded sites; **Resume capture on this site** removes that entry again. A wildcard entry that already covers the site is shown instead of the button, since removing it would affect other sites; edit it under Filters. The popup reads the tab's address through `activeTab`, which the browser grants when the popup is opened.
 
 **Links on a page** is IDM's "download all links": right-click an empty part of a page and choose **Download links on this page with Downpipe…**, or press **Links on this page…** in the popup's Downloads header. With text selected, the menu offers **Download selected links with Downpipe…**, which lists only the links inside the selection.
 
@@ -124,6 +132,21 @@ The filters are stored with the other extension settings in `storage.local`. Set
 - **Download N links** sends the selected links that are on show, three at a time, each as its own `download` request with the page as `page_url` and the same referrer rule as the context menu. Each row then says **Added**, **In Downpipe** (already there) or **Failed** with the reason under the address, and a summary follows. Sent links are deselected, so pressing again retries only the failures. **Stop** lets the links already on their way finish and sends no more. The links also go into the popup's Downloads list, but without a notification or badge for each one.
 - Before sending, the page checks the bridge. If Downpipe is not running, or the bridge is missing or refuses the extension, nothing is sent and the page shows the same guidance as the popup. If the app goes away halfway, the page stops at the first such answer instead of failing every remaining link.
 - Pages the browser does not let extensions read (its own settings pages, extension stores, some built-in viewers) open the links page with a note saying so.
+
+**Media on this page** finds what a page plays, like IDM's "Download this video" button. It is off until you turn on its switch in the popup (shown on http and https pages). The browser then asks for two optional permissions, `webRequest` and access to all http and https sites; turning the switch off removes both and forgets every list.
+
+- While it is on, the service worker looks at the media, XHR and fetch requests of every tab, the way IDM's download panel and open-source sniffers such as cat-catch do. It never blocks or changes a request and never reads a body. From each request it keeps only the `Referer` and `Origin` the page sent; from each response it reads the headers.
+  - An HLS playlist (`.m3u8`, or a `mpegurl` type) or DASH manifest (`.mpd`, `application/dash+xml`) counts from any request.
+  - An audio or video file counts when a `<video>` or `<audio>` element loaded it, or when a script fetched it whole: a range answer that names the file's total size, or a request that asks for a piece in its query string (`bytestart`, `byteend`, `range`, as some CDNs do), which is listed without those parameters so the whole file is downloaded. Players that fetch media themselves otherwise request fragments, which are never listed (`.ts`, `.m4s`, `video/mp2t`).
+  - A file must be of a type in the media type list and at least the minimum size, both under **Filters → Media on pages** (by default the common video and audio types and 256 KiB). A file without an extension is judged by the type the server sends.
+  - Playlists in a folder below a listed playlist of the same site are the qualities of that stream and are left out, since Downpipe reads them from the master playlist itself.
+  - Nothing from a site on the excluded sites list is listed (the media's host, the frame's or the referrer's), and the Download button does not run there.
+- The list is per tab, newest first, at most 20 entries, in session storage. It is cleared when the tab loads another page and when it closes. Pages that change their address without loading (single-page sites) keep adding to it.
+- The popup's **Media on this page** lists the current tab's entries with their type, size (when the server said) and host, and a **Download** button each. If the video was already playing when detection was turned on, reload the page.
+- A **Download** button appears in the corner of a playing video that is at least 200 by 112 pixels, for a few seconds after it starts and while the pointer is over it. It is a content script that the extension registers only while detection is on and **Show a Download button on videos** is on under Filters, with the excluded sites left out of its match patterns. A click asks the service worker for this tab's list (adding the video element's own source when it is a plain http(s) address); one entry is sent at once, several are offered in a menu. The button ignores clicks that page scripts fake, and it does not appear on videos that use Encrypted Media Extensions (DRM), which Downpipe would refuse.
+- Streams are sent as a `media` message, files as an ordinary `download` named after the page title. Both carry the page and the referrer the player's own request sent (if it sent none the extension computes one from the frame that requested the media, under the browser's default `strict-origin-when-cross-origin` policy). A stream also carries the `Origin` the player sent, since some servers check it. Never cookies or other headers: a stream that needs a signed-in session fails in Downpipe with the server's reason.
+- In the app, the confirmation dialog of a stream offers its qualities and, when there is a choice, its audio tracks. It reads only the manifest for that. If FFmpeg is not available and video and sound come separately, the dialog says they will be saved as two files. A DRM-protected or live stream is reported there and can only be removed.
+- With an app or bridge from before streams, the `pong` has no `media` feature: the popup marks streams **Update Downpipe to download streams** (files still work), and a stream sent anyway is refused with that message.
 
 While **Ask before downloads from the browser start** is on in the app (Settings → App, on by default), the app still answers `accepted` at once, so the browser never waits for a person. The download is created paused and the app's window comes forward with a dialog for its file name, folder and queue: **Start download** queues it, **Download later** keeps it paused, and **Cancel** removes it. Nothing is requested from the server before the answer. The `accepted` answer says so with `awaiting_confirmation: true`, so the extension's notification reads "Waiting for your answer in Downpipe" instead of "Downloading in Downpipe". Until the dialog is answered the popup lists the download as **Waiting in Downpipe** (not Paused) and keeps asking the app every second, so the row turns into Downloading, or Paused after **Download later**, while the popup is open. After **Cancel** the app no longer knows the download, and the row falls back to what was recorded when it was sent.
 
@@ -200,6 +223,13 @@ Requests:
  "referrer": "https://example.org/",
  "mime_type": "application/pdf",
  "file_name": "report.pdf"}
+{"protocol_version": 1, "type": "media", "id": "s1",
+ "manifest_url": "https://video.example.net/streams/clip/master.m3u8",
+ "kind": "hls",
+ "page_url": "https://example.org/watch/clip",
+ "referrer": "https://example.org/",
+ "origin": "https://example.org",
+ "title": "Clip of the week"}
 {"protocol_version": 1, "type": "tasks", "id": "t1",
  "task_ids": ["8e48dd86-5481-41af-a2fc-edf3044e29b8"]}
 ```
@@ -207,20 +237,24 @@ Requests:
 | Field | Rules |
 |---|---|
 | `protocol_version` | Required, must be `1`. Other numbers get `unsupported_version`. |
-| `type` | `ping`, `download` or `tasks`. |
+| `type` | `ping`, `download`, `media` or `tasks`. |
 | `id` | Optional, 1 to 64 letters, digits, `-` or `_`. Echoed in the response. |
 | `resource_url` | Required for `download`. http or https, at most 8 KiB, no control characters. The fragment is dropped. |
-| `page_url`, `referrer` | Optional, same URL rules. Credentials and fragments are removed. The referrer is sent as `Referer`; the page URL is not stored. |
+| `page_url`, `referrer` | Optional, for `download` and `media`, same URL rules. Credentials and fragments are removed. The referrer is sent as `Referer` (with a stream: with the manifest, every fragment and the key); the page URL is not stored. |
+| `manifest_url` | Required for `media`, allowed nowhere else. The HLS playlist or DASH manifest, with the same rules as `resource_url`. |
+| `kind` | Required for `media`: `hls` or `dash`. |
+| `title` | Optional, for `media`: the page title, at most 200 characters, no control characters. The app names the file after it. |
+| `origin` | Optional, for `media`: the `Origin` the player sent, exactly `scheme://host[:port]`. Sent as `Origin` with the manifest and every fragment. |
 | `mime_type` | Optional, reduced to `type/subtype`. |
 | `file_name` | Optional hint, at most 255 characters, no folders and no control characters. The app sanitizes it like a server-supplied name. |
 | `task_ids` | Required for `tasks`, allowed nowhere else. 1 to 20 ids as returned in `accepted` (or `duplicate`). |
 
-Unknown fields, duplicate fields and any field whose name contains `cookie` are rejected. A message over 64 KiB is answered with `message_too_large`, after which the host exits, because the rest of the stream can no longer be framed reliably.
+`resource_url`, `mime_type` and `file_name` are `download` fields and `manifest_url`, `kind`, `origin` and `title` are `media` fields; each message type refuses the other's. Unknown fields, duplicate fields and any field whose name contains `cookie` are rejected. A message over 64 KiB is answered with `message_too_large`, after which the host exits, because the rest of the stream can no longer be framed reliably.
 
 Responses carry `protocol_version`, the request's `id` and a `type`:
 
 ```json
-{"protocol_version": 1, "id": "p1", "type": "pong", "host_version": "0.3.0", "app_running": true, "app_version": "0.3.0"}
+{"protocol_version": 1, "id": "p1", "type": "pong", "host_version": "0.3.0", "app_running": true, "app_version": "0.3.0", "features": ["media"]}
 {"protocol_version": 1, "id": "m1", "type": "accepted", "task_id": "8e48dd86-..."}
 {"protocol_version": 1, "id": "m2", "type": "accepted", "task_id": "68b6ffff-...", "awaiting_confirmation": true}
 {"protocol_version": 1, "id": "m1", "type": "error", "code": "duplicate", "message": "This link is already in Downpipe", "task_id": "8e48dd86-..."}
@@ -233,6 +267,7 @@ Responses carry `protocol_version`, the request's `id` and a `type`:
 
 | Field | In | Meaning |
 |---|---|---|
+| `features` | `pong` | What the host and the running app both support beyond the first messages of version 1. `media`: the `media` message. Left out when there is none (the app is closed, or one of them predates it). |
 | `task_id` | `accepted`, `tasks`, `duplicate` errors | The app's id for the download. |
 | `file_name` | `accepted`, `tasks` | The hint or the name the app chose; in `tasks`, the final name once the server has answered. |
 | `state` | `tasks` | One of `queued`, `starting`, `downloading`, `waiting`, `verifying`, `paused`, `completed`, `failed` and `canceled`. |
@@ -241,6 +276,8 @@ Responses carry `protocol_version`, the request's `id` and a `type`:
 | `awaiting_confirmation` | `accepted`, `tasks` | Sent only as `true`: the app holds the download, paused, until the user answers its confirmation dialog. In `tasks` it comes with `state: "paused"`. |
 
 Ids the app does not know in a `tasks` query, for example removed downloads, are left out of the answer.
+
+Messages may also gain types within version 1, as `media` did: a host or app that predates one answers `invalid_message` ("unknown message type"), which an extension can tell from a broken bridge, and `pong` lists the ones both ends know in `features`, so the extension can check before sending. The pipe between host and app gained the `media` action the same way, without a new `ipc_version`, since older actions are unchanged.
 
 Answers may gain optional fields within version 1; the extension ignores fields it does not know, and the host and the app accept each other's answers with or without them. That is why the confirmation is a flag and not a tenth `state`: the download really is paused in the app's catalog, and extensions from before the flag drop task entries with a state outside their fixed list, which would cost them that row's live state. With the flag they keep showing Paused, which is still true.
 
@@ -276,5 +313,7 @@ Starting Downpipe while it is already running brings the open window forward ins
 | Bridge does not allow this extension | The extension has a different id than the manifest allows. Run the command the popup shows; it includes this extension's id. The app keeps that id when it rewrites the manifest later. |
 | Downpipe is not running | Start the app. If it is running, check its log for `browser bridge is off`. |
 | Bridge error | Restart Downpipe or use **Register now** so the browsers start the host that came with this version of the app. `downpipe-native-host status` shows what is registered. |
+| Update Downpipe to download streams | The app, or the bridge it registered, is older than the extension. Update Downpipe and start it once. |
+| Media on this page stays empty | Play the video. If it was already playing when detection was turned on, reload the page. Videos that use DRM are never listed. |
 
 The host writes diagnostics to stderr, which Chrome includes in its log when started with `--enable-logging --v=1`. `DOWNPIPE_LOG=debug` makes both the host and the app more verbose.

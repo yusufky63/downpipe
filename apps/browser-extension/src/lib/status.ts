@@ -1,7 +1,8 @@
 import type { BridgeFailure, HostResult } from "./host";
 
 export type BridgeStatus =
-  | { state: "connected"; appVersion: string; hostVersion: string }
+  /** `media`: both the bridge and the app can take streams (HLS, DASH). */
+  | { state: "connected"; appVersion: string; hostVersion: string; media: boolean }
   | { state: "app_not_running"; hostVersion: string }
   | { state: "host_missing" }
   | { state: "host_forbidden" }
@@ -46,7 +47,7 @@ export function bridgeStatus(result: HostResult): BridgeStatus {
   const r = result.response;
   if (r.type === "pong") {
     return r.appRunning
-      ? { state: "connected", appVersion: r.appVersion ?? "", hostVersion: r.hostVersion }
+      ? { state: "connected", appVersion: r.appVersion ?? "", hostVersion: r.hostVersion, media: r.features.includes("media") }
       : { state: "app_not_running", hostVersion: r.hostVersion };
   }
   if (r.type === "error") return { state: "error", message: errorText(r.code, r.message) };
@@ -58,14 +59,16 @@ export type Outcome = "added" | "duplicate" | "failed";
 export const WAITING_MESSAGE = "Waiting for your answer in Downpipe";
 
 /** What happened to one download, in words for the popup and the badge. */
-export function downloadOutcome(result: HostResult): {
+export interface HandOver {
   outcome: Outcome;
   message: string;
   fileName?: string;
   taskId?: string;
   /** Taken, but held in the app's confirmation dialog rather than started. */
   awaitingConfirmation?: boolean;
-} {
+}
+
+export function downloadOutcome(result: HostResult): HandOver {
   if (!result.ok) return { outcome: "failed", message: failureText(result.failure) };
   const r = result.response;
   if (r.type === "accepted" && r.awaitingConfirmation) {
@@ -79,6 +82,17 @@ export function downloadOutcome(result: HostResult): {
   }
   if (r.type === "error") return { outcome: "failed", message: errorText(r.code, r.message) };
   return { outcome: "failed", message: FAILURE_TEXT.bad_response };
+}
+
+/** An app or bridge from before streams were supported refuses the message type. */
+export const STREAMS_UNSUPPORTED = "This version of Downpipe cannot download streams. Update Downpipe.";
+
+/** Like `downloadOutcome`, for a `media` message. */
+export function streamOutcome(result: HostResult): HandOver {
+  if (result.ok && result.response.type === "error" && result.response.code === "invalid_message") {
+    return { outcome: "failed", message: STREAMS_UNSUPPORTED };
+  }
+  return downloadOutcome(result);
 }
 
 // Codes after which the next link would fail the same way.

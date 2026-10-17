@@ -1,13 +1,16 @@
-// Capture filters. Changes are saved only with the Save button, through
-// the service worker, which writes the settings one change at a time.
+// Capture filters and media detection settings. Changes are saved only with
+// the Save button, through the service worker, which writes the settings one
+// change at a time.
 import { ext } from "../lib/browser";
 import {
   DEFAULT_CAPTURE_TYPES,
   filtersFromForm,
+  parseMinSize,
   sizeFields,
   type FormErrors,
   type SizeUnit,
 } from "../lib/filters";
+import { DEFAULT_MEDIA_TYPES, MAX_MEDIA_MIN_BYTES, parseMediaTypeList, type MediaFilters } from "../lib/media";
 import { isSettings, type Settings } from "../lib/messages";
 import { byId } from "../ui/dom";
 
@@ -29,6 +32,13 @@ const els = {
   size: byId<HTMLInputElement>("size"),
   unit: byId<HTMLSelectElement>("unit"),
   sizeErrors: byId<HTMLUListElement>("size-errors"),
+  mediaOverlay: byId<HTMLInputElement>("media-overlay"),
+  mediaTypes: byId<HTMLTextAreaElement>("media-types"),
+  mediaTypesDefault: byId<HTMLButtonElement>("media-types-default"),
+  mediaTypesErrors: byId<HTMLUListElement>("media-types-errors"),
+  mediaSize: byId<HTMLInputElement>("media-size"),
+  mediaUnit: byId<HTMLSelectElement>("media-unit"),
+  mediaSizeErrors: byId<HTMLUListElement>("media-size-errors"),
   save: byId<HTMLButtonElement>("save"),
   state: byId("save-state"),
 };
@@ -64,6 +74,20 @@ function paintErrors(errors: FormErrors): void {
 
 const NO_ERRORS: FormErrors = { types: [], sites: [], size: [] };
 
+function paintMediaErrors(types: readonly string[], size: readonly string[]): void {
+  showErrors(els.mediaTypesErrors, els.mediaTypes, types);
+  showErrors(els.mediaSizeErrors, els.mediaSize, size);
+}
+
+/** The media card as stored, or what to say under its fields. */
+function mediaFromForm(): { ok: true; media: MediaFilters } | { ok: false; types: string[]; size: string[] } {
+  const types = parseMediaTypeList(els.mediaTypes.value);
+  const size = parseMinSize(els.mediaSize.value, els.mediaUnit.value as SizeUnit);
+  const sizeErrors = size.ok ? (size.bytes > MAX_MEDIA_MIN_BYTES ? ["Enter a size under 1 TiB."] : []) : [size.error];
+  if (types.errors.length || !size.ok || sizeErrors.length) return { ok: false, types: types.errors, size: sizeErrors };
+  return { ok: true, media: { mediaOverlay: els.mediaOverlay.checked, mediaTypes: types.values, mediaMinBytes: size.bytes } };
+}
+
 function syncTypes(): void {
   const off = els.captureAll.checked;
   els.types.disabled = off;
@@ -78,8 +102,14 @@ function fill(s: Settings): void {
   const size = sizeFields(s.minSizeBytes);
   els.size.value = size.value;
   els.unit.value = size.unit;
+  els.mediaOverlay.checked = s.mediaOverlay;
+  els.mediaTypes.value = s.mediaTypes.join(" ");
+  const mediaSize = sizeFields(s.mediaMinBytes);
+  els.mediaSize.value = mediaSize.value;
+  els.mediaUnit.value = mediaSize.unit;
   syncTypes();
   paintErrors(NO_ERRORS);
+  paintMediaErrors([], []);
   dirty = false;
 }
 
@@ -108,6 +138,15 @@ els.captureAll.addEventListener("change", () => {
 els.types.addEventListener("input", () => showErrors(els.typesErrors, els.types, []));
 els.sites.addEventListener("input", () => showErrors(els.sitesErrors, els.sites, []));
 els.size.addEventListener("input", () => showErrors(els.sizeErrors, els.size, []));
+els.mediaTypes.addEventListener("input", () => showErrors(els.mediaTypesErrors, els.mediaTypes, []));
+els.mediaSize.addEventListener("input", () => showErrors(els.mediaSizeErrors, els.mediaSize, []));
+els.mediaOverlay.addEventListener("change", edited);
+
+els.mediaTypesDefault.addEventListener("click", () => {
+  els.mediaTypes.value = DEFAULT_MEDIA_TYPES.join(" ");
+  showErrors(els.mediaTypesErrors, els.mediaTypes, []);
+  edited();
+});
 
 els.typesDefault.addEventListener("click", () => {
   els.types.value = DEFAULT_CAPTURE_TYPES.join(" ");
@@ -124,18 +163,25 @@ els.form.addEventListener("submit", (event) => {
     sizeText: els.size.value,
     unit: els.unit.value as SizeUnit,
   });
-  if (!result.ok) {
-    paintErrors(result.errors);
+  const media = mediaFromForm();
+  paintErrors(result.ok ? NO_ERRORS : result.errors);
+  paintMediaErrors(media.ok ? [] : media.types, media.ok ? [] : media.size);
+  if (!result.ok || !media.ok) {
     setState("Not saved. Fix the fields marked in red.", "danger");
-    const { types, sites } = result.errors;
-    (types.length ? els.types : sites.length ? els.sites : els.size).focus();
+    if (!result.ok) {
+      const { types, sites } = result.errors;
+      (types.length ? els.types : sites.length ? els.sites : els.size).focus();
+    } else if (!media.ok) {
+      (media.types.length ? els.mediaTypes : els.mediaSize).focus();
+    }
     return;
   }
-  paintErrors(NO_ERRORS);
   els.save.disabled = true;
   setState("Saving…");
+  // Two writes, one after the other: the service worker chains them anyway.
   void ext.runtime
     .sendMessage({ kind: "save_filters", filters: result.filters })
+    .then((reply: unknown) => (isSettings(reply) ? ext.runtime.sendMessage({ kind: "save_media", media: media.media }) : null))
     .catch(() => null)
     .then((reply: unknown) => {
       if (!isSettings(reply)) {

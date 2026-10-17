@@ -18,10 +18,10 @@
   display: flex;
   gap: 8px;
 }
-.size-row #size {
+.size-row .num {
   width: 128px;
 }
-.size-row #unit {
+.size-row select {
   width: 88px;
 }
 

@@ -53,7 +53,76 @@ export interface Task {
   notices: string[];
   /** Sent by the browser and waiting for the user to pick its name and folder. */
   awaiting_confirmation: boolean;
+  /** Set when the link is a stream (HLS or DASH) rather than a file. */
+  media: MediaInfo | null;
+  /** Stream downloads while they run: fragments done and in all. */
+  fragments: { done: number; total: number } | null;
   eta_secs: number | null;
+}
+
+export type MediaKind = "hls" | "dash";
+
+/** A track picked by the user, with enough detail to find it again. */
+export interface TrackRef {
+  id: string;
+  height?: number;
+  bandwidth?: number;
+  language?: string;
+}
+
+export interface MediaSelection {
+  video?: TrackRef;
+  audio?: TrackRef;
+}
+
+export interface MediaInfo {
+  kind: MediaKind;
+  /** Missing: the best quality is taken when it starts. */
+  selection?: MediaSelection;
+  /** "1080p" and the like, once the stream was read. */
+  quality?: string;
+}
+
+export interface VideoOption {
+  id: string;
+  width?: number;
+  height?: number;
+  /** Bits per second, as announced. */
+  bandwidth?: number;
+  codecs?: string;
+  frame_rate?: string;
+  /** The video has its own sound; no audio track goes with it. */
+  has_audio: boolean;
+  /** HLS: the audio tracks that go with it (`AudioOption.group`). */
+  audio_group?: string;
+  audio_only: boolean;
+  estimated_size?: number;
+}
+
+export interface AudioOption {
+  id: string;
+  name?: string;
+  language?: string;
+  bandwidth?: number;
+  codecs?: string;
+  default: boolean;
+  group?: string;
+}
+
+export interface MediaOptions {
+  kind: MediaKind;
+  /** Best first. */
+  videos: VideoOption[];
+  audios: AudioOption[];
+  duration_ms?: number;
+}
+
+/** What a stream offers, for the quality chooser. */
+export interface MediaChoices {
+  options: MediaOptions;
+  selection: MediaSelection | null;
+  /** FFmpeg can merge separate video and audio into one file. */
+  ffmpeg: boolean;
 }
 
 export interface Settings {
@@ -82,6 +151,8 @@ export interface Settings {
   confirm_browser_downloads: boolean;
   /** The first is always the main queue, whose limit is `max_concurrent_downloads`. */
   queues: Queue[];
+  /** FFmpeg for merging the video and sound of streams. Empty: `ffmpeg` on PATH. */
+  ffmpeg_path: string;
 }
 
 export const MAIN_QUEUE = "main";
@@ -158,6 +229,8 @@ export interface ConfirmOptions {
   queue: string | null;
   /** False: keep it paused ("Download later"). */
   start: boolean;
+  /** Streams: the quality and audio to download. */
+  media?: MediaSelection | null;
 }
 
 export type QueueMove = "up" | "down" | "top" | "bottom";
@@ -192,6 +265,10 @@ export const api = {
   open: (id: string) => invoke<null>("open_download", { id }),
   changeUrl: (id: string, url: string) => invoke<null>("change_download_url", { id, url }),
   confirm: (id: string, options: ConfirmOptions) => invoke<null>("confirm_download", { id, options }),
+  /** Reads the stream's manifest; downloads no media. */
+  inspectMedia: (id: string) => invoke<MediaChoices>("inspect_media", { id }),
+  /** The FFmpeg streams would use now, or null when there is none. */
+  ffmpegStatus: () => invoke<string | null>("ffmpeg_status"),
   /** With `replace`, the old file is deleted first and the new one takes its name. */
   redownload: (id: string, replace: boolean) => invoke<null>("redownload", { id, replace }),
   move: (ids: string[], to: QueueMove) => invoke<null>("move_downloads", { ids, to }),

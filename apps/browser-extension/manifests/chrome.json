@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Downpipe",
-  "description": "Send links and browser downloads to the Downpipe desktop app.",
+  "description": "Send links, browser downloads and the videos pages play to the Downpipe desktop app.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsS5d+Lf9ftpLGRw2sEjfEwwKiEhaw5aSJ7a9kgpsZvfGd1+tLBBTspCItaQC8ug7JZyTSLrdOVO5+GWlPaiToWS7jksT5r0QbKNilfR9z991ufoQc4BINps/ktMpVqZL+4lT2tCqzi9Y+4GK4NDxa2Me52YjDDYLhKus7NmXGuwLeTZeLMQvp2sGJtqDwI3D/80W04pGitRnDJEa2Eo6YyopLt9IiY83J2ogiBjGj1Ew4yeGvsEW4Ho+OuOCUboR7ijuSVvnMTcXzj15fkrcaEP1beeTVrI1HQLZEwiNMSi+FrylglR8esSUNaCWKEMsCPqlrxM9S+C7hS+6hWvipQIDAQAB",
   "minimum_chrome_version": "120",
   "permissions": ["activeTab", "contextMenus", "nativeMessaging", "notifications", "scripting", "storage"],
-  "optional_permissions": ["downloads"],
+  "optional_permissions": ["downloads", "webRequest"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "background.js" },
   "options_ui": { "page": "options.html", "open_in_tab": true },
   "action": {

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Capture filters · Downpipe</title>
+    <title>Filters · Downpipe</title>
     <link rel="stylesheet" href="base.css" />
     <link rel="stylesheet" href="page.css" />
     <link rel="stylesheet" href="options.css" />
@@ -21,10 +21,10 @@
     <form id="form" novalidate>
       <main class="frame main">
         <div class="intro">
-          <h1 class="title">Capture filters</h1>
+          <h1 class="title">Filters</h1>
           <p class="lede">
-            Choose which downloads the browser hands to Downpipe while Capture browser downloads is on. Everything
-            else downloads in the browser as usual.
+            Choose which downloads the browser hands to Downpipe while Capture browser downloads is on, and which media
+            the extension lists while Media on this page is on. Everything else stays in the browser as usual.
           </p>
         </div>
 
@@ -77,7 +77,7 @@
           </div>
           <div class="card-body">
             <div class="field">
-              <label class="field-label" for="sites">Never capture on these sites</label>
+              <label class="field-label" for="sites">Never capture or list media on these sites</label>
               <textarea
                 class="input"
                 id="sites"
@@ -90,8 +90,8 @@
               ></textarea>
               <p class="help" id="sites-help">
                 One site per line. <code class="inline">*.example.org</code> also covers every subdomain. A download
-                stays in the browser when it comes from one of these sites or starts on one of their pages. Ports and
-                paths are ignored.
+                stays in the browser when it comes from one of these sites or starts on one of their pages, and media
+                they play is not listed. Ports and paths are ignored.
               </p>
               <ul class="errors" id="sites-errors" aria-live="polite"></ul>
             </div>
@@ -123,6 +123,67 @@
                 0 turns this off. When the server does not say how big a file is, it goes to Downpipe.
               </p>
               <ul class="errors" id="size-errors" aria-live="polite"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="media-heading">
+          <div class="card-head">
+            <h2 class="eyebrow" id="media-heading">04 — Media on pages</h2>
+          </div>
+          <div class="card-body">
+            <p class="help">
+              Used while Media on this page is on in the toolbar popup. HLS and DASH streams are always listed; the
+              excluded sites above apply here too.
+            </p>
+            <label class="switch-row" for="media-overlay">
+              <span class="switch-text">
+                <span class="row-title">Show a Download button on videos</span>
+                <span class="row-detail">On a playing video, for a few seconds and while the pointer is over it.</span>
+              </span>
+              <input type="checkbox" role="switch" class="switch" id="media-overlay" />
+            </label>
+            <div class="field">
+              <label class="field-label" for="media-types">List media files of these types</label>
+              <textarea
+                class="input"
+                id="media-types"
+                rows="3"
+                spellcheck="false"
+                autocomplete="off"
+                autocapitalize="off"
+                aria-describedby="media-types-help media-types-errors"
+              ></textarea>
+              <p class="help" id="media-types-help">
+                Extensions separated by spaces or commas. A file without one is judged by the type the server sends.
+                An empty list lists streams only.
+              </p>
+              <ul class="errors" id="media-types-errors" aria-live="polite"></ul>
+              <div class="field-actions">
+                <button type="button" class="link" id="media-types-default">Restore the default list</button>
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label" for="media-size">Leave out media files smaller than</label>
+              <div class="size-row">
+                <input
+                  class="input num"
+                  id="media-size"
+                  type="text"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  aria-describedby="media-size-help media-size-errors"
+                />
+                <select class="input" id="media-unit" aria-label="Unit">
+                  <option value="KiB">KiB</option>
+                  <option value="MiB">MiB</option>
+                </select>
+              </div>
+              <p class="help" id="media-size-help">
+                Keeps notification sounds and short previews out. 0 lists every size; files whose size the server does
+                not say are always listed.
+              </p>
+              <ul class="errors" id="media-size-errors" aria-live="polite"></ul>
             </div>
           </div>
         </section>

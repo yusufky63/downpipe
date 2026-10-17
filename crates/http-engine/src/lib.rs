@@ -26,6 +26,7 @@ mod engine;
 mod error;
 pub mod filename;
 mod http;
+pub mod media;
 pub mod meta;
 mod progress;
 mod ratelimit;

@@ -63,6 +63,9 @@ impl App {
             .update_settings(Settings {
                 download_dir: downloads.path().to_path_buf(),
                 confirm_browser_downloads,
+                // Streams are saved the same with or without an FFmpeg on
+                // the test machine.
+                ffmpeg_path: data.path().join("no-ffmpeg").to_string_lossy().into_owned(),
                 ..manager.settings()
             })
             .unwrap();
@@ -275,6 +278,7 @@ async fn browser_downloads_wait_for_the_user() {
                 dir: Some(chosen.path().to_path_buf()),
                 queue: None,
                 start: true,
+                media: None,
             },
         )
         .unwrap();
@@ -447,4 +451,91 @@ async fn a_second_server_cannot_take_over_the_endpoint() {
     let app = App::start().await;
     let err = BridgeServer::bind(app.endpoint.clone()).unwrap_err();
     assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse, "{err}");
+}
+
+/// A stream from the media list: the app reads its qualities for the
+/// dialog, downloads the chosen one with the page's referrer, and the popup
+/// follows it like any download.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn streams_from_the_browser_are_offered_with_their_qualities() {
+    use downpipe_core::http::media::{MediaSelection, TrackRef};
+    use downpipe_test_server::streams::joined;
+
+    let web = TestServer::start().await.unwrap();
+    let app = App::start_with(true).await;
+    let mut host = Host::spawn(&app.endpoint);
+
+    let pong = host.ask(&json!({"protocol_version": 1, "type": "ping"}));
+    assert_eq!(pong["features"], json!(["media"]), "{pong}");
+
+    let q = "segments=3&size=4000&split=1";
+    let page = web.url("/watch/clip");
+    let accepted = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "media",
+        "id": "s1",
+        "manifest_url": web.url(&format!("/hls/master.m3u8?{q}")),
+        "kind": "hls",
+        "page_url": page,
+        "referrer": page,
+        "origin": web.url(""),
+        "title": "Clip: the week",
+    }));
+    assert_eq!(accepted["type"], "accepted", "{accepted}");
+    assert_eq!(accepted["awaiting_confirmation"], true, "{accepted}");
+    assert_eq!(accepted["file_name"], "Clip_ the week.mp4", "{accepted}");
+    let id = accepted["task_id"].as_str().unwrap().to_string();
+    assert!(host.finish().success());
+
+    let choices = app.manager.inspect_media(&id).await.unwrap();
+    assert_eq!(choices.options.videos.len(), 2);
+    let lower = choices.options.videos.last().unwrap();
+    app.manager
+        .confirm(
+            &id,
+            ConfirmOptions {
+                start: true,
+                media: Some(MediaSelection {
+                    video: Some(TrackRef {
+                        id: lower.id.clone(),
+                        height: lower.height,
+                        ..TrackRef::default()
+                    }),
+                    audio: None,
+                }),
+                ..ConfirmOptions::default()
+            },
+        )
+        .unwrap();
+    let done = wait_for(&app.manager, &id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+    let path = done.record.path.unwrap();
+    assert_eq!(path.file_name().unwrap(), "Clip_ the week.mp4");
+    assert_eq!(std::fs::read(&path).unwrap(), joined("v0", q));
+    assert_eq!(
+        std::fs::read(path.with_file_name("Clip_ the week.audio.m4a")).unwrap(),
+        joined("audio", q)
+    );
+
+    // Manifests, fragments and the key went out with the page as referrer
+    // and without cookies.
+    let requests = web.state.requests();
+    assert!(requests.iter().any(|r| r.path.contains("/seg-")));
+    for request in &requests {
+        assert_eq!(
+            request.referer.as_deref(),
+            Some(page.as_str()),
+            "{}",
+            request.path
+        );
+        assert_eq!(request.origin.as_deref(), Some(web.url("").as_str()));
+        assert_eq!(request.cookie, None);
+    }
+
+    let mut host = Host::spawn(&app.endpoint);
+    let answer = host.ask(&json!({"protocol_version": 1, "type": "tasks", "task_ids": [id]}));
+    assert_eq!(answer["tasks"][0]["state"], "completed", "{answer}");
+    assert!(host.finish().success());
 }

@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
+use downpipe_http::media::{MediaKind, MediaRequest, MediaSelection, mux};
 use downpipe_http::{
     Checksum, DownloadRequest, Engine, EngineConfig, Outcome, Phase, RateLimiter, meta, parse_rate,
 };
@@ -60,6 +61,11 @@ struct GetArgs {
     /// Extra request header, e.g. `-H "Referer: https://example.org/"`.
     #[arg(short = 'H', long = "header", value_name = "NAME: VALUE")]
     headers: Vec<String>,
+    /// Download the URL as an HLS or DASH stream (`hls` or `dash`). `.m3u8`
+    /// and `.mpd` links are recognized without it. The best quality is
+    /// taken; an FFmpeg on PATH merges separate video and audio.
+    #[arg(long, value_name = "KIND")]
+    stream: Option<String>,
     #[command(flatten)]
     tuning: Tuning,
 }
@@ -114,6 +120,20 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 .map(str::parse::<Checksum>)
                 .transpose()?;
             req.headers = parse_headers(&args.headers)?;
+            let kind =
+                match args.stream.as_deref() {
+                    Some(raw) => Some(MediaKind::parse(raw).with_context(|| {
+                        format!("`{raw}` is not a stream kind; use hls or dash")
+                    })?),
+                    None => MediaKind::from_link(&req.url),
+                };
+            if let Some(kind) = kind {
+                req.media = Some(MediaRequest {
+                    kind,
+                    selection: MediaSelection::default(),
+                    ffmpeg: mux::find_ffmpeg(None),
+                });
+            }
             download(req, &args.tuning).await
         }
         Command::Resume { path, tuning } => {

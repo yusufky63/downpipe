@@ -4,6 +4,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { errorMessage, type Task } from "../lib/api";
 import { canRelink } from "../lib/menu";
 import { formatBytes, formatDate, formatDuration, formatSpeed, percent, sentence } from "../lib/format";
+import { kindName, sizeIsEstimate } from "../lib/media";
 import { canCancel, canPause, canResume, displayName, isRunning, stateInfo } from "../lib/tasks";
 import { Badge, Banner, Button, Dialog, IconButton, inputClass } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
@@ -79,7 +80,7 @@ export function DetailsDialog({
             <span className="label">Progress</span>
             <span className="num font-mono text-[12px] text-ink-secondary">
               {formatBytes(task.downloaded)}
-              {task.total !== null ? ` of ${formatBytes(task.total)}` : ""}
+              {task.total !== null ? ` of ${sizeIsEstimate(task) ? "about " : ""}${formatBytes(task.total)}` : ""}
               {pct !== null ? ` · ${pct.toFixed(1)}%` : ""}
             </span>
           </div>
@@ -140,6 +141,19 @@ export function DetailsDialog({
           <Row label="Source">
             <CopyValue value={task.url} />
           </Row>
+          {task.media && (
+            <Row label="Stream">
+              <span className="num font-mono text-[12px] text-ink-secondary">
+                {[
+                  kindName(task.media.kind),
+                  task.media.quality ?? "Best quality",
+                  task.fragments ? `${task.fragments.done} of ${task.fragments.total} fragments` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </Row>
+          )}
           {queueName && (
             <Row label="Queue">
               <span className="text-[13px] text-ink-secondary">{queueName}</span>

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use downpipe_http::media::{self, MediaKind, MediaRequest};
 use downpipe_http::{
     Checksum, DownloadControl, DownloadError, DownloadHandle, DownloadRequest, Engine,
     EngineConfig, Outcome, RateLimiter, filename, meta,
@@ -17,7 +18,8 @@ use tokio::task::JoinHandle;
 use crate::settings::{MAIN_QUEUE, Settings};
 use crate::store::Store;
 use crate::task::{
-    AddOptions, ConfirmOptions, Live, QueueMove, TaskId, TaskRecord, TaskSnapshot, TaskState,
+    AddOptions, ConfirmOptions, Live, MediaChoices, MediaInfo, QueueMove, TaskId, TaskRecord,
+    TaskSnapshot, TaskState,
 };
 
 const DB_FILE: &str = "downpipe.db";
@@ -234,6 +236,10 @@ impl Manager {
         };
         downpipe_http::build_headers(&opts.headers)?;
         let key = downpipe_http::redact_url(&url);
+        let media = opts
+            .media
+            .or_else(|| MediaKind::from_url(&url))
+            .map(MediaInfo::new);
 
         let snapshot = {
             let mut st = self.inner.state.lock();
@@ -255,6 +261,11 @@ impl Manager {
             // from the URL or the browser is good enough to pick a folder,
             // and the finished file moves if it turns out to be different.
             let hint = file_name.clone().or_else(|| filename::from_url(&url));
+            // A stream ends up as a video whatever its manifest is called.
+            let hint = match (&media, hint) {
+                (Some(_), hint) => Some(video_name(hint.as_deref().unwrap_or("video"))),
+                (None, hint) => hint,
+            };
             let category = hint
                 .as_deref()
                 .and_then(|name| st.settings.category_for(name))
@@ -292,6 +303,7 @@ impl Manager {
                 created_at: now,
                 updated_at: now,
                 completed_at: None,
+                media,
             };
             st.store.upsert(&record)?;
             let entry = Entry {
@@ -522,6 +534,11 @@ impl Manager {
             if let Some(queue) = choice.queue.filter(|q| st.settings.queue(q).is_some()) {
                 entry.record.queue = queue;
             }
+            if let (Some(info), Some(selection)) = (entry.record.media.as_mut(), choice.media) {
+                info.selection = Some(selection);
+                // Named again once the stream is read.
+                info.quality = None;
+            }
             entry.live.awaiting_confirmation = false;
             entry.set_state(if start {
                 TaskState::Queued
@@ -564,6 +581,40 @@ impl Manager {
         })?;
         self.inner.schedule();
         Ok(())
+    }
+
+    /// What a stream download can be: its qualities and audio tracks, read
+    /// from the manifest with the download's own headers. No media is
+    /// downloaded. For the quality chooser in the confirmation dialog.
+    pub async fn inspect_media(&self, id: &str) -> Result<MediaChoices, CoreError> {
+        let (url, headers, info) = {
+            let st = self.inner.state.lock();
+            let entry = st
+                .tasks
+                .iter()
+                .find(|e| e.record.id == id)
+                .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
+            let info = entry
+                .record
+                .media
+                .clone()
+                .ok_or_else(|| invalid("inspect the stream of", entry.record.state))?;
+            (entry.url.clone(), entry.headers.clone(), info)
+        };
+        let engine = self.inner.engine.lock().clone();
+        let options = engine.media_options(&url, info.kind, &headers).await?;
+        Ok(MediaChoices {
+            options,
+            selection: info.selection,
+            ffmpeg: self.ffmpeg().is_some(),
+        })
+    }
+
+    /// The FFmpeg stream downloads would use now: the one set in the
+    /// settings, else `ffmpeg` on `PATH`.
+    pub fn ffmpeg(&self) -> Option<PathBuf> {
+        let configured = self.inner.state.lock().settings.ffmpeg_path.clone();
+        find_ffmpeg(&configured)
     }
 
     /// Reorder downloads inside their queues. Several ids move together and
@@ -790,6 +841,8 @@ impl Inner {
             }
             let per_download = st.settings.max_connections_per_download;
             let engine = self.engine.lock().clone();
+            // Looked up once per pass, and only when a stream starts.
+            let mut ffmpeg: Option<Option<PathBuf>> = None;
             let State {
                 store,
                 tasks,
@@ -814,7 +867,13 @@ impl Inner {
                     continue;
                 }
                 *busy += 1;
-                let handle = engine.start(entry.request(per_download));
+                let tool = match &entry.record.media {
+                    Some(_) => ffmpeg
+                        .get_or_insert_with(|| find_ffmpeg(&settings.ffmpeg_path))
+                        .clone(),
+                    None => None,
+                };
+                let handle = engine.start(entry.request(per_download, tool));
                 entry.control = Some(handle.control());
                 entry.after_stop = AfterStop::Pause;
                 entry.record.error = None;
@@ -877,8 +936,19 @@ impl Inner {
             }
             r.total = p.total.or(r.total);
             r.downloaded = p.downloaded;
+            // The tracks a stream download resolved to are kept, so that a
+            // resume after a restart takes the same quality.
+            let mut media_changed = false;
+            if let (Some(info), Some(m)) = (r.media.as_mut(), p.media.as_ref())
+                && (info.quality.as_deref() != Some(m.quality.as_str())
+                    || info.selection.as_ref() != Some(&m.selection))
+            {
+                info.quality = Some(m.quality.clone());
+                info.selection = Some(m.selection.clone());
+                media_changed = true;
+            }
             entry.live = Live::from_progress(p);
-            if state_changed || entry.last_persist.elapsed() >= PERSIST_EVERY {
+            if state_changed || media_changed || entry.last_persist.elapsed() >= PERSIST_EVERY {
                 entry.record.updated_at = unix_now();
                 entry.last_persist = Instant::now();
                 if let Err(e) = store.upsert(&entry.record) {
@@ -994,7 +1064,7 @@ impl Entry {
         self.last_persist = Instant::now();
     }
 
-    fn request(&self, per_download: u32) -> DownloadRequest {
+    fn request(&self, per_download: u32, ffmpeg: Option<PathBuf>) -> DownloadRequest {
         let mut req = DownloadRequest::new(self.url.clone(), self.record.dir.clone());
         // Once the engine picked a name, keep it: that is how the resume
         // data next to the file is found again.
@@ -1003,6 +1073,11 @@ impl Entry {
         req.headers.clone_from(&self.headers);
         req.max_connections = Some(self.record.max_connections.unwrap_or(per_download) as usize);
         req.relink = self.relink;
+        req.media = self.record.media.as_ref().map(|info| MediaRequest {
+            kind: info.kind,
+            selection: info.selection.clone().unwrap_or_default(),
+            ffmpeg,
+        });
         req
     }
 }
@@ -1159,9 +1234,35 @@ fn final_path(record: &TaskRecord) -> Option<PathBuf> {
 
 fn remove_partial(record: &TaskRecord) {
     if let Some(path) = final_path(record) {
-        let _ = std::fs::remove_file(meta::part_path(&path));
-        meta::remove(&path);
+        if record.media.is_some() {
+            media::remove_work_dir(&path);
+        } else {
+            let _ = std::fs::remove_file(meta::part_path(&path));
+            meta::remove(&path);
+        }
     }
+}
+
+/// `configured` when set (the settings field), else `ffmpeg` on `PATH`.
+fn find_ffmpeg(configured: &str) -> Option<PathBuf> {
+    let configured = Path::new(configured);
+    media::mux::find_ffmpeg((!configured.as_os_str().is_empty()).then_some(configured))
+}
+
+/// A name for a stream before its container is known: the hint without a
+/// manifest's extension, as a video. The engine sets the real extension.
+fn video_name(hint: &str) -> String {
+    let stem = match hint.rsplit_once('.') {
+        Some((stem, ext))
+            if !stem.is_empty()
+                && ["m3u8", "m3u", "mpd", "mp4", "ts", "m4s"]
+                    .contains(&ext.to_ascii_lowercase().as_str()) =>
+        {
+            stem
+        }
+        _ => hint,
+    };
+    format!("{stem}.mp4")
 }
 
 /// Bring the displayed progress in line with what is actually on disk.

@@ -43,6 +43,9 @@ pub struct Settings {
     /// Download queues. The first is always the main queue, whose limit is
     /// `max_concurrent_downloads`.
     pub queues: Vec<Queue>,
+    /// FFmpeg used to merge separate video and audio of streams. Empty:
+    /// `ffmpeg` on `PATH`, if there is one. Downpipe does not ship FFmpeg.
+    pub ffmpeg_path: String,
 }
 
 /// The queue every download belongs to unless moved.
@@ -128,6 +131,7 @@ impl Default for Settings {
             keep_awake: true,
             confirm_browser_downloads: true,
             queues: default_queues(),
+            ffmpeg_path: String::new(),
         }
     }
 }
@@ -142,6 +146,8 @@ impl Settings {
         }
         self.proxy = self.proxy.trim().to_string();
         self.user_agent = self.user_agent.trim().to_string();
+        // Pasted paths often come quoted from a file manager.
+        self.ffmpeg_path = self.ffmpeg_path.trim().trim_matches('"').to_string();
         self.categories = self
             .categories
             .into_iter()

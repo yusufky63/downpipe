@@ -1,11 +1,23 @@
 import { ext } from "../lib/browser";
 import { hostOf, matchingSite } from "../lib/filters";
-import { isSettings, relativeTime, type Activity, type StatusReply, type TasksReply } from "../lib/messages";
+import { WEB_ORIGINS, type MediaCandidate } from "../lib/media";
+import {
+  isMediaReply,
+  isSettings,
+  overlayResultText,
+  relativeTime,
+  type Activity,
+  type StatusReply,
+  type TasksReply,
+} from "../lib/messages";
 import type { TaskStatus } from "../lib/protocol";
-import { itemView, mayChange, statusView } from "../lib/view";
+import { itemView, mayChange, mediaEmptyText, mediaRowView, statusView } from "../lib/view";
 import { byId, extensionInfo, paintStatus, span } from "../ui/dom";
 
 const DOWNLOADS_PERMISSION: chrome.permissions.Permissions = { permissions: ["downloads"] };
+const MEDIA_PERMISSIONS: chrome.permissions.Permissions = { permissions: ["webRequest"], origins: WEB_ORIGINS };
+/** While detection is on, the page's media list is read again this often. */
+const MEDIA_POLL_MS = 1_500;
 /** While a listed download runs or waits for an answer, it is refreshed this often. */
 const POLL_MS = 1_000;
 
@@ -19,6 +31,8 @@ const els = {
     guide: byId<HTMLAnchorElement>("guide"),
   },
   recheck: byId<HTMLButtonElement>("recheck"),
+  statusBlock: byId("status-block"),
+  connected: byId("connected"),
   actions: byId("status-actions"),
   capture: byId<HTMLInputElement>("capture"),
   filters: byId<HTMLButtonElement>("filters"),
@@ -28,6 +42,12 @@ const els = {
   pageLinks: byId<HTMLButtonElement>("page-links"),
   activity: byId<HTMLUListElement>("activity"),
   empty: byId("activity-empty"),
+  media: {
+    block: byId("media-block"),
+    toggle: byId<HTMLInputElement>("media"),
+    list: byId<HTMLUListElement>("media-list"),
+    empty: byId("media-empty"),
+  },
 };
 
 const extension = extensionInfo();
@@ -39,6 +59,16 @@ let pollTimer: ReturnType<typeof setTimeout> | undefined;
 /** The tab the popup was opened over, when it is an http(s) page. */
 let page: { tabId: number; host: string } | null = null;
 let excludedSites: string[] = [];
+/** The connected Downpipe takes streams; assumed until the status says otherwise. */
+let streams = true;
+let mediaItems: MediaCandidate[] = [];
+let mediaEnabled = false;
+let mediaExcludedBy: string | undefined;
+let mediaTimer: ReturnType<typeof setTimeout> | undefined;
+/** What happened when a row was sent, by media id, while the popup is open. */
+const mediaResults = new Map<string, { text: string; failed: boolean } | "sending">();
+/** What the media list was last drawn from, to leave it alone (and focus in it) when nothing changed. */
+let mediaDrawn = "";
 
 function isStatusReply(value: unknown): value is StatusReply {
   if (typeof value !== "object" || value === null) return false;
@@ -63,8 +93,14 @@ function isTasksReply(value: unknown): value is TasksReply {
 function renderStatus(reply: StatusReply | null): void {
   const view = statusView(reply?.bridge ?? null, extension);
   paintStatus(els.status, view);
-  // Nothing to do while connected; the popup checks again each time it opens.
-  els.actions.hidden = view.tone === "positive";
+  // Connected needs no box and no actions, only a word in the header: the
+  // room goes to the media and download lists. The popup checks again each
+  // time it opens.
+  const connected = view.tone === "positive";
+  els.statusBlock.hidden = connected;
+  els.connected.hidden = !connected;
+  els.connected.title = connected ? `${view.title}. ${view.detail}` : "";
+  els.actions.hidden = connected;
 }
 
 /**
@@ -120,6 +156,62 @@ function activityItem(entry: Activity, now: number): HTMLLIElement {
   return li;
 }
 
+function mediaRow(c: MediaCandidate): HTMLLIElement {
+  const view = mediaRowView(c, streams);
+  const result = mediaResults.get(c.id);
+  const li = document.createElement("li");
+  li.className = "item media-item";
+  li.dataset.tone = result && result !== "sending" ? (result.failed ? "danger" : "positive") : "muted";
+  const label = span("item-label", view.label);
+  label.title = c.url;
+  const detail = span("item-detail num", result && result !== "sending" ? result.text : view.detail);
+  detail.title = detail.textContent ?? "";
+  const send = document.createElement("button");
+  send.type = "button";
+  send.className = "btn btn-small";
+  send.textContent = result === "sending" ? "Sending…" : "Download";
+  send.disabled = !view.sendable || result === "sending";
+  send.setAttribute("aria-label", `Download ${view.label} with Downpipe`);
+  send.addEventListener("click", () => void sendMedia(c.id));
+  li.append(label, send, detail);
+  return li;
+}
+
+function renderMedia(): void {
+  const drawn = JSON.stringify([mediaEnabled, mediaExcludedBy, streams, mediaItems.map((c) => c.id), [...mediaResults]]);
+  els.media.toggle.checked = mediaEnabled;
+  if (drawn === mediaDrawn) return;
+  mediaDrawn = drawn;
+  els.media.list.replaceChildren(...mediaItems.map(mediaRow));
+  els.media.empty.textContent = mediaEmptyText(mediaEnabled, mediaExcludedBy);
+  els.media.empty.hidden = mediaItems.length > 0;
+}
+
+async function refreshMedia(): Promise<void> {
+  clearTimeout(mediaTimer);
+  if (!page) return;
+  const reply: unknown = await ext.runtime.sendMessage({ kind: "media_list", tabId: page.tabId }).catch(() => null);
+  if (!isMediaReply(reply)) return;
+  mediaEnabled = reply.enabled;
+  mediaExcludedBy = reply.excludedBy;
+  mediaItems = reply.items;
+  renderMedia();
+  if (mediaEnabled) mediaTimer = setTimeout(() => void refreshMedia(), MEDIA_POLL_MS);
+}
+
+async function sendMedia(mediaId: string): Promise<void> {
+  if (!page) return;
+  mediaResults.set(mediaId, "sending");
+  renderMedia();
+  const reply: unknown = await ext.runtime
+    .sendMessage({ kind: "send_media", tabId: page.tabId, mediaId })
+    .catch(() => null);
+  mediaResults.set(mediaId, overlayResultText(reply));
+  renderMedia();
+  // The Downloads list below now has it.
+  void refresh();
+}
+
 function renderList(): void {
   const now = Date.now();
   els.activity.replaceChildren(...listed.map((entry) => activityItem(entry, now)));
@@ -144,6 +236,7 @@ async function refresh(): Promise<void> {
   try {
     const reply: unknown = await ext.runtime.sendMessage({ kind: "status" });
     const status = isStatusReply(reply) ? reply : null;
+    if (status) streams = status.bridge.state !== "connected" || status.bridge.media;
     renderStatus(
       status ?? {
         bridge: { state: "error", message: "The extension did not answer." },
@@ -173,8 +266,24 @@ async function findPage(): Promise<void> {
   const host = hostOf(tab?.url);
   page = tab?.id !== undefined && host ? { tabId: tab.id, host } : null;
   els.pageLinks.hidden = page === null;
+  els.media.block.hidden = page === null;
   renderSite();
+  await refreshMedia();
 }
+
+// Detection is the optional `webRequest` permission plus access to web pages;
+// the request has to come straight from this click.
+els.media.toggle.addEventListener("change", () => {
+  const wanted = els.media.toggle.checked;
+  els.media.toggle.disabled = true;
+  const change = wanted ? ext.permissions.request(MEDIA_PERMISSIONS) : ext.permissions.remove(MEDIA_PERMISSIONS);
+  void change
+    .catch(() => false)
+    .then(() => refreshMedia())
+    .finally(() => {
+      els.media.toggle.disabled = false;
+    });
+});
 
 // The toggle is the optional `downloads` permission itself: granted means
 // capture is on. The request has to come straight from this click.

@@ -9,7 +9,9 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+aes.workspace = true
 bytes.workspace = true
+cbc.workspace = true
 fastrand.workspace = true
 futures-util.workspace = true
 hex.workspace = true
@@ -17,6 +19,7 @@ httpdate.workspace = true
 parking_lot.workspace = true
 percent-encoding.workspace = true
 reqwest.workspace = true
+roxmltree.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

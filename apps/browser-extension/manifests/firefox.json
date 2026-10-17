@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Downpipe",
-  "description": "Send links and browser downloads to the Downpipe desktop app.",
+  "description": "Send links, browser downloads and the videos pages play to the Downpipe desktop app.",
   "browser_specific_settings": {
     "gecko": {
       "id": "downpipe@downpipe.dev",
@@ -10,7 +10,8 @@
     }
   },
   "permissions": ["activeTab", "contextMenus", "nativeMessaging", "notifications", "scripting", "storage"],
-  "optional_permissions": ["downloads"],
+  "optional_permissions": ["downloads", "webRequest"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": { "scripts": ["background.js"] },
   "options_ui": { "page": "options.html", "open_in_tab": true },
   "action": {

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use downpipe_http::media::{MediaKind, MediaOptions, MediaSelection};
 use downpipe_http::{Phase, Progress, SegmentView};
 use serde::{Deserialize, Serialize};
 
@@ -116,9 +117,52 @@ pub struct TaskRecord {
     /// Order inside the queue: lower starts first.
     #[serde(default)]
     pub position: i64,
+    /// Set when the URL is a stream manifest (HLS, DASH) rather than a file.
+    #[serde(default)]
+    pub media: Option<MediaInfo>,
     pub created_at: i64,
     pub updated_at: i64,
     pub completed_at: Option<i64>,
+}
+
+/// What a stream download remembers between sessions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaInfo {
+    pub kind: MediaKind,
+    /// The tracks to download. `None` takes the best quality when it starts,
+    /// which is then stored here so a resume takes the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<MediaSelection>,
+    /// "1080p" and the like, once known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<String>,
+}
+
+impl MediaInfo {
+    pub fn new(kind: MediaKind) -> Self {
+        Self {
+            kind,
+            selection: None,
+            quality: None,
+        }
+    }
+}
+
+/// Fragments of a stream download.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Fragments {
+    pub done: usize,
+    pub total: usize,
+}
+
+/// What a stream offers, for the quality chooser.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MediaChoices {
+    pub options: MediaOptions,
+    /// The choice made so far, if any.
+    pub selection: Option<MediaSelection>,
+    /// FFmpeg is available to merge separate video and audio into one file.
+    pub ffmpeg: bool,
 }
 
 /// Live numbers that only exist while a download runs.
@@ -133,6 +177,8 @@ pub struct Live {
     /// Sent by the browser and waiting for the user to confirm its name,
     /// folder and queue before it starts.
     pub awaiting_confirmation: bool,
+    /// Stream downloads: fragments done and in all.
+    pub fragments: Option<Fragments>,
 }
 
 impl Live {
@@ -145,6 +191,10 @@ impl Live {
             segments: p.segments.clone(),
             notices: p.notices.clone(),
             awaiting_confirmation: false,
+            fragments: p.media.as_ref().map(|m| Fragments {
+                done: m.fragments_done,
+                total: m.fragments,
+            }),
         }
     }
 }
@@ -195,6 +245,9 @@ pub struct AddOptions {
     /// Hold the download until the user confirms it (see
     /// [`crate::Manager::confirm`]).
     pub confirm: bool,
+    /// The URL is a stream manifest. Without it, `.m3u8` and `.mpd` links
+    /// are recognized by their extension.
+    pub media: Option<MediaKind>,
 }
 
 /// What the user chose in the confirmation dialog.
@@ -207,6 +260,8 @@ pub struct ConfirmOptions {
     pub queue: Option<String>,
     /// Start now; otherwise it stays paused ("Download later").
     pub start: bool,
+    /// Stream downloads: the quality and audio to download.
+    pub media: Option<MediaSelection>,
 }
 
 /// Where selected downloads move inside their queue.

@@ -1,0 +1,11 @@
+{
+  "protocol_version": 1,
+  "type": "media",
+  "id": "s1",
+  "manifest_url": "https://video.example.net/streams/clip/master.m3u8",
+  "kind": "hls",
+  "page_url": "https://example.org/watch/clip",
+  "referrer": "https://example.org/",
+  "origin": "https://example.org",
+  "title": "Clip of the week"
+}

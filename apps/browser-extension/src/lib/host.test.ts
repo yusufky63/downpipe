@@ -16,7 +16,7 @@ describe("callHost", () => {
     expect(send).toHaveBeenCalledWith(HOST_NAME, pingMessage("p1"));
     expect(result).toEqual({
       ok: true,
-      response: { type: "pong", id: "p1", hostVersion: "0.2.0", appRunning: true, appVersion: "0.2.0" },
+      response: { type: "pong", id: "p1", hostVersion: "0.2.0", appRunning: true, appVersion: "0.2.0", features: [] },
     });
   });
 

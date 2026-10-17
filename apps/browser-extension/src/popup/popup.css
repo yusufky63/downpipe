@@ -23,6 +23,24 @@ body {
   }
 }
 
+/* ---------- Header ---------- */
+
+.connected {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.connected .dot {
+  --tone: var(--positive);
+  margin-top: 0;
+}
+.connected:not([hidden]) + .version {
+  margin-left: 8px;
+}
+
 /* ---------- Layout ---------- */
 
 .block {
@@ -164,4 +182,32 @@ body {
 .empty {
   font-size: 13px;
   color: var(--text-muted);
+}
+
+/* ---------- Media on this page ---------- */
+
+/* Two rows and a half show at once, so a long list scrolls instead of
+   pushing the rest of the popup past the browser's 600 px limit. */
+.media-list {
+  max-height: 150px;
+}
+.media-item {
+  gap: 2px 12px;
+  padding: 8px 12px;
+}
+.media-item .btn {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+}
+.media-item[data-tone="muted"] .item-detail {
+  color: var(--text-secondary);
+}
+.media-item[data-tone="positive"] .item-detail,
+.media-item[data-tone="danger"] .item-detail {
+  color: var(--tone);
+}
+.btn-small {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
 }

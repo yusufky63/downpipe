@@ -20,8 +20,14 @@
 //! | `auth=user:pass`             | require HTTP Basic auth                                |
 //!
 //! `/redirect?to=/file/100` answers `302` to the given path.
+//!
+//! HLS and DASH streams with checkable fragments are under `/hls/` and
+//! `/dash/`; see [`streams`]. `/files/...` serves a folder set with
+//! [`TestServer::serve_files`], for real media made by FFmpeg in tests.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -37,6 +43,8 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+
+pub mod streams;
 
 const CHUNK: usize = 16 * 1024;
 
@@ -59,6 +67,7 @@ pub struct RequestLog {
     pub range: Option<String>,
     pub if_range: Option<String>,
     pub referer: Option<String>,
+    pub origin: Option<String>,
     pub cookie: Option<String>,
     pub user_agent: Option<String>,
     pub status: u16,
@@ -73,6 +82,10 @@ pub struct ServerState {
     max_active: AtomicU64,
     drops: AtomicU64,
     failures: AtomicU64,
+    /// Injected failures per fragment path, for `fail_seg` (see [`streams`]).
+    fragment_failures: Mutex<HashMap<String, u64>>,
+    /// Folder `/files/` serves, if any.
+    files: Mutex<Option<PathBuf>>,
     log: Mutex<Vec<RequestLog>>,
 }
 
@@ -99,6 +112,7 @@ impl ServerState {
         self.max_active.store(0, Ordering::SeqCst);
         self.drops.store(0, Ordering::SeqCst);
         self.failures.store(0, Ordering::SeqCst);
+        self.fragment_failures.lock().clear();
     }
 
     fn record(&self, path: &str, headers: &HeaderMap, status: StatusCode) {
@@ -113,6 +127,7 @@ impl ServerState {
             range: get(header::RANGE),
             if_range: get(header::IF_RANGE),
             referer: get(header::REFERER),
+            origin: get(header::ORIGIN),
             cookie: get(header::COOKIE),
             user_agent: get(header::USER_AGENT),
             status: status.as_u16(),
@@ -142,6 +157,11 @@ impl TestServer {
             let _ = axum::serve(listener, app).await;
         });
         Ok(Self { addr, state, task })
+    }
+
+    /// Serve the files of `dir` under `/files/`.
+    pub fn serve_files(&self, dir: impl Into<PathBuf>) {
+        *self.state.files.lock() = Some(dir.into());
     }
 
     pub fn url(&self, path_and_query: &str) -> String {
@@ -191,7 +211,8 @@ pub const SAMPLES: &[(&str, &str)] = &[
 ];
 
 pub fn router(state: Arc<ServerState>) -> Router {
-    Router::new()
+    streams::routes(Router::new())
+        .route("/files/{*path}", get(static_file))
         .route("/", get(index))
         .route("/file/{size}", get(file))
         // Same content; the trailing name only gives clients a file name in
@@ -242,6 +263,48 @@ async fn index() -> Response {
         header::CONTENT_TYPE,
         HeaderValue::from_static("text/html; charset=utf-8"),
     );
+    resp
+}
+
+/// A file from the folder given to [`TestServer::serve_files`]. Paths with
+/// `..` or a drive are refused; this is a test server, not a file server.
+async fn static_file(
+    State(state): State<Arc<ServerState>>,
+    Path(path): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(root) = state.files.lock().clone() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let safe = path
+        .split('/')
+        .all(|part| !part.is_empty() && part != ".." && !part.contains(['\\', ':']));
+    let status;
+    let resp = match tokio::fs::read(root.join(&path)).await {
+        Ok(bytes) if safe => {
+            status = StatusCode::OK;
+            state
+                .bytes_served
+                .fetch_add(bytes.len() as u64, Ordering::SeqCst);
+            let mime = match path.rsplit_once('.').map(|(_, e)| e) {
+                Some("m3u8") => "application/vnd.apple.mpegurl",
+                Some("mpd") => "application/dash+xml",
+                Some("ts") => "video/mp2t",
+                Some("html") => "text/html; charset=utf-8",
+                Some("js") => "text/javascript",
+                _ => "video/mp4",
+            };
+            let mut resp = bytes.into_response();
+            resp.headers_mut()
+                .insert(header::CONTENT_TYPE, HeaderValue::from_static(mime));
+            resp
+        }
+        _ => {
+            status = StatusCode::NOT_FOUND;
+            status.into_response()
+        }
+    };
+    state.record(&format!("/files/{path}"), &headers, status);
     resp
 }
 

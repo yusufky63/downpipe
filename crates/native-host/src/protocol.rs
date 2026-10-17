@@ -10,6 +10,13 @@
 //!  "referrer": "https://example.org/",
 //!  "mime_type": "application/zip",
 //!  "file_name": "file.zip"}
+//! {"protocol_version": 1, "type": "media", "id": "s1",
+//!  "manifest_url": "https://video.example.net/clip/master.m3u8",
+//!  "kind": "hls",
+//!  "page_url": "https://example.org/watch/clip",
+//!  "referrer": "https://example.org/",
+//!  "origin": "https://example.org",
+//!  "title": "Clip of the week"}
 //! {"protocol_version": 1, "type": "tasks", "id": "t1",
 //!  "task_ids": ["8e48dd86-5481-41af-a2fc-edf3044e29b8"]}
 //! ```
@@ -19,6 +26,7 @@
 //! and any field that mentions cookies is refused outright, so an extension
 //! bug cannot quietly start shipping session data into the app.
 
+use downpipe_core::http::media::MediaKind;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
@@ -36,6 +44,19 @@ pub const MAX_ID_LEN: usize = 64;
 pub const MAX_TASK_IDS: usize = 20;
 /// Error texts in task updates are capped; they end up in a small popup.
 pub const MAX_TASK_ERROR_LEN: usize = 300;
+/// Characters of a page title sent with a stream; it only names the file.
+pub const MAX_TITLE_LEN: usize = 200;
+
+/// What a host and app of this version can do beyond version 1's first
+/// messages. `pong` lists the ones both ends support, so an extension can
+/// tell an outdated Downpipe from a broken one before it sends anything.
+pub mod feature {
+    /// The `media` message: HLS and DASH streams.
+    pub const MEDIA: &str = "media";
+}
+
+/// Every feature this build supports.
+pub const FEATURES: &[&str] = &[feature::MEDIA];
 
 /// Stable error codes. The extension branches on these; `message` is for people.
 pub mod code {
@@ -91,6 +112,8 @@ pub enum RequestKind {
     /// Is the host installed, and is the app running?
     Ping,
     Download(DownloadRequest),
+    /// A stream (HLS or DASH) the page played.
+    Media(MediaRequest),
     /// Progress of downloads the extension added, by the ids `accepted` gave it.
     Tasks(Vec<String>),
 }
@@ -159,6 +182,66 @@ impl DownloadRequest {
     }
 }
 
+/// A stream found by the extension's media detection: the manifest a player
+/// loaded. Validated by both ends like [`DownloadRequest`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaRequest {
+    pub manifest_url: String,
+    pub kind: MediaKind,
+    /// The page that played it. Not stored, like a download's page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_url: Option<String>,
+    /// Sent as `Referer` with the manifest and every fragment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub referrer: Option<String>,
+    /// The page title, which names the file; the app sanitizes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The `Origin` the page's player sent with its requests (players that
+    /// fetch with CORS send one, and some servers check it). Sent with the
+    /// manifest and every fragment, like the referrer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+}
+
+impl MediaRequest {
+    pub fn new(manifest_url: impl Into<String>, kind: MediaKind) -> Self {
+        Self {
+            manifest_url: manifest_url.into(),
+            kind,
+            page_url: None,
+            referrer: None,
+            title: None,
+            origin: None,
+        }
+    }
+
+    /// The same rules as [`DownloadRequest::validate`], plus a title of at
+    /// most [`MAX_TITLE_LEN`] characters without control characters and an
+    /// origin that is only `scheme://host[:port]`.
+    pub fn validate(self) -> Result<Self, ProtocolError> {
+        let mut manifest = web_url("manifest_url", &self.manifest_url)?;
+        manifest.set_fragment(None);
+        let page_url = present(self.page_url)
+            .map(|raw| web_url("page_url", &raw).map(without_secrets))
+            .transpose()?;
+        let referrer = present(self.referrer)
+            .map(|raw| web_url("referrer", &raw).map(without_secrets))
+            .transpose()?;
+        let title = present(self.title).map(|t| title(&t)).transpose()?;
+        let origin = present(self.origin).map(|o| origin(&o)).transpose()?;
+        Ok(Self {
+            manifest_url: manifest.to_string(),
+            kind: self.kind,
+            page_url: page_url.map(String::from),
+            referrer: referrer.map(String::from),
+            title,
+            origin,
+        })
+    }
+}
+
 /// Every field any message type may carry. `deny_unknown_fields` turns a typo
 /// or an unexpected field (`headers`, `cookies`, ...) into an error.
 #[derive(Deserialize)]
@@ -182,19 +265,45 @@ struct Envelope {
     file_name: Option<String>,
     #[serde(default)]
     task_ids: Option<Vec<String>>,
+    #[serde(default)]
+    manifest_url: Option<String>,
+    /// `kind` of a `media` message (`type` is the message's own kind). Kept
+    /// as text so an unknown value gets a clear message, not a serde one.
+    #[serde(rename = "kind", default)]
+    stream_kind: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    origin: Option<String>,
 }
 
 impl Envelope {
-    fn has_download_fields(&self) -> bool {
+    /// Fields only `download` carries.
+    fn has_file_fields(&self) -> bool {
+        [&self.resource_url, &self.mime_type, &self.file_name]
+            .iter()
+            .any(|f| f.is_some())
+    }
+
+    /// Fields only `media` carries.
+    fn has_stream_fields(&self) -> bool {
         [
-            &self.resource_url,
-            &self.page_url,
-            &self.referrer,
-            &self.mime_type,
-            &self.file_name,
+            &self.manifest_url,
+            &self.stream_kind,
+            &self.title,
+            &self.origin,
         ]
         .iter()
         .any(|f| f.is_some())
+    }
+
+    /// Fields `download` and `media` share.
+    fn has_page_fields(&self) -> bool {
+        self.page_url.is_some() || self.referrer.is_some()
+    }
+
+    fn has_download_fields(&self) -> bool {
+        self.has_file_fields() || self.has_stream_fields() || self.has_page_fields()
     }
 }
 
@@ -271,6 +380,11 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Rejected> {
                     "task_ids belongs to a `tasks` message".into(),
                 )));
             }
+            if envelope.has_stream_fields() {
+                return Err(fail(ProtocolError::Invalid(
+                    "manifest_url, kind and title belong to a `media` message".into(),
+                )));
+            }
             let Some(resource_url) = present(envelope.resource_url) else {
                 return Err(fail(ProtocolError::Invalid(
                     "resource_url is required".into(),
@@ -290,6 +404,42 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Rejected> {
                 kind: RequestKind::Download(request),
             })
         }
+        "media" => {
+            if envelope.task_ids.is_some() || envelope.has_file_fields() {
+                return Err(fail(ProtocolError::Invalid(
+                    "a `media` message carries manifest_url, kind, page_url, referrer, origin and title only"
+                        .into(),
+                )));
+            }
+            let Some(manifest_url) = present(envelope.manifest_url) else {
+                return Err(fail(ProtocolError::Invalid(
+                    "manifest_url is required".into(),
+                )));
+            };
+            let kind = match envelope.stream_kind.as_deref().map(MediaKind::parse) {
+                Some(Some(kind)) => kind,
+                Some(None) => {
+                    return Err(fail(ProtocolError::Invalid(
+                        "kind must be `hls` or `dash`".into(),
+                    )));
+                }
+                None => return Err(fail(ProtocolError::Invalid("kind is required".into()))),
+            };
+            let request = MediaRequest {
+                manifest_url,
+                kind,
+                page_url: envelope.page_url,
+                referrer: envelope.referrer,
+                title: envelope.title,
+                origin: envelope.origin,
+            }
+            .validate()
+            .map_err(fail)?;
+            Ok(Request {
+                id,
+                kind: RequestKind::Media(request),
+            })
+        }
         "tasks" => {
             if envelope.has_download_fields() {
                 return Err(fail(ProtocolError::Invalid(
@@ -306,7 +456,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Rejected> {
             })
         }
         _ => Err(fail(ProtocolError::Invalid(
-            "unknown message type; expected `ping`, `download` or `tasks`".into(),
+            "unknown message type; expected `ping`, `download`, `media` or `tasks`".into(),
         ))),
     }
 }
@@ -329,6 +479,10 @@ pub enum ResponseBody {
         app_running: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         app_version: Option<String>,
+        /// [`FEATURES`] that the host and the running app both support.
+        /// Left out when empty (the app is closed or predates them).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        features: Vec<String>,
     },
     /// Queued in the app.
     Accepted {
@@ -501,6 +655,34 @@ fn mime(raw: &str) -> Result<String, ProtocolError> {
             "mime_type must look like `application/zip`".into(),
         )),
     }
+}
+
+/// `scheme://host[:port]` and nothing else, as browsers send `Origin`.
+fn origin(raw: &str) -> Result<String, ProtocolError> {
+    let url = web_url("origin", raw)?;
+    let origin = url.origin().ascii_serialization();
+    if raw.trim().trim_end_matches('/') != origin {
+        return Err(ProtocolError::InvalidUrl {
+            field: "origin",
+            reason: "must be only scheme://host[:port]".into(),
+        });
+    }
+    Ok(origin)
+}
+
+fn title(raw: &str) -> Result<String, ProtocolError> {
+    let title = raw.trim();
+    if title.chars().count() > MAX_TITLE_LEN {
+        return Err(ProtocolError::Invalid(format!(
+            "title is longer than {MAX_TITLE_LEN} characters"
+        )));
+    }
+    if title.chars().any(char::is_control) {
+        return Err(ProtocolError::Invalid(
+            "title contains control characters".into(),
+        ));
+    }
+    Ok(title.to_string())
 }
 
 fn file_name(raw: &str) -> Result<String, ProtocolError> {
@@ -833,6 +1015,149 @@ mod tests {
         assert_eq!(serde_json::from_value::<Response>(value).unwrap(), response);
     }
 
+    fn media(value: Value) -> Result<MediaRequest, ProtocolError> {
+        let mut message = json!({"protocol_version": 1, "type": "media"});
+        message
+            .as_object_mut()
+            .unwrap()
+            .extend(value.as_object().unwrap().clone());
+        match parse(message) {
+            Ok(Request {
+                kind: RequestKind::Media(m),
+                ..
+            }) => Ok(m),
+            Ok(other) => panic!("not a media request: {other:?}"),
+            Err(r) => Err(r.error),
+        }
+    }
+
+    #[test]
+    fn parses_and_normalizes_a_stream() {
+        let m = media(json!({
+            "manifest_url": "https://video.example.net/a/master.m3u8?sig=1#t=4",
+            "kind": "hls",
+            "page_url": "https://u:p@example.org/watch#c",
+            "referrer": "https://example.org/",
+            "origin": "https://example.org",
+            "title": "  A clip  ",
+        }))
+        .unwrap();
+        assert_eq!(m.origin.as_deref(), Some("https://example.org"));
+        assert_eq!(
+            m.manifest_url,
+            "https://video.example.net/a/master.m3u8?sig=1"
+        );
+        assert_eq!(m.kind, MediaKind::Hls);
+        assert_eq!(m.page_url.as_deref(), Some("https://example.org/watch"));
+        assert_eq!(m.title.as_deref(), Some("A clip"));
+        let dash =
+            media(json!({"manifest_url": "https://a.org/m.mpd", "kind": "dash", "title": ""}))
+                .unwrap();
+        assert_eq!(
+            dash,
+            MediaRequest::new("https://a.org/m.mpd", MediaKind::Dash)
+        );
+    }
+
+    #[test]
+    fn streams_are_checked_like_downloads() {
+        let bad = [
+            json!({"kind": "hls"}),
+            json!({"manifest_url": "https://a.org/x.m3u8"}),
+            json!({"manifest_url": "https://a.org/x.m3u8", "kind": "rtmp"}),
+            json!({"manifest_url": "https://a.org/x.m3u8", "kind": 1}),
+            json!({"manifest_url": "https://a.org/x.m3u8", "kind": "hls", "title": "a\u{7}b"}),
+            json!({"manifest_url": "https://a.org/x.m3u8", "kind": "hls", "title": "t".repeat(MAX_TITLE_LEN + 1)}),
+            json!({"manifest_url": "https://a.org/x.m3u8", "kind": "hls", "file_name": "x.mp4"}),
+            json!({"manifest_url": "https://a.org/x.m3u8", "kind": "hls", "resource_url": "https://a.org/"}),
+            json!({"manifest_url": "https://a.org/x.m3u8", "kind": "hls", "task_ids": ["a"]}),
+            json!({"manifest_url": "https://a.org/x.m3u8", "kind": "hls", "headers": {}}),
+        ];
+        for value in bad {
+            assert_eq!(
+                media(value.clone()).unwrap_err().code(),
+                code::INVALID_MESSAGE,
+                "{value}"
+            );
+        }
+        for origin in [
+            "https://a.org/path",
+            "https://u:p@a.org",
+            "https://a.org/?x=1",
+            "null",
+            "file://",
+        ] {
+            assert_eq!(
+                media(
+                    json!({"manifest_url": "https://a.org/x.m3u8", "kind": "hls", "origin": origin})
+                )
+                .unwrap_err()
+                .code(),
+                code::INVALID_URL,
+                "{origin}"
+            );
+        }
+        for url in ["blob:https://a.org/1", "file:///C:/x.m3u8", "data:,x"] {
+            assert_eq!(
+                media(json!({"manifest_url": url, "kind": "hls"}))
+                    .unwrap_err()
+                    .code(),
+                code::INVALID_URL,
+                "{url}"
+            );
+        }
+        let r = parse(json!({
+            "protocol_version": 1, "type": "media", "id": "s",
+            "manifest_url": "https://a.org/x.m3u8", "kind": "hls", "cookie": "a=b",
+        }))
+        .unwrap_err();
+        assert_eq!(r.error, ProtocolError::Cookies);
+        // Stream fields on a download are a mistake, not something to ignore.
+        let r = parse(json!({
+            "protocol_version": 1, "type": "download",
+            "resource_url": "https://a.org/x", "kind": "hls",
+        }))
+        .unwrap_err();
+        assert_eq!(r.error.code(), code::INVALID_MESSAGE);
+        let r = parse(json!({
+            "protocol_version": 1, "type": "download",
+            "resource_url": "https://a.org/x", "origin": "https://a.org",
+        }))
+        .unwrap_err();
+        assert_eq!(r.error.code(), code::INVALID_MESSAGE);
+        let ok_title = "\u{e9}".repeat(MAX_TITLE_LEN);
+        assert!(
+            media(
+                json!({"manifest_url": "https://a.org/x.m3u8", "kind": "hls", "title": ok_title})
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn pong_lists_features_only_when_there_are_some() {
+        let pong = |features: Vec<String>| {
+            serde_json::to_value(Response::new(
+                None,
+                ResponseBody::Pong {
+                    host_version: "0.4.0".into(),
+                    app_running: true,
+                    app_version: Some("0.4.0".into()),
+                    features,
+                },
+            ))
+            .unwrap()
+        };
+        assert_eq!(pong(vec!["media".into()])["features"], json!(["media"]));
+        assert!(pong(Vec::new()).get("features").is_none());
+        // A pong from an older host still parses.
+        let old = json!({"protocol_version": 1, "type": "pong", "host_version": "0.3.0", "app_running": true});
+        assert!(matches!(
+            serde_json::from_value::<Response>(old).unwrap().body,
+            ResponseBody::Pong { features, .. } if features.is_empty()
+        ));
+    }
+
     #[test]
     fn malformed_json_and_non_objects_are_rejected() {
         for raw in [
@@ -855,6 +1180,7 @@ mod tests {
                 host_version: "0.2.0".into(),
                 app_running: false,
                 app_version: None,
+                features: Vec::new(),
             },
         );
         assert_eq!(
@@ -921,6 +1247,16 @@ mod tests {
             parse_request(&tasks).unwrap().kind,
             RequestKind::Tasks(ids) if ids.len() == 2
         ));
+        let media = std::fs::read(dir.join("media-hls.json")).unwrap();
+        let Request {
+            kind: RequestKind::Media(m),
+            ..
+        } = parse_request(&media).unwrap()
+        else {
+            panic!("not a media request");
+        };
+        assert_eq!(m.kind, MediaKind::Hls);
+        assert_eq!(m.clone().validate().unwrap(), m, "fixture is normalized");
         let cookies = std::fs::read(dir.join("rejected-cookies.json")).unwrap();
         assert_eq!(
             parse_request(&cookies).unwrap_err().error,

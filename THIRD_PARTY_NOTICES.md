@@ -2,16 +2,18 @@
 
 Downpipe is licensed under Apache-2.0. It depends on the open-source projects below, each under its own license. This file covers the dependencies of the code in this repository; it was generated from `cargo metadata` and `pnpm licenses list --prod` on 2026-10-17 and must be regenerated before each release (a release build will also ship an SPDX SBOM).
 
-No external programs (yt-dlp, FFmpeg, aria2) are bundled.
+No external programs (yt-dlp, FFmpeg, aria2) are bundled. Stream downloads use an FFmpeg the user installed, when there is one, as a separate process; see [docs/LEGAL.md](docs/LEGAL.md).
 
 ## Rust: direct dependencies
 
 | Crate | Version | License |
 |---|---|---|
+| aes (AES-128 for encrypted HLS segments) | 0.8.4 | MIT OR Apache-2.0 |
 | anyhow | 1.0.104 | MIT OR Apache-2.0 |
 | arboard (desktop: clipboard watching) | 3.6.1 | MIT OR Apache-2.0 |
 | axum (test server only) | 0.8.9 | MIT |
 | bytes | 1.12.1 | MIT |
+| cbc (cipher block chaining for the above) | 0.1.2 | MIT OR Apache-2.0 |
 | chrono | 0.4.45 | MIT OR Apache-2.0 |
 | clap | 4.6.7 | MIT OR Apache-2.0 |
 | dirs | 7.0.0 | MIT OR Apache-2.0 |
@@ -25,6 +27,7 @@ No external programs (yt-dlp, FFmpeg, aria2) are bundled.
 | parking_lot | 0.12.5 | MIT OR Apache-2.0 |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 |
 | reqwest | 0.13.5 | MIT OR Apache-2.0 |
+| roxmltree (DASH manifests) | 0.21.1 | MIT OR Apache-2.0 |
 | rusqlite (bundles SQLite, public domain) | 0.40.2 | MIT |
 | serde | 1.0.229 | MIT OR Apache-2.0 |
 | serde_json | 1.0.154 | MIT OR Apache-2.0 |
@@ -47,7 +50,7 @@ No external programs (yt-dlp, FFmpeg, aria2) are bundled.
 
 ## Rust: all transitive dependencies by license
 
-611 crates in total. Most are MIT and/or Apache-2.0; the others are permissive (BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, Unlicense, 0BSD, CC0-1.0, BSL-1.0, CDLA-Permissive-2.0) except for these weak-copyleft crates, all pulled in by Tauri's HTML tooling or `dirs`:
+623 crates in total. Most are MIT and/or Apache-2.0; the others are permissive (BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, Unlicense, 0BSD, CC0-1.0, BSL-1.0, CDLA-Permissive-2.0) except for these weak-copyleft crates, all pulled in by Tauri's HTML tooling or `dirs`:
 
 | Crate | Version | License |
 |---|---|---|

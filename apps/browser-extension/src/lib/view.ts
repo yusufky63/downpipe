@@ -1,4 +1,5 @@
 import { formatBytes, formatSpeed, percent, sentence } from "./format";
+import { kindLabel, mediaName, type MediaCandidate } from "./media";
 import type { Activity } from "./messages";
 import type { TaskState, TaskStatus } from "./protocol";
 import type { BridgeStatus } from "./status";
@@ -146,4 +147,39 @@ export function statusView(
     case "error":
       return { tone: "danger", title: "Bridge error", detail: status.message, guide: true };
   }
+}
+
+/** One row of the popup's media list. */
+export interface MediaRowView {
+  label: string;
+  detail: string;
+  /** False when this Downpipe cannot take the stream (it is too old). */
+  sendable: boolean;
+}
+
+/**
+ * `streams`: whether the connected Downpipe can download HLS and DASH
+ * streams; single media files go through the ordinary download message.
+ */
+export function mediaRowView(c: MediaCandidate, streams: boolean): MediaRowView {
+  let host = "";
+  try {
+    host = new URL(c.url).hostname;
+  } catch {
+    // Stored entries are validated; keep the row anyway.
+  }
+  const parts = [kindLabel(c), c.size !== undefined ? formatBytes(c.size) : "", host].filter(Boolean);
+  const sendable = c.kind === "direct" || streams;
+  return {
+    label: mediaName(c.url),
+    detail: sendable ? parts.join(" · ") : "Update Downpipe to download streams",
+    sendable,
+  };
+}
+
+/** What the media list says when it has no rows. */
+export function mediaEmptyText(enabled: boolean, excludedBy?: string): string {
+  if (!enabled) return "Turn on to list the videos and audio pages play. The browser asks for access to all sites first.";
+  if (excludedBy) return `Not listed here: ${excludedBy} is an excluded site in Filters.`;
+  return "Nothing yet. Play the video; if it was already playing, reload the page.";
 }

@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::frame::{self, FrameError};
-use crate::protocol::{DownloadRequest, TaskStatus, code};
+use crate::protocol::{DownloadRequest, MediaRequest, TaskStatus, code};
 
 /// Bumped whenever host and app stop understanding each other. They ship
 /// together, but a user can update one without re-registering the other.
@@ -97,6 +97,13 @@ pub enum AppAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         origin: Option<String>,
     },
+    /// A stream for the app to read and download. Added after the first
+    /// release of this pipe; an app from before it answers `invalid_message`.
+    Media {
+        request: MediaRequest,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<String>,
+    },
     Tasks {
         task_ids: Vec<String>,
     },
@@ -114,6 +121,13 @@ impl AppRequest {
         Self {
             ipc_version: IPC_VERSION,
             action: AppAction::Download { request, origin },
+        }
+    }
+
+    pub fn media(request: MediaRequest, origin: Option<String>) -> Self {
+        Self {
+            ipc_version: IPC_VERSION,
+            action: AppAction::Media { request, origin },
         }
     }
 
@@ -149,6 +163,10 @@ impl AppRequest {
 pub enum AppResponse {
     Pong {
         app_version: String,
+        /// What this app supports beyond the first messages (see
+        /// [`crate::protocol::FEATURES`]). Missing from apps before it.
+        #[serde(default)]
+        features: Vec<String>,
     },
     Accepted {
         task_id: String,
@@ -290,9 +308,15 @@ mod tests {
     fn requests_round_trip_through_json() {
         let mut d = DownloadRequest::new("https://example.org/a.zip");
         d.referrer = Some("https://example.org/".into());
+        let mut m = MediaRequest::new(
+            "https://video.example.org/master.m3u8",
+            downpipe_core::http::media::MediaKind::Hls,
+        );
+        m.title = Some("Clip".into());
         for request in [
             AppRequest::ping(),
             AppRequest::download(d, Some("chrome-extension://abc/".into())),
+            AppRequest::media(m, None),
             AppRequest::tasks(vec!["t-1".into(), "t-2".into()]),
         ] {
             let bytes = serde_json::to_vec(&request).unwrap();
@@ -334,6 +358,14 @@ mod tests {
                 task_id: "t".into(),
                 file_name: None,
                 awaiting_confirmation: false,
+            }
+        );
+        let older_pong = json!({"type": "pong", "app_version": "0.3.0"});
+        assert_eq!(
+            serde_json::from_value::<AppResponse>(older_pong).unwrap(),
+            AppResponse::Pong {
+                app_version: "0.3.0".into(),
+                features: Vec::new(),
             }
         );
         let older_tasks = json!({"type": "tasks", "tasks": [

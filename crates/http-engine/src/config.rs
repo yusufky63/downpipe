@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::checksum::Checksum;
+use crate::media::MediaRequest;
 
 pub const KIB: u64 = 1024;
 pub const MIB: u64 = 1024 * KIB;
@@ -79,6 +80,10 @@ pub struct DownloadRequest {
     /// [`DownloadError::DifferentFile`](crate::DownloadError::DifferentFile)
     /// and the partial data is kept.
     pub relink: bool,
+    /// Download the HLS or DASH stream `url` points to instead of the file
+    /// itself. `file_name` then names the result without its extension
+    /// mattering; the stream decides it.
+    pub media: Option<MediaRequest>,
 }
 
 impl DownloadRequest {
@@ -91,6 +96,7 @@ impl DownloadRequest {
             headers: Vec::new(),
             max_connections: None,
             relink: false,
+            media: None,
         }
     }
 }

@@ -2,6 +2,36 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
+## Unreleased
+
+Media detection: the videos and audio a web page plays, including HLS and DASH streams behind `blob:` players, download in Downpipe.
+
+### New
+
+- **Media on this page** in the extension's popup (a switch, off by default): the extension notes the HLS (`.m3u8`) and DASH (`.mpd`) manifests and the media files a page plays, per tab, and lists them with a **Download** button each. Turning it on asks the browser for the `webRequest` permission and access to all sites; turning it off removes both and forgets the lists.
+- A **Download** button over playing videos (big enough, not DRM-protected) while detection is on. With one stream found it sends it; with several it lists them. Pages cannot click it for you.
+- **Media on pages** in the extension's options page (now called **Filters**), like IDM's download panel settings: the Download button on or off, the media file types that are listed, and a minimum size (256 KiB by default). The excluded sites list applies to media detection too.
+- Detected media keeps the `Referer` and `Origin` the player's own request sent, and Downpipe sends them with the manifest and every fragment. Files that a script fetches in pieces by query string (`bytestart`, `byteend`, `range`) are listed as the whole file.
+- HLS downloads: master and media playlists, the best quality or the one you pick, AES-128 encrypted segments, transport streams and fragmented MP4 with an init section, byte-range segments, separate audio renditions.
+- DASH downloads: static manifests with segment templates (numbers or a timeline), segment lists or whole files per representation, separate video and audio.
+- Fragments download several at a time with retries; each finished fragment is kept as its own file, so pausing, closing Downpipe or a crash costs at most the fragments in flight. A resume checks that the stream still lists the same fragments.
+- The confirmation dialog of a stream sent from the browser has a **Quality** list (resolution, bit rate and, for DASH, the estimated size) and an **Audio** list when there is a choice. Only the manifest is read for it; no media is fetched before **Start download**.
+- FFmpeg, when installed (on `PATH`, or set in **Settings → Media**), merges separate video and audio into one file and turns transport streams into MP4, without re-encoding. Downpipe does not ship FFmpeg; without it the tracks are saved as `name.mp4` and `name.audio.m4a`, and the dialog says so beforehand.
+- Stream downloads in the list show the kind and quality (`HLS · 720p`), an approximate size until the last fragment is in (`~8.1 MiB`), and fragment progress in the details.
+- `.m3u8` and `.mpd` links added by hand (Add dialog, `downpipe get`) download as streams. `downpipe get --stream hls|dash` forces it for links without those extensions.
+- Bridge: a `media` message (`manifest_url`, `kind`, `page_url`, `referrer`, `origin`, `title`) with the same validation as `download`, and `features: ["media"]` in `pong` when both the bridge and the app can take streams.
+- Test server: `/hls/` and `/dash/` streams with checkable fragments and options for encryption, separate audio, live, DRM and failing fragments; `--files DIR` serves a folder, for example FFmpeg output and a page that plays it.
+
+### Changed
+
+- The popup shows **Connected** in its header instead of a status box while the app is reachable, so the media and download lists fit in the browser's 600 px popup.
+- Catalog schema version 4 (a `media` column); older catalogs are upgraded on start.
+
+### Not downloaded, on purpose
+
+- DRM-protected streams (HLS `SAMPLE-AES` or any key format other than plain AES-128, DASH `ContentProtection`) are refused before any media is requested, and the overlay button does not appear on videos that use Encrypted Media Extensions.
+- Live streams (HLS without `#EXT-X-ENDLIST`, DASH `type="dynamic"`).
+
 ## 0.3.0 — 2026-10-17
 
 The first published release: the IDM features that save the most time day to day, plus everything listed under 0.2.0 and 0.1.0, which were never released on their own.

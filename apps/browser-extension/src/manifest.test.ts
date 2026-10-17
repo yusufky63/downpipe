@@ -22,16 +22,17 @@ function rustConst(name: string): string | undefined {
 }
 
 describe("manifests", () => {
-  it("ask for no host access at all", () => {
+  it("ask for host access only as an option, for media detection", () => {
     for (const m of [chrome, firefox] as Record<string, unknown>[]) {
       expect(m.host_permissions).toBeUndefined();
-      expect(m.optional_host_permissions).toBeUndefined();
+      // Requested when the user turns media detection on, removed when off.
+      expect(m.optional_host_permissions).toEqual(["http://*/*", "https://*/*"]);
+      // The overlay button is registered at run time, and only while detection is on.
       expect(m.content_scripts).toBeUndefined();
       expect(m.externally_connectable).toBeUndefined();
       // The links page is opened by the extension itself; web pages cannot load it.
       expect(m.web_accessible_resources).toBeUndefined();
       expect(JSON.stringify(m)).not.toContain("<all_urls>");
-      expect(JSON.stringify(m)).not.toContain("://*/");
     }
   });
 
@@ -46,7 +47,7 @@ describe("manifests", () => {
         "scripting",
         "storage",
       ]);
-      expect(m.optional_permissions).toEqual(["downloads"]);
+      expect(m.optional_permissions).toEqual(["downloads", "webRequest"]);
     }
   });
 

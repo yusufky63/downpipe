@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::frame::{self, FrameError};
 use crate::ipc::{self, AppRequest, AppResponse, Endpoint, IpcError};
-use crate::protocol::{self, Request, RequestKind, Response, ResponseBody, code};
+use crate::protocol::{self, FEATURES, Request, RequestKind, Response, ResponseBody, code};
 
 /// Adding a download is a database write; anything slower means the app hangs.
 pub const APP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -75,15 +75,24 @@ pub fn respond(bytes: &[u8], link: &impl AppLink, origin: Option<&str>) -> Respo
     match kind {
         RequestKind::Ping => {
             let body = match link.call(&AppRequest::ping()) {
-                Ok(AppResponse::Pong { app_version }) => ResponseBody::Pong {
+                Ok(AppResponse::Pong {
+                    app_version,
+                    features,
+                }) => ResponseBody::Pong {
                     host_version,
                     app_running: true,
                     app_version: Some(app_version),
+                    // Only what this host can forward as well.
+                    features: features
+                        .into_iter()
+                        .filter(|f| FEATURES.contains(&f.as_str()))
+                        .collect(),
                 },
                 Err(IpcError::NotRunning) => ResponseBody::Pong {
                     host_version,
                     app_running: false,
                     app_version: None,
+                    features: Vec::new(),
                 },
                 Ok(AppResponse::Error { code, message, .. }) => ResponseBody::Error {
                     code,
@@ -99,31 +108,11 @@ pub fn respond(bytes: &[u8], link: &impl AppLink, origin: Option<&str>) -> Respo
         }
         RequestKind::Download(request) => {
             let request = AppRequest::download(request, origin.map(str::to_string));
-            let body = match link.call(&request) {
-                Ok(AppResponse::Accepted {
-                    task_id,
-                    file_name,
-                    awaiting_confirmation,
-                }) => ResponseBody::Accepted {
-                    task_id,
-                    file_name,
-                    awaiting_confirmation,
-                },
-                Ok(AppResponse::Error {
-                    code,
-                    message,
-                    task_id,
-                }) => ResponseBody::Error {
-                    code,
-                    message,
-                    task_id,
-                },
-                Ok(other @ (AppResponse::Pong { .. } | AppResponse::Tasks { .. })) => unavailable(
-                    &IpcError::BadResponse(format!("unexpected answer to a download: {other:?}")),
-                ),
-                Err(e) => unavailable(&e),
-            };
-            Response::new(id, body)
+            Response::new(id, added(link.call(&request), "a download"))
+        }
+        RequestKind::Media(request) => {
+            let request = AppRequest::media(request, origin.map(str::to_string));
+            Response::new(id, added(link.call(&request), "a stream"))
         }
         RequestKind::Tasks(task_ids) => {
             let body = match link.call(&AppRequest::tasks(task_ids)) {
@@ -140,6 +129,34 @@ pub fn respond(bytes: &[u8], link: &impl AppLink, origin: Option<&str>) -> Respo
             };
             Response::new(id, body)
         }
+    }
+}
+
+/// The answer to a `download` or `media` request: the app took it, or why not.
+fn added(answer: Result<AppResponse, IpcError>, what: &str) -> ResponseBody {
+    match answer {
+        Ok(AppResponse::Accepted {
+            task_id,
+            file_name,
+            awaiting_confirmation,
+        }) => ResponseBody::Accepted {
+            task_id,
+            file_name,
+            awaiting_confirmation,
+        },
+        Ok(AppResponse::Error {
+            code,
+            message,
+            task_id,
+        }) => ResponseBody::Error {
+            code,
+            message,
+            task_id,
+        },
+        Ok(other @ (AppResponse::Pong { .. } | AppResponse::Tasks { .. })) => unavailable(
+            &IpcError::BadResponse(format!("unexpected answer to {what}: {other:?}")),
+        ),
+        Err(e) => unavailable(&e),
     }
 }
 
@@ -205,11 +222,17 @@ mod tests {
                 Ok(match &request.action {
                     ipc::AppAction::Ping => AppResponse::Pong {
                         app_version: "9.9.9".into(),
+                        features: vec!["media".into(), "from-the-future".into()],
                     },
                     ipc::AppAction::Download { request, .. } => AppResponse::Accepted {
                         task_id: "task-1".into(),
                         file_name: request.file_name.clone(),
                         awaiting_confirmation: false,
+                    },
+                    ipc::AppAction::Media { request, .. } => AppResponse::Accepted {
+                        task_id: "stream-1".into(),
+                        file_name: request.title.as_ref().map(|t| format!("{t}.mp4")),
+                        awaiting_confirmation: true,
                     },
                     ipc::AppAction::Tasks { task_ids } => AppResponse::Tasks {
                         tasks: task_ids
@@ -279,6 +302,8 @@ mod tests {
         assert_eq!(out[0]["id"], "a");
         assert_eq!(out[0]["app_running"], true);
         assert_eq!(out[0]["app_version"], "9.9.9");
+        // Only features this host knows how to forward.
+        assert_eq!(out[0]["features"], json!(["media"]));
         assert_eq!(out[1]["type"], "accepted");
         assert_eq!(out[1]["task_id"], "task-1");
         assert_eq!(out[1]["file_name"], "f.zip");
@@ -427,7 +452,7 @@ mod tests {
                         awaiting_confirmation: true,
                     }],
                 },
-                ipc::AppAction::Ping => unreachable!(),
+                ipc::AppAction::Ping | ipc::AppAction::Media { .. } => unreachable!(),
             })
         });
         let input = frames(&[
@@ -457,6 +482,75 @@ mod tests {
             "{}",
             out[1]
         );
+    }
+
+    #[test]
+    fn streams_are_validated_and_forwarded() {
+        let app = FakeApp::running();
+        let fixture = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/media-hls.json"),
+        )
+        .unwrap();
+        let r = respond(&fixture, &app, Some("chrome-extension://abc/"));
+        assert_eq!(r.id.as_deref(), Some("s1"));
+        assert_eq!(
+            r.body,
+            ResponseBody::Accepted {
+                task_id: "stream-1".into(),
+                file_name: Some("Clip of the week.mp4".into()),
+                awaiting_confirmation: true,
+            }
+        );
+        match &app.seen.borrow()[0].action {
+            ipc::AppAction::Media { request, origin } => {
+                assert_eq!(
+                    request.manifest_url,
+                    "https://video.example.net/streams/clip/master.m3u8"
+                );
+                assert_eq!(request.referrer.as_deref(), Some("https://example.org/"));
+                assert_eq!(origin.as_deref(), Some("chrome-extension://abc/"));
+            }
+            other => panic!("{other:?}"),
+        }
+
+        let r = respond(
+            br#"{"protocol_version":1,"type":"media","manifest_url":"blob:https://a.org/1","kind":"hls"}"#,
+            &app,
+            None,
+        );
+        assert!(
+            matches!(r.body, ResponseBody::Error { ref code, .. } if code == code::INVALID_URL)
+        );
+        assert_eq!(
+            app.seen.borrow().len(),
+            1,
+            "refused before reaching the app"
+        );
+
+        // An app from before streams refuses the action it does not know.
+        let old_app = FakeApp::new(|_| {
+            Ok(AppResponse::error(
+                code::INVALID_MESSAGE,
+                "unknown variant `media`",
+            ))
+        });
+        let r = respond(&fixture, &old_app, None);
+        assert!(
+            matches!(r.body, ResponseBody::Error { ref code, .. } if code == code::INVALID_MESSAGE)
+        );
+    }
+
+    #[test]
+    fn a_pong_from_an_app_without_features_lists_none() {
+        let app = FakeApp::new(|_| {
+            Ok(AppResponse::Pong {
+                app_version: "0.3.0".into(),
+                features: Vec::new(),
+            })
+        });
+        let r = respond(br#"{"protocol_version":1,"type":"ping"}"#, &app, None);
+        let value = serde_json::to_value(&r).unwrap();
+        assert!(value.get("features").is_none(), "{value}");
     }
 
     #[test]

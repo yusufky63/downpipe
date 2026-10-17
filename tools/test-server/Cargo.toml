@@ -10,9 +10,11 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+aes.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 bytes.workspace = true
+cbc.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 httpdate.workspace = true

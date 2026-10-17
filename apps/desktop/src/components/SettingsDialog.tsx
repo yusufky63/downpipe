@@ -6,13 +6,14 @@ import { BROWSER_NAMES, bridgeStateInfo, canRegister } from "../lib/bridge";
 import { bytesToRate, rateToBytes, type RateUnit } from "../lib/format";
 import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } from "./primitives";
 
-export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "schedule" | "app";
+export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "media" | "schedule" | "app";
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "downloads", label: "Downloads" },
   { id: "queues", label: "Queues" },
   { id: "categories", label: "Categories" },
   { id: "network", label: "Network" },
+  { id: "media", label: "Media" },
   { id: "schedule", label: "Schedule" },
   { id: "app", label: "App" },
 ];
@@ -83,6 +84,7 @@ export function SettingsDialog({
   const [watchClipboard, setWatchClipboard] = useState(settings.watch_clipboard);
   const [keepAwake, setKeepAwake] = useState(settings.keep_awake);
   const [confirmBrowser, setConfirmBrowser] = useState(settings.confirm_browser_downloads);
+  const [ffmpegPath, setFfmpegPath] = useState(settings.ffmpeg_path);
   const [error, setError] = useState<string | null>(null);
   const tabIds = useId();
 
@@ -106,6 +108,7 @@ export function SettingsDialog({
         keep_awake: keepAwake,
         confirm_browser_downloads: confirmBrowser,
         queues: queues.map(fromQueueDraft).filter((q) => q.id === MAIN_QUEUE || q.name),
+        ffmpeg_path: ffmpegPath.trim(),
       });
       onSaved(saved);
       onClose();
@@ -334,6 +337,31 @@ export function SettingsDialog({
           </>
         )}
 
+        {tab === "media" && (
+          <>
+            <Field
+              label="FFmpeg"
+              hint="Merges the separate video and sound of a stream into one file, without re-encoding. Empty uses ffmpeg from PATH. Downpipe does not include FFmpeg."
+            >
+              {(id) => (
+                <input
+                  id={id}
+                  value={ffmpegPath}
+                  placeholder="ffmpeg on PATH"
+                  spellCheck={false}
+                  onChange={(e) => setFfmpegPath(e.target.value)}
+                  className={`${inputClass} h-9 font-mono text-[13px]`}
+                />
+              )}
+            </Field>
+            <FfmpegStatus />
+            <Banner tone="neutral">
+              Streams come from the browser extension&apos;s media detection, or from .m3u8 and .mpd links added here.
+              DRM-protected and live streams are not downloaded.
+            </Banner>
+          </>
+        )}
+
         {tab === "schedule" && (
           <>
             <Switch
@@ -449,6 +477,40 @@ export function SettingsDialog({
         )}
       </div>
     </Dialog>
+  );
+}
+
+/** Which FFmpeg the saved settings lead to. */
+function FfmpegStatus() {
+  const [found, setFound] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    let current = true;
+    api
+      .ffmpegStatus()
+      .then((path) => current && setFound(path))
+      .catch(() => current && setFound(null));
+    return () => {
+      current = false;
+    };
+  }, []);
+  if (found === undefined) return null;
+  return found ? (
+    <div className="flex min-w-0 items-center gap-2">
+      <Badge tone="positive">Found</Badge>
+      <span className="truncate font-mono text-[12px] text-ink-secondary select-text" title={found}>
+        {found}
+      </span>
+    </div>
+  ) : (
+    <div className="flex flex-col gap-1.5">
+      <div>
+        <Badge tone="warning">Not found</Badge>
+      </div>
+      <p className="text-[13px] text-ink-secondary">
+        Streams whose video and sound come separately are saved as two files. Install FFmpeg and add it to PATH, or enter the
+        path to ffmpeg above, then save.
+      </p>
+    </div>
   );
 }
 

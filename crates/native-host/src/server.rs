@@ -5,12 +5,15 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
+use downpipe_core::http::filename;
 use downpipe_core::{AddOptions, CoreError, Manager, TaskSnapshot};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 use crate::frame::{self, FrameError};
 use crate::ipc::{AppAction, AppRequest, AppResponse, Endpoint};
-use crate::protocol::{self, DownloadRequest, MAX_TASK_ERROR_LEN, TaskStatus, code};
+use crate::protocol::{
+    self, DownloadRequest, FEATURES, MAX_TASK_ERROR_LEN, MediaRequest, TaskStatus, code,
+};
 
 /// A client that connects and then says nothing is dropped after this long.
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -190,6 +193,7 @@ impl Bridge {
         match request.action {
             AppAction::Ping => AppResponse::Pong {
                 app_version: self.app_version.clone(),
+                features: FEATURES.iter().map(|f| f.to_string()).collect(),
             },
             AppAction::Download { request, origin } => {
                 // Anything running as this user can open the pipe, so the
@@ -201,6 +205,16 @@ impl Bridge {
                 let manager = self.manager.clone();
                 // `Manager::add` writes to SQLite.
                 tokio::task::spawn_blocking(move || add(&manager, request, origin.as_deref()))
+                    .await
+                    .unwrap_or_else(|e| AppResponse::error(code::INTERNAL, e.to_string()))
+            }
+            AppAction::Media { request, origin } => {
+                let request = match request.validate() {
+                    Ok(request) => request,
+                    Err(e) => return AppResponse::error(e.code(), e.to_string()),
+                };
+                let manager = self.manager.clone();
+                tokio::task::spawn_blocking(move || add_media(&manager, request, origin.as_deref()))
                     .await
                     .unwrap_or_else(|e| AppResponse::error(code::INTERNAL, e.to_string()))
             }
@@ -251,14 +265,10 @@ fn add(manager: &Manager, request: DownloadRequest, origin: Option<&str>) -> App
             "download from the browser"
         );
     }
-    let headers = request
-        .referrer
-        .map(|referrer| vec![("Referer".to_string(), referrer)])
-        .unwrap_or_default();
     let options = AddOptions {
         url: request.resource_url,
         file_name: request.file_name,
-        headers,
+        headers: referer(request.referrer),
         // The app asks for name, folder and queue first when the user wants
         // that (IDM's "Download File Info"); the browser is answered at once
         // either way, so it never waits on a dialog, but it is told the
@@ -266,7 +276,51 @@ fn add(manager: &Manager, request: DownloadRequest, origin: Option<&str>) -> App
         confirm: manager.settings().confirm_browser_downloads,
         ..AddOptions::default()
     };
-    match manager.add(options) {
+    accepted(manager.add(options))
+}
+
+fn add_media(manager: &Manager, request: MediaRequest, origin: Option<&str>) -> AppResponse {
+    if let Ok(url) = url::Url::parse(&request.manifest_url) {
+        tracing::info!(
+            origin = origin.unwrap_or("unknown"),
+            kind = request.kind.as_str(),
+            url = %downpipe_core::http::display_url(&url),
+            "stream from the browser"
+        );
+    }
+    let options = AddOptions {
+        url: request.manifest_url,
+        // Named after the page; the engine sets the extension once it knows
+        // what the stream holds.
+        file_name: request
+            .title
+            .map(|title| filename::sanitize(&format!("{title}.mp4"))),
+        headers: page_headers(request.referrer, request.origin),
+        media: Some(request.kind),
+        // Same question as for a file, with the quality to pick as well.
+        confirm: manager.settings().confirm_browser_downloads,
+        ..AddOptions::default()
+    };
+    accepted(manager.add(options))
+}
+
+/// The referrer as the one header a browser request may bring along.
+fn referer(referrer: Option<String>) -> Vec<(String, String)> {
+    referrer
+        .map(|referrer| vec![("Referer".to_string(), referrer)])
+        .unwrap_or_default()
+}
+
+/// A stream's referrer and the origin its player sent: the two headers a
+/// player's requests carry that servers check. Never cookies.
+fn page_headers(referrer: Option<String>, origin: Option<String>) -> Vec<(String, String)> {
+    let mut headers = referer(referrer);
+    headers.extend(origin.map(|origin| ("Origin".to_string(), origin)));
+    headers
+}
+
+fn accepted(added: Result<TaskSnapshot, CoreError>) -> AppResponse {
+    match added {
         Ok(task) => AppResponse::Accepted {
             task_id: task.record.id,
             file_name: task.record.file_name,

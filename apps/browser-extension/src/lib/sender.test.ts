@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTrustedSender } from "./sender";
+import { isOwnContentScript, isTrustedSender } from "./sender";
 
 const ID = "efgicfboaldflckpncfdojkeoaamflpf";
 const BASE = `chrome-extension://${ID}/`;
@@ -37,5 +37,20 @@ describe("isTrustedSender", () => {
     expect(isTrustedSender({}, ID, BASE)).toBe(false);
     expect(isTrustedSender({ id: ID }, ID, BASE)).toBe(false);
     expect(isTrustedSender({ id: "", url: BASE }, "", BASE)).toBe(false);
+  });
+});
+
+describe("isOwnContentScript", () => {
+  it("accepts this extension's script in a web page of a tab", () => {
+    expect(isOwnContentScript({ id: ID, url: "https://example.org/watch", tab: { id: 4 } }, ID)).toBe(true);
+  });
+
+  it("rejects everything else", () => {
+    expect(isOwnContentScript({ id: "other", url: "https://example.org/", tab: { id: 4 } }, ID)).toBe(false);
+    expect(isOwnContentScript({ id: ID, url: "https://example.org/" }, ID)).toBe(false);
+    expect(isOwnContentScript({ id: ID, url: "https://example.org/", tab: { id: -1 } }, ID)).toBe(false);
+    expect(isOwnContentScript({ id: ID, url: `${BASE}popup.html`, tab: { id: 4 } }, ID)).toBe(false);
+    expect(isOwnContentScript({ id: ID, tab: { id: 4 } }, ID)).toBe(false);
+    expect(isOwnContentScript({ id: "", url: "https://example.org/", tab: { id: 4 } }, "")).toBe(false);
   });
 });

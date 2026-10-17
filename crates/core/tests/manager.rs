@@ -662,6 +662,7 @@ async fn browser_downloads_wait_for_confirmation() {
                 dir: Some(picked.path().to_path_buf()),
                 queue: None,
                 start: true,
+                media: None,
             },
         )
         .unwrap();
@@ -743,4 +744,201 @@ async fn finished_downloads_can_be_downloaded_again() {
         Err(CoreError::InvalidState { .. })
     ));
     manager.cancel(&running).unwrap();
+}
+
+// ---------- Streams ----------
+
+/// A manager whose stream downloads never find an FFmpeg, so the result
+/// does not depend on what is installed on the test machine.
+async fn open_without_ffmpeg(data: &Path, downloads: &Path) -> Manager {
+    let manager = open(data).await;
+    manager
+        .update_settings(Settings {
+            download_dir: downloads.to_path_buf(),
+            ffmpeg_path: data.join("no-ffmpeg.exe").to_string_lossy().into_owned(),
+            ..manager.settings()
+        })
+        .unwrap();
+    manager
+}
+
+#[tokio::test]
+async fn playlist_links_become_stream_downloads_in_the_video_folder() {
+    use downpipe_test_server::streams::joined;
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let manager = open_without_ffmpeg(data.path(), downloads.path()).await;
+    assert_eq!(manager.ffmpeg(), None);
+
+    let q = "segments=4&size=3000";
+    let task = add_auto(&manager, server.url(&format!("/hls/master.m3u8?{q}")));
+    let info = task.record.media.clone().expect("recognized as a stream");
+    assert_eq!(info.kind, downpipe_core::http::media::MediaKind::Hls);
+    assert_eq!(task.record.category.as_deref(), Some("Video"));
+
+    let done = wait_for(&manager, &task.record.id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+    let path = done.record.path.clone().unwrap();
+    assert_eq!(path, downloads.path().join("Video").join("master.ts"));
+    assert_eq!(std::fs::read(&path).unwrap(), joined("v1", q));
+    let info = done.record.media.unwrap();
+    assert_eq!(info.quality.as_deref(), Some("720p"));
+    assert_eq!(info.selection.unwrap().video.unwrap().height, Some(720));
+    assert_eq!(done.live.fragments.map(|f| (f.done, f.total)), Some((4, 4)));
+}
+
+#[tokio::test]
+async fn the_quality_chosen_in_the_dialog_is_downloaded() {
+    use downpipe_core::http::media::{MediaKind, MediaSelection, TrackRef};
+    use downpipe_test_server::streams::joined;
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let manager = open_without_ffmpeg(data.path(), downloads.path()).await;
+
+    let q = "segments=3&size=2000&split=1";
+    let held = manager
+        .add(AddOptions {
+            url: server.url(&format!("/dash/manifest.mpd?{q}")),
+            file_name: Some("Clip of the week.mp4".into()),
+            media: Some(MediaKind::Dash),
+            confirm: true,
+            ..AddOptions::default()
+        })
+        .unwrap();
+    assert!(held.live.awaiting_confirmation);
+
+    let choices = manager.inspect_media(&held.record.id).await.unwrap();
+    assert!(!choices.ffmpeg);
+    assert_eq!(choices.selection, None);
+    let heights: Vec<_> = choices.options.videos.iter().map(|v| v.height).collect();
+    assert_eq!(heights, [Some(720), Some(360)]);
+    assert_eq!(choices.options.audios.len(), 1);
+    assert!(
+        !server
+            .state
+            .requests()
+            .iter()
+            .any(|r| r.path.contains("/seg-")),
+        "reading the qualities fetches no media"
+    );
+
+    let lower = &choices.options.videos[1];
+    manager
+        .confirm(
+            &held.record.id,
+            ConfirmOptions {
+                start: true,
+                media: Some(MediaSelection {
+                    video: Some(TrackRef {
+                        id: lower.id.clone(),
+                        height: lower.height,
+                        bandwidth: lower.bandwidth,
+                        language: None,
+                    }),
+                    audio: None,
+                }),
+                ..ConfirmOptions::default()
+            },
+        )
+        .unwrap();
+    let done = wait_for(&manager, &held.record.id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+    let path = done.record.path.clone().unwrap();
+    assert_eq!(path.file_name().unwrap(), "Clip of the week.mp4");
+    assert_eq!(std::fs::read(&path).unwrap(), joined("v0", q));
+    assert!(path.with_file_name("Clip of the week.audio.m4a").is_file());
+    assert_eq!(done.record.media.unwrap().quality.as_deref(), Some("360p"));
+    assert!(
+        done.live
+            .notices
+            .iter()
+            .any(|n| n.contains("FFmpeg was not found")),
+        "{:?}",
+        done.live.notices
+    );
+
+    let file = manager.add(AddOptions {
+        url: server.url("/file/100"),
+        dir: Some(downloads.path().to_path_buf()),
+        ..AddOptions::default()
+    });
+    let plain = file.unwrap();
+    assert!(matches!(
+        manager.inspect_media(&plain.record.id).await,
+        Err(CoreError::InvalidState { .. })
+    ));
+}
+
+#[tokio::test]
+async fn stream_downloads_resume_after_a_restart_with_the_same_quality() {
+    use downpipe_test_server::streams::joined;
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let q = "segments=10&size=20000&rate=40000";
+    let url = server.url(&format!("/hls/v1/index.m3u8?{q}"));
+
+    let (id, before) = {
+        let manager = open_without_ffmpeg(data.path(), downloads.path()).await;
+        let id = add_auto(&manager, url).record.id;
+        let running = wait_for(&manager, &id, |t| {
+            t.live.fragments.is_some_and(|f| f.done >= 3)
+        })
+        .await;
+        manager.shutdown().await;
+        (id, running.live.fragments.unwrap().done)
+    };
+
+    server.state.reset_stats();
+    let manager = open(data.path()).await;
+    let done = wait_for(&manager, &id, |t| t.record.state == TaskState::Completed).await;
+    assert_eq!(
+        std::fs::read(done.record.path.unwrap()).unwrap(),
+        joined("v1", q)
+    );
+    let fetched = server
+        .state
+        .requests()
+        .iter()
+        .filter(|r| r.path.contains("/seg-"))
+        .count();
+    assert!(
+        fetched <= 10 - before,
+        "{fetched} fragments fetched again after {before} were done"
+    );
+}
+
+#[tokio::test]
+async fn removing_a_stream_download_deletes_its_fragments() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let manager = open_without_ffmpeg(data.path(), downloads.path()).await;
+    let task = add(
+        &manager,
+        server.url("/hls/v0/index.m3u8?segments=10&size=20000&rate=40000"),
+        downloads.path(),
+    );
+    let id = task.record.id;
+    wait_for(&manager, &id, |t| {
+        t.live.fragments.is_some_and(|f| f.done >= 1)
+    })
+    .await;
+    manager.pause(&id).unwrap();
+    let paused = wait_for(&manager, &id, |t| t.record.state == TaskState::Paused).await;
+    let work = meta::part_path(&paused.record.path.unwrap());
+    assert!(work.is_dir());
+    manager.remove(&id, true).unwrap();
+    assert!(!work.exists());
+    assert_eq!(
+        std::fs::read_dir(downloads.path()).unwrap().count(),
+        0,
+        "nothing left behind"
+    );
 }

@@ -29,6 +29,24 @@ export interface DownloadMessage {
   file_name?: string;
 }
 
+/** A stream the page played: its manifest, for Downpipe to read and download. */
+export interface MediaMessage {
+  protocol_version: typeof PROTOCOL_VERSION;
+  type: "media";
+  id: string;
+  manifest_url: string;
+  kind: StreamKind;
+  page_url?: string;
+  referrer?: string;
+  /** The page title; Downpipe names the file after it. */
+  title?: string;
+  /** The `Origin` the page's player sent, if it sent one. */
+  origin?: string;
+}
+
+/** Streams the `media` message carries. Single media files go as `download`. */
+export type StreamKind = "hls" | "dash";
+
 /** Asks where downloads the extension sent stand now. */
 export interface TasksMessage {
   protocol_version: typeof PROTOCOL_VERSION;
@@ -37,7 +55,7 @@ export interface TasksMessage {
   task_ids: string[];
 }
 
-export type HostMessage = PingMessage | DownloadMessage | TasksMessage;
+export type HostMessage = PingMessage | DownloadMessage | MediaMessage | TasksMessage;
 
 /** What the extension knows about a download before it is sent. */
 export interface DownloadFields {
@@ -83,6 +101,54 @@ export function downloadMessage(fields: DownloadFields, id: string): DownloadMes
   const name = fileNameHint(fields.fileName);
   if (name) message.file_name = name;
   return message;
+}
+
+/** What the extension knows about a stream before it is sent. */
+export interface MediaFields {
+  manifestUrl: string;
+  kind: StreamKind;
+  pageUrl?: string;
+  referrer?: string;
+  title?: string;
+  origin?: string;
+}
+
+/** Matches `MAX_TITLE_LEN` in crates/native-host/src/protocol.rs. */
+export const MAX_TITLE_LENGTH = 200;
+
+/** Null when the manifest URL is not http(s) or too long. */
+export function mediaMessage(fields: MediaFields, id: string): MediaMessage | null {
+  const manifest = webUrl(fields.manifestUrl);
+  if (!manifest) return null;
+  manifest.hash = "";
+  if (manifest.href.length > MAX_URL_LENGTH) return null;
+  const message: MediaMessage = {
+    protocol_version: PROTOCOL_VERSION,
+    type: "media",
+    id,
+    manifest_url: manifest.href,
+    kind: fields.kind,
+  };
+  const page = webUrl(fields.pageUrl);
+  if (page) message.page_url = withoutSecrets(page).href;
+  const referrer = webUrl(fields.referrer);
+  if (referrer) message.referrer = withoutSecrets(referrer).href;
+  const title = titleHint(fields.title);
+  if (title) message.title = title;
+  const origin = webUrl(fields.origin);
+  if (origin) message.origin = origin.origin;
+  return message;
+}
+
+/** A title the host accepts: no control characters, capped; otherwise undefined. */
+export function titleHint(raw: string | undefined): string | undefined {
+  const title = raw?.trim();
+  if (!title || [...title].length > MAX_TITLE_LENGTH) return undefined;
+  for (const ch of title) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return undefined;
+  }
+  return title;
 }
 
 const MIME_TOKEN = /^[a-z0-9!#$&^_.+-]{1,127}$/;
@@ -142,7 +208,15 @@ export interface TaskStatus {
 }
 
 export type HostResponse =
-  | { type: "pong"; id?: string; hostVersion: string; appRunning: boolean; appVersion?: string }
+  | {
+      type: "pong";
+      id?: string;
+      hostVersion: string;
+      appRunning: boolean;
+      appVersion?: string;
+      /** What both the host and the app support beyond version 1's basics, such as `media`. */
+      features: string[];
+    }
   | { type: "accepted"; id?: string; taskId: string; fileName?: string; awaitingConfirmation?: boolean }
   | { type: "error"; id?: string; code: string; message: string; taskId?: string }
   | { type: "tasks"; id?: string; tasks: TaskStatus[] };
@@ -194,7 +268,10 @@ export function parseResponse(value: unknown): HostResponse | null {
     case "pong": {
       const hostVersion = text(v.host_version, 32);
       if (hostVersion === undefined || typeof v.app_running !== "boolean") return null;
-      return { type: "pong", id, hostVersion, appRunning: v.app_running, appVersion: text(v.app_version, 32) };
+      const features = Array.isArray(v.features)
+        ? v.features.slice(0, 16).flatMap((f) => (typeof f === "string" && f.length <= 32 ? [f] : []))
+        : [];
+      return { type: "pong", id, hostVersion, appRunning: v.app_running, appVersion: text(v.app_version, 32), features };
     }
     case "accepted": {
       const taskId = text(v.task_id, 64);

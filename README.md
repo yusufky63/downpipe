@@ -2,7 +2,7 @@
 
 An open-source download manager for Windows, macOS and Linux. Downpipe splits a file across several HTTP connections when that makes it faster, survives pauses, restarts and crashes without starting over, and never publishes a file under its real name until every byte is in place.
 
-It is built as a Rust engine with a desktop app (Tauri), a command-line tool and a browser extension on top. Web-media support is next; see [Roadmap](#roadmap).
+It is built as a Rust engine with a desktop app (Tauri), a command-line tool and a browser extension on top. The extension also finds the videos a web page plays, including HLS and DASH streams, and hands them to the app. Site-specific providers are next; see [Roadmap](#roadmap).
 
 > Status: early development (0.3). The HTTP engine, queue, CLI, desktop app and browser bridge work and are tested. Windows installers and the browser extension are on the [Releases](https://github.com/yusufky63/downpipe/releases) page; they are not code-signed yet, and macOS and Linux builds are built from source for now.
 
@@ -30,6 +30,8 @@ It is built as a Rust engine with a desktop app (Tauri), a command-line tool and
 | Capture filters | The extension captures only listed file types (or all of them), never on excluded sites, and leaves files under a minimum size to the browser. One click pauses capture on the current site. |
 | Links on a page | **Download links on this page with Downpipe…** lists a page's links with type filters and sends the ones you tick. The page is read only on that click (`activeTab`), never in the background. |
 | CLI | `downpipe get`, `downpipe resume`, `downpipe probe`. Ctrl+C pauses cleanly. |
+| Media detection | With **Media on this page** switched on (the extension then asks for access to all sites), the extension notes the HLS and DASH manifests and media files a page plays and lists them in its popup, and a **Download** button appears on playing videos, as IDM's download panel does. Media file types, a minimum size and the button can be set under Filters; excluded sites are left alone. The player's own Referer and Origin go with the download; cookies never do. |
+| Streams | HLS (master and media playlists, AES-128 segments, transport streams and fragmented MP4, separate audio) and static DASH (separate video and audio). Pick the quality and audio when the download is confirmed. Fragments download in parallel and survive pauses, restarts and crashes. A user-installed FFmpeg merges separate video and audio without re-encoding; without one they are saved as two files. DRM-protected and live streams are refused. |
 | Browser bridge | Chrome, Edge and Firefox extension: **Download with Downpipe** on any link, optional capture of the downloads the browser starts (the browser keeps them if Downpipe is closed), a dialog in the app for the file name, folder and queue before a sent download starts (can be switched off), a notification for every hand-over, and a toolbar popup with the connection status and the live progress of what the browser sent. Talks to the app through Native Messaging and a local pipe, never a network port; the desktop app ships the native host and registers it for your user account when it starts. |
 
 What Downpipe does **not** do: it does not bypass DRM, paywalls or logins, it does not read browser cookies (the extension refuses to pass them), and it does not send your downloads or links to any server of ours. See [Legal](docs/LEGAL.md).
@@ -71,7 +73,7 @@ Then load `apps/browser-extension/dist/chrome` as an unpacked extension in Chrom
 ## Command line
 
 ```text
-downpipe get <URL> [-o DIR] [-n NAME] [-c MAX_CONNECTIONS] [--limit RATE] [--checksum sha256:HEX] [-H "Name: value"] [--proxy URL]
+downpipe get <URL> [-o DIR] [-n NAME] [-c MAX_CONNECTIONS] [--limit RATE] [--checksum sha256:HEX] [-H "Name: value"] [--proxy URL] [--stream hls|dash]
 downpipe resume <file.part | file.part.meta>
 downpipe probe <URL>
 ```
@@ -88,6 +90,8 @@ downpipe get https://example.org/big.zip --limit 4M -c 4
 
 Running the same `get` command again after Ctrl+C, a closed terminal or a crash continues the download. `probe` shows the size, whether byte ranges and resume are supported, and the validators the server sends.
 
+An `.m3u8` or `.mpd` link downloads the stream in its best quality (`--stream hls|dash` for links without those extensions). FFmpeg on `PATH` merges separate video and audio.
+
 Exit codes: `0` finished, `1` failed, `2` paused or canceled.
 
 ## How the engine works
@@ -98,12 +102,14 @@ Exit codes: `0` finished, `1` failed, `2` paused or canceled.
 4. **Checkpoint.** Every five seconds, and always on pause, written data is synced and the finished ranges are recorded in `name.part.meta` with the ETag, Last-Modified and size they belong to.
 5. **Finish.** After the last byte, the optional checksum is verified and `name.part` is renamed to `name` (or `name (1)` if that exists by then).
 
+Streams take a different path: the manifest lists fragments, several download at once into a work folder (`name.part/`, one file per finished fragment), and at the end they are joined per track and merged or moved into place.
+
 Details: [docs/DOWNLOAD_ENGINE.md](docs/DOWNLOAD_ENGINE.md). Component overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Browser bridge: [docs/BROWSER_BRIDGE.md](docs/BROWSER_BRIDGE.md). Security model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
 
 ## Repository layout
 
 ```text
-crates/http-engine   downpipe-http   probe, segments, workers, resume meta, checksum, rate limit
+crates/http-engine   downpipe-http   probe, segments, workers, resume meta, checksum, rate limit, HLS/DASH streams
 crates/core          downpipe-core   queue, state machine, SQLite catalog, settings
 crates/cli           downpipe        command-line interface
 crates/native-host   downpipe-native-host   browser bridge: Native Messaging host, protocol, local pipe
@@ -135,8 +141,8 @@ The order follows one rule: each step has to work end to end before the next one
 
 1. **HTTP engine, resume, adaptive segmentation, queue, CLI, desktop shell** — done (0.1).
 2. **Browser bridge.** Chrome/Edge/Firefox extension that hands downloads to the app through Native Messaging (no local HTTP port), with origin checks and no cookies in messages, registered by the desktop app itself — done (0.2). Still to come for the bridge: store-signed extension builds, and a per-site cookie opt-in for downloads that need a signed-in session.
-3. **Media detection.** Find the real manifest or media request behind a page instead of `blob:` URLs; HLS and DASH downloads with fragment concurrency.
-4. **Site providers.** Optional, separately updated adapter around yt-dlp for supported sites, a format chooser, and FFmpeg for muxing separate audio and video. Downloads of DRM-protected media are refused.
+3. **Media detection.** Find the real manifest or media request behind a page instead of `blob:` URLs; HLS and DASH downloads with fragment concurrency, a quality chooser, and a user-installed FFmpeg for merging separate audio and video — done (next release). DRM-protected and live streams are refused.
+4. **Site providers.** Optional, separately updated adapter around yt-dlp for sites whose players need site-specific extraction (YouTube among them), feeding the same quality chooser. Downloads of DRM-protected media are refused.
 5. **Local API and web UI**, then a plugin SDK.
 
 ## Legal

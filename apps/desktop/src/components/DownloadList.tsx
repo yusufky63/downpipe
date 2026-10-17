@@ -3,6 +3,7 @@ import type { DragEvent, MouseEvent } from "react";
 
 import { MAIN_QUEUE, type Task } from "../lib/api";
 import { formatBytes, formatDuration, formatSpeed, hostOf, percent, sentence } from "../lib/format";
+import { sizeIsEstimate, streamLabel } from "../lib/media";
 import type { Modifiers } from "../lib/selection";
 import type { Sort, SortKey } from "../lib/sort";
 import { canPause, canResume, displayName, isRunning, stateInfo } from "../lib/tasks";
@@ -128,9 +129,17 @@ function DownloadRow({
   const pct = percent(task.downloaded, task.total);
   const running = isRunning(task.state);
   const barTone = task.state === "completed" ? "positive" : task.state === "failed" ? "danger" : running ? "primary" : "neutral";
-  const sizeText = task.total !== null ? formatBytes(task.total) : task.downloaded > 0 ? formatBytes(task.downloaded) : "–";
+  // A stream's size is known only when its last fragment is in.
+  const sizeText =
+    task.total !== null
+      ? `${sizeIsEstimate(task) ? "~" : ""}${formatBytes(task.total)}`
+      : task.downloaded > 0
+        ? formatBytes(task.downloaded)
+        : "–";
   const detail =
-    task.state === "failed" && task.error ? sentence(task.error) : [hostOf(task.url), task.category, queueName].filter(Boolean).join(" · ");
+    task.state === "failed" && task.error
+      ? sentence(task.error)
+      : [hostOf(task.url), streamLabel(task), task.category, queueName].filter(Boolean).join(" · ");
   const done = task.state === "completed";
 
   // A native drag needs the mouse button still down, so it starts from the

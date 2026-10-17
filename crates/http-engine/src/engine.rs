@@ -19,6 +19,8 @@ use crate::checksum::{self, Checksum};
 use crate::config::{DownloadRequest, EngineConfig};
 use crate::error::status_error;
 use crate::http::{self, ResourceInfo, header_str};
+use crate::media::resolve::{self, Fetcher};
+use crate::media::{MediaKind, MediaOptions};
 use crate::meta::{self, META_VERSION, ResumeMeta};
 use crate::progress::{Phase, Progress, SpeedMeter};
 use crate::ratelimit::RateLimiter;
@@ -43,10 +45,10 @@ pub struct Engine {
 }
 
 #[derive(Debug)]
-struct Inner {
-    client: Client,
-    config: EngineConfig,
-    limiter: Arc<RateLimiter>,
+pub(crate) struct Inner {
+    pub(crate) client: Client,
+    pub(crate) config: EngineConfig,
+    pub(crate) limiter: Arc<RateLimiter>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,9 +71,9 @@ pub enum Outcome {
 }
 
 #[derive(Debug, Default)]
-struct Control {
-    stop: CancellationToken,
-    cancel: AtomicBool,
+pub(crate) struct Control {
+    pub(crate) stop: CancellationToken,
+    pub(crate) cancel: AtomicBool,
 }
 
 /// A running download.
@@ -164,13 +166,44 @@ impl Engine {
     pub fn start(&self, request: DownloadRequest) -> DownloadHandle {
         let (tx, rx) = watch::channel(Progress::starting());
         let control = Arc::new(Control::default());
-        let job = Job::new(self.inner.clone(), request, control.clone(), tx);
-        let task = tokio::spawn(job.run());
+        let task = match request.media.clone() {
+            Some(media) => tokio::spawn(crate::media::job::run(
+                self.inner.clone(),
+                request,
+                media,
+                control.clone(),
+                tx,
+            )),
+            None => tokio::spawn(Job::new(self.inner.clone(), request, control.clone(), tx).run()),
+        };
         DownloadHandle {
             progress: rx,
             control,
             task,
         }
+    }
+
+    /// What a stream offers: its qualities and audio tracks, best first.
+    /// Fetches the manifest (and nothing else for DASH or a master playlist
+    /// that names its qualities), so it is quick and downloads no media.
+    pub async fn media_options(
+        &self,
+        url: &str,
+        kind: MediaKind,
+        headers: &[(String, String)],
+    ) -> Result<MediaOptions, DownloadError> {
+        let url = http::parse_url(url)?;
+        let fetcher = Fetcher {
+            client: self.inner.client.clone(),
+            headers: http::build_headers(headers)?,
+            stop: CancellationToken::new(),
+            retry_base: self.inner.config.retry_base_delay,
+            retry_max: self.inner.config.retry_max_delay,
+        };
+        let source = resolve::load(&fetcher, &url, kind)
+            .await?
+            .ok_or(DownloadError::PrematureEnd)?;
+        Ok(resolve::options(&source))
     }
 
     /// Ask the server about a URL without downloading it (one tiny range).

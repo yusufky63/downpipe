@@ -29,6 +29,8 @@ export function makeTask(id: string, patch: Partial<Task> = {}): Task {
     segments: [],
     notices: [],
     awaiting_confirmation: false,
+    media: null,
+    fragments: null,
     eta_secs: null,
     ...patch,
   };

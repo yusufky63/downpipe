@@ -10,7 +10,8 @@ use std::path::PathBuf;
 
 use background::{Background, WhenDone, WhenDoneView};
 use downpipe_core::{
-    AddOptions, ConfirmOptions, CoreError, Manager, QueueMove, Settings, TaskSnapshot, TaskState,
+    AddOptions, ConfirmOptions, CoreError, Manager, MediaChoices, QueueMove, Settings,
+    TaskSnapshot, TaskState,
 };
 use downpipe_native_host::ipc::Endpoint;
 use downpipe_native_host::manifest::{self, Layout, Stale, Status};
@@ -135,6 +136,19 @@ fn confirm_download(
     options: ConfirmOptions,
 ) -> CmdResult<()> {
     Ok(manager.confirm(&id, options)?)
+}
+
+/// The qualities and audio tracks of a stream download, read from its
+/// manifest, for the quality chooser. Downloads no media.
+#[tauri::command]
+async fn inspect_media(manager: State<'_, Manager>, id: String) -> CmdResult<MediaChoices> {
+    Ok(manager.inspect_media(&id).await?)
+}
+
+/// The FFmpeg stream downloads would use now, for the settings.
+#[tauri::command]
+fn ffmpeg_status(manager: State<'_, Manager>) -> Option<PathBuf> {
+    manager.ffmpeg()
 }
 
 /// Download a finished file again; `replace` deletes the old copy first.
@@ -592,6 +606,8 @@ fn main() {
             open_download,
             change_download_url,
             confirm_download,
+            inspect_media,
+            ffmpeg_status,
             redownload,
             move_downloads,
             set_download_queue,

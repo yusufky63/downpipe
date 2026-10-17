@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Activity } from "./messages";
 import type { TaskStatus } from "./protocol";
-import { isRunning, itemView, mayChange } from "./view";
+import { isRunning, itemView, mayChange, mediaEmptyText, mediaRowView } from "./view";
 
 const sent: Activity = {
   at: 0,
@@ -101,5 +101,31 @@ describe("itemView", () => {
     expect(mayChange(task({ state: "paused", awaitingConfirmation: true }))).toBe(true);
     expect(mayChange(task({ state: "paused" }))).toBe(false);
     expect(mayChange(task({ state: "completed" }))).toBe(false);
+  });
+});
+
+describe("mediaRowView", () => {
+  const stream = { id: "a", kind: "hls" as const, url: "https://video.example.net/v/master.m3u8", at: 1 };
+  const file = { id: "b", kind: "direct" as const, url: "https://cdn.example.net/clip.mp4", mime: "video/mp4", size: 2048, at: 1 };
+
+  it("names the media and where it comes from", () => {
+    expect(mediaRowView(stream, true)).toEqual({
+      label: "master.m3u8",
+      detail: "HLS stream · video.example.net",
+      sendable: true,
+    });
+    expect(mediaRowView(file, true).detail).toBe("MP4 video · 2.0 KiB · cdn.example.net");
+  });
+
+  it("asks for an update when Downpipe cannot take streams", () => {
+    expect(mediaRowView(stream, false)).toMatchObject({ sendable: false, detail: "Update Downpipe to download streams" });
+    // Files go through the ordinary download message, which every version knows.
+    expect(mediaRowView(file, false).sendable).toBe(true);
+  });
+
+  it("explains an empty list", () => {
+    expect(mediaEmptyText(false)).toContain("access to all sites");
+    expect(mediaEmptyText(true)).toContain("reload the page");
+    expect(mediaEmptyText(true, "*.example.org")).toBe("Not listed here: *.example.org is an excluded site in Filters.");
   });
 });
