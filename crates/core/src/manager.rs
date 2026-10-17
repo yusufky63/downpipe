@@ -45,6 +45,20 @@ pub enum CoreError {
     InvalidUrl(String),
 }
 
+impl CoreError {
+    /// Stable name UIs and the browser bridge branch on.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Duplicate(_) => "duplicate",
+            Self::NotFound(_) => "not_found",
+            Self::InvalidState { .. } => "invalid_state",
+            Self::InvalidUrl(_) => "invalid_url",
+            Self::Download(e) => e.kind(),
+            Self::Store(_) | Self::Io(_) => "internal",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ManagerEvent {

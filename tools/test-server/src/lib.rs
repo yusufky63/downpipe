@@ -58,6 +58,8 @@ pub struct RequestLog {
     pub path: String,
     pub range: Option<String>,
     pub if_range: Option<String>,
+    pub referer: Option<String>,
+    pub cookie: Option<String>,
     pub status: u16,
 }
 
@@ -109,6 +111,8 @@ impl ServerState {
             path: path.to_string(),
             range: get(header::RANGE),
             if_range: get(header::IF_RANGE),
+            referer: get(header::REFERER),
+            cookie: get(header::COOKIE),
             status: status.as_u16(),
         });
     }
@@ -154,8 +158,39 @@ impl Drop for TestServer {
     }
 }
 
+/// Ready-made URLs for each failure mode: printed by the binary and linked
+/// from `/`, so the browser extension can be tried against them.
+pub const SAMPLES: &[(&str, &str)] = &[
+    (
+        "/file/16777216?rate=2097152&name=browser-bridge.bin",
+        "16 MiB at 2 MiB/s per connection, named browser-bridge.bin",
+    ),
+    ("/file/104857600", "100 MiB, ranges + ETag"),
+    (
+        "/file/52428800?ranges=0",
+        "no range support (single connection)",
+    ),
+    (
+        "/file/209715200?rate=4194304",
+        "4 MiB/s per connection, so more connections help",
+    ),
+    (
+        "/file/52428800?drop_after=3000000&drop_times=4",
+        "first four responses die mid-stream",
+    ),
+    (
+        "/file/20971520?fail=503&fail_times=2&retry_after=1",
+        "503 with Retry-After twice, then OK",
+    ),
+    (
+        "/file/10485760?name=r%C3%A9sum%C3%A9.pdf&type=application/pdf",
+        "Content-Disposition with a UTF-8 name",
+    ),
+];
+
 pub fn router(state: Arc<ServerState>) -> Router {
     Router::new()
+        .route("/", get(index))
         .route("/file/{size}", get(file))
         .route("/redirect", get(redirect))
         .with_state(state)
@@ -179,6 +214,30 @@ struct FileQuery {
     mime: Option<String>,
     chunked: Option<u8>,
     auth: Option<String>,
+}
+
+/// A page of links to the samples, for right-clicking in a browser.
+async fn index() -> Response {
+    let mut items = String::new();
+    for (path, what) in SAMPLES {
+        let href = path.replace('&', "&amp;");
+        items.push_str(&format!(
+            "<li><a href=\"{href}\">{href}</a><br><small>{what}</small></li>
+"
+        ));
+    }
+    let html = format!(
+        "<!doctype html>
+<html lang=\"en\"><head><meta charset=\"utf-8\">         <title>Downpipe test server</title></head>         <body style=\"font-family: system-ui, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px\">         <h1>Downpipe test server</h1>         <p>Right-click a link and choose Download with Downpipe.</p>         <ul style=\"line-height: 1.6\">
+{items}</ul></body></html>
+"
+    );
+    let mut resp = html.into_response();
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    resp
 }
 
 #[derive(Debug, Deserialize)]

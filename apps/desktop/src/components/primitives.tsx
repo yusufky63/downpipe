@@ -105,6 +105,43 @@ export function Field({
   );
 }
 
+/** An on/off setting: title and explanation on the left, the switch on the right. */
+export function Switch({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: ReactNode;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const id = useId();
+  const hintId = useId();
+  return (
+    <label htmlFor={id} className="flex cursor-pointer items-start justify-between gap-4">
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="text-[14px] font-medium text-ink">{label}</span>
+        {hint && (
+          <span id={hintId} className="text-[12px] text-ink-muted">
+            {hint}
+          </span>
+        )}
+      </span>
+      <input
+        id={id}
+        type="checkbox"
+        role="switch"
+        checked={checked}
+        aria-describedby={hint ? hintId : undefined}
+        onChange={(e) => onChange(e.target.checked)}
+        className="switch mt-0.5"
+      />
+    </label>
+  );
+}
+
 /** Shared look for inputs: the border shows focus, never a ring. */
 export const inputClass =
   "w-full rounded-md border border-line-strong bg-canvas px-3 text-[14px] text-ink placeholder:text-ink-muted transition-colors duration-150 focus:border-primary";
@@ -124,20 +161,30 @@ export function Dialog({
   onClose,
   children,
   footer,
+  aside,
+  size = "md",
+  focusFirstField = true,
 }: {
   title: string;
   eyebrow: string;
   onClose: () => void;
   children: ReactNode;
   footer: ReactNode;
+  /** Shown next to the title, e.g. a status badge. */
+  aside?: ReactNode;
+  size?: "md" | "lg";
+  /** Forms focus their first field; read-only dialogs focus themselves so no stray button looks selected. */
+  focusFirstField?: boolean;
 }) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
-    const first = panel.current?.querySelector<HTMLElement>("input, textarea, select, button:not([data-close])");
-    first?.focus();
+    const first = focusFirstField
+      ? panel.current?.querySelector<HTMLElement>("input, textarea, select, button:not([data-close])")
+      : null;
+    (first ?? panel.current)?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
@@ -146,7 +193,7 @@ export function Dialog({
       window.removeEventListener("keydown", onKey);
       previous?.focus();
     };
-  }, [onClose]);
+  }, [onClose, focusFirstField]);
 
   return (
     <div className="fixed inset-0 z-100 flex items-end justify-center md:items-center md:p-6">
@@ -156,14 +203,20 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="anim-rise relative flex max-h-[92vh] w-full flex-col rounded-t-xl border border-line bg-canvas shadow-overlay md:max-w-[560px] md:rounded-xl"
+        tabIndex={-1}
+        className={`anim-rise relative flex max-h-[92vh] w-full flex-col rounded-t-xl border border-line bg-canvas shadow-overlay outline-none md:rounded-xl ${
+          size === "lg" ? "md:max-w-[720px]" : "md:max-w-[560px]"
+        }`}
       >
         <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
-          <div className="flex flex-col gap-1">
+          <div className="flex min-w-0 flex-col gap-1">
             <span className="eyebrow">{eyebrow}</span>
-            <h2 id={titleId} className="display-medium text-[20px] leading-tight">
-              {title}
-            </h2>
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 id={titleId} className="display-medium truncate text-[20px] leading-tight" title={title}>
+                {title}
+              </h2>
+              {aside}
+            </div>
           </div>
           <IconButton label="Close" data-close onClick={onClose}>
             <X size={18} strokeWidth={1.75} />

@@ -1,0 +1,8 @@
+{
+  "protocol_version": 1,
+  "type": "download",
+  "id": "m1",
+  "resource_url": "https://cdn.example.net/files/report.pdf",
+  "page_url": "https://example.org/downloads",
+  "referrer": "https://example.org/"
+}

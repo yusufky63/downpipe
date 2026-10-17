@@ -1,0 +1,9 @@
+{
+  "protocol_version": 1,
+  "type": "download",
+  "id": "m2",
+  "resource_url": "https://downloads.example.org/release/app-1.2.3.tar.gz",
+  "referrer": "https://example.org/releases",
+  "mime_type": "application/gzip",
+  "file_name": "app-1.2.3.tar.gz"
+}

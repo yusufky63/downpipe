@@ -35,6 +35,20 @@ export function formatDuration(totalSeconds: number | null): string {
   return `${sec}s`;
 }
 
+const DATE_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** Unix seconds as `17 Oct 2026, 15:42` in the local time zone. */
+export function formatDate(unixSeconds: number | null): string {
+  if (unixSeconds === null || !Number.isFinite(unixSeconds) || unixSeconds <= 0) return "–";
+  return DATE_FORMAT.format(new Date(unixSeconds * 1000));
+}
+
 /** 0–100, or null when the size is unknown. */
 export function percent(downloaded: number, total: number | null): number | null {
   if (total === null) return null;

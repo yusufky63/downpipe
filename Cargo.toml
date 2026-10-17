@@ -4,6 +4,7 @@ members = [
     "crates/http-engine",
     "crates/core",
     "crates/cli",
+    "crates/native-host",
     "tools/test-server",
     "apps/desktop/src-tauri",
 ]
@@ -13,11 +14,12 @@ default-members = [
     "crates/http-engine",
     "crates/core",
     "crates/cli",
+    "crates/native-host",
     "tools/test-server",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -27,6 +29,7 @@ authors = ["Downpipe contributors"]
 [workspace.dependencies]
 downpipe-http = { path = "crates/http-engine" }
 downpipe-core = { path = "crates/core" }
+downpipe-native-host = { path = "crates/native-host" }
 downpipe-test-server = { path = "tools/test-server" }
 
 anyhow = "1.0.104"

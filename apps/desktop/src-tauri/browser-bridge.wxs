@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Downpipe's addition to Tauri's MSI (bundle.windows.wix.fragmentPaths).
+
+  The app registers downpipe-native-host with the browsers for the current user at every
+  start (docs/BROWSER_BRIDGE.md). Uninstalling removes that registration again, but only if
+  it still starts the host in INSTALLDIR: a registration that a build from source or another
+  install has taken over since is left alone. A major upgrade (UPGRADINGPRODUCTCODE) skips
+  it, because the new version puts the host back at the same path.
+
+  The empty component group is there so that bundle.windows.wix.componentGroupRefs can pull
+  this fragment into the link.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <ComponentGroup Id="DownpipeBrowserBridgeCleanup" />
+
+    <!-- A deferred action reads its command line from the property named after it. -->
+    <SetProperty
+      Id="DownpipeUnregisterBrowserHost"
+      Sequence="execute"
+      Before="DownpipeUnregisterBrowserHost"
+      Value="&quot;[INSTALLDIR]downpipe-native-host.exe&quot; uninstall --only-if-host &quot;[INSTALLDIR]downpipe-native-host.exe&quot;" />
+
+    <!--
+      WixQuietExec runs the host without a console window. Impersonated, so it changes the
+      HKEY_CURRENT_USER of the user who uninstalls. Failures are ignored: a registration left
+      behind only makes the browsers report a missing bridge.
+    -->
+    <CustomAction
+      Id="DownpipeUnregisterBrowserHost"
+      BinaryKey="WixCA"
+      DllEntry="WixQuietExec"
+      Execute="deferred"
+      Impersonate="yes"
+      Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="DownpipeUnregisterBrowserHost" Before="RemoveFiles">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

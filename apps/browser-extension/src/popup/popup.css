@@ -1,0 +1,481 @@
+/* House design tokens, shared with apps/desktop/src/styles.css. Plain CSS:
+   the popup is small enough not to need Tailwind. */
+
+@font-face {
+  font-family: "DM Sans";
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/dm-sans-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Sans";
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/dm-sans-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/space-grotesk-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f8f9fb;
+  --surface-muted: #eef0f3;
+  --border: #dee1e7;
+  --border-strong: #8f96a3;
+  --text: #0a0b0d;
+  --text-secondary: #5b616e;
+  --text-muted: #687080;
+  --primary: #0b7a75;
+  --primary-strong: #075e5a;
+  --primary-fill: var(--primary);
+  --primary-contrast: #ffffff;
+  --primary-soft: rgba(11, 122, 117, 0.09);
+  --positive: #66c800;
+  --positive-fg: #2f7d00;
+  --positive-soft: rgba(102, 200, 0, 0.14);
+  --danger: #fc401f;
+  --danger-fg: #c62a0f;
+  --danger-soft: rgba(252, 64, 31, 0.1);
+  --warning: #f5a623;
+  --warning-fg: #8a5a00;
+  --warning-soft: rgba(245, 166, 35, 0.14);
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0a0b0d;
+    --surface: #111318;
+    --surface-muted: #17191f;
+    --border: #2b2e36;
+    --border-strong: #5b616e;
+    --text: #ffffff;
+    --text-secondary: #b1b7c3;
+    --text-muted: #8a90a0;
+    --primary: #2bb3a6;
+    --primary-strong: #5ccfc3;
+    --primary-fill: #0b7a75;
+    --primary-soft: rgba(43, 179, 166, 0.16);
+    --positive-fg: #7ddc1a;
+    --positive-soft: rgba(125, 220, 26, 0.16);
+    --danger-fg: #ff6a4d;
+    --danger-soft: rgba(255, 106, 77, 0.14);
+    --warning-fg: #ffc857;
+    --warning-soft: rgba(255, 200, 87, 0.14);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  /* A vertical scrollbar in a fixed-width popup must not add a horizontal one. */
+  overflow-x: hidden;
+}
+
+/* The browser sizes the popup to the body, so the width is fixed. Do not make
+   it depend on the viewport: Chrome lays a popup out in a tiny viewport first
+   and then grows the window to fit, so a max-width query would match on that
+   first pass and collapse the popup to a narrow column. */
+body {
+  width: 340px;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Opened in a tab (or a narrow window) instead of the toolbar. */
+@media (min-width: 480px) {
+  body {
+    margin: 32px auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+}
+
+p,
+h2,
+ul {
+  margin: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--primary);
+  color: #fff;
+}
+
+.label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.eyebrow::before {
+  content: "";
+  width: 14px;
+  height: 2px;
+  background: var(--primary);
+  flex: none;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ---------- Layout ---------- */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.logo {
+  border-radius: 4px;
+}
+.brand {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+.version {
+  margin-left: auto;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.block {
+  display: grid;
+  /* Lets one-line texts truncate instead of widening a narrow page. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.block:last-child {
+  border-bottom: 0;
+}
+
+/* ---------- Status ---------- */
+
+.status {
+  --tone: var(--border-strong);
+  --tone-fg: var(--text);
+  --tone-soft: transparent;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--tone-soft);
+}
+.status[data-tone="positive"] {
+  --tone: var(--positive);
+}
+.status[data-tone="warning"] {
+  --tone: var(--warning);
+  --tone-fg: var(--warning-fg);
+  --tone-soft: var(--warning-soft);
+  border-color: transparent;
+}
+.status[data-tone="danger"] {
+  --tone: var(--danger);
+  --tone-fg: var(--danger-fg);
+  --tone-soft: var(--danger-soft);
+  border-color: transparent;
+}
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 7px;
+  border-radius: 999px;
+  background: var(--tone);
+}
+.status-text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.status-title {
+  font-weight: 500;
+  color: var(--tone-fg);
+}
+.status-detail {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.command {
+  display: block;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.btn {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.btn:hover {
+  background: var(--surface-muted);
+}
+.btn:disabled {
+  cursor: progress;
+  color: var(--text-muted);
+}
+
+.link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary);
+  text-decoration: none;
+}
+.link:hover {
+  color: var(--primary-strong);
+  text-decoration: underline;
+}
+
+/* ---------- Capture switch ---------- */
+
+.switch-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+}
+.switch-text {
+  display: grid;
+  gap: 4px;
+}
+.row-title {
+  font-weight: 500;
+}
+.row-detail {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.switch {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 36px;
+  height: 20px;
+  margin: 2px 0 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-base) var(--ease),
+    border-color var(--dur-base) var(--ease);
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--text-muted);
+  transition:
+    transform var(--dur-base) var(--ease),
+    background-color var(--dur-base) var(--ease);
+}
+.switch:checked {
+  border-color: var(--primary-fill);
+  background: var(--primary-fill);
+}
+.switch:checked::after {
+  transform: translateX(16px);
+  background: var(--primary-contrast);
+}
+.switch:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* ---------- Activity ---------- */
+
+/* Three rows show at once, so the popup stays under the browser's 600 px limit. */
+.activity {
+  display: grid;
+  max-height: 212px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.activity:empty {
+  display: none;
+}
+.item {
+  --tone: var(--text-secondary);
+  --tone-soft: var(--surface-muted);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+.item:first-child {
+  border-top: 0;
+}
+.item[data-tone="primary"] {
+  --tone: var(--primary);
+  --tone-soft: var(--primary-soft);
+}
+.item[data-tone="positive"] {
+  --tone: var(--positive-fg);
+  --tone-soft: var(--positive-soft);
+}
+.item[data-tone="warning"] {
+  --tone: var(--warning-fg);
+  --tone-soft: var(--warning-soft);
+}
+.item[data-tone="danger"] {
+  --tone: var(--danger-fg);
+  --tone-soft: var(--danger-soft);
+}
+.item-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.badge {
+  justify-self: end;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--tone-soft);
+  color: var(--tone);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.item-detail {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.item-detail-wide {
+  grid-column: 1 / -1;
+}
+.item-time {
+  justify-self: end;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  margin-top: 2px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width var(--dur-base) linear;
+}
+.empty {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}

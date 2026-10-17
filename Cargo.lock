@@ -1078,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1092,7 +1092,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dirs",
  "downpipe-http",
@@ -1111,15 +1111,17 @@ dependencies = [
 
 [[package]]
 name = "downpipe-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "downpipe-core",
+ "downpipe-native-host",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1127,7 +1129,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-http"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "downpipe-test-server",
@@ -1151,8 +1153,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "downpipe-native-host"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "dirs",
+ "downpipe-core",
+ "downpipe-test-server",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "downpipe-test-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4484,6 +4505,22 @@ dependencies = [
  "thiserror 2.0.21",
  "url",
  "windows",
+ "zbus",
+]
+
+[[package]]
+name = "tauri-plugin-single-instance"
+version = "2.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "561cd99484561bc39c954768e7b41a66cebbe1ac3d9d081c34361f740c489e2c"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "windows-sys 0.61.2",
  "zbus",
 ]
 

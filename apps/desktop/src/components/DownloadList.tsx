@@ -64,9 +64,9 @@ function DownloadRow({ task, selected, actions }: { task: Task; selected: boolea
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter") {
-      if (task.state === "completed") actions.onOpen(task.id);
-      else actions.onSelect(task.id);
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      actions.onSelect(task.id);
     }
   };
 
@@ -75,10 +75,10 @@ function DownloadRow({ task, selected, actions }: { task: Task; selected: boolea
       role="row"
       tabIndex={0}
       aria-selected={selected}
+      aria-label={`${displayName(task)}, ${info.label}. Open details`}
       onClick={() => actions.onSelect(task.id)}
-      onDoubleClick={() => task.state === "completed" && actions.onOpen(task.id)}
       onKeyDown={onKeyDown}
-      className={`${COLUMNS} rail cursor-default px-4 py-3 ${selected ? "rail-active bg-surface" : "hover:bg-surface"}`}
+      className={`${COLUMNS} rail cursor-pointer px-4 py-3 ${selected ? "rail-active bg-surface" : "hover:bg-surface"}`}
     >
       <div role="cell" className="flex min-w-0 flex-col gap-1">
         <div className="flex min-w-0 items-center gap-2">

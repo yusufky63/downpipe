@@ -12,6 +12,9 @@ pub struct Settings {
     pub max_connections_per_download: u32,
     /// Global limit in bytes per second, 0 = unlimited.
     pub speed_limit: u64,
+    /// Desktop app: at every start, point the browsers' Native Messaging
+    /// registration (current user only) at the host shipped with the app.
+    pub register_browser_host: bool,
 }
 
 impl Default for Settings {
@@ -21,6 +24,7 @@ impl Default for Settings {
             max_concurrent_downloads: 3,
             max_connections_per_download: 8,
             speed_limit: 0,
+            register_browser_host: true,
         }
     }
 }
@@ -54,6 +58,7 @@ mod tests {
             max_concurrent_downloads: 0,
             max_connections_per_download: 500,
             speed_limit: 7,
+            register_browser_host: false,
         }
         .normalized();
         assert_eq!(s.max_concurrent_downloads, 1);
@@ -67,5 +72,7 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"speed_limit": 1024}"#).unwrap();
         assert_eq!(s.speed_limit, 1024);
         assert_eq!(s.max_concurrent_downloads, 3);
+        // Catalogs written before the setting existed keep the bridge registered.
+        assert!(s.register_browser_host);
     }
 }

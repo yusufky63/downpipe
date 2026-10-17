@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AddDialog } from "./components/AddDialog";
 import { EmptyState, FilterBar, Header, StatusBar, Toasts, type Toast } from "./components/Chrome";
-import { DetailPanel } from "./components/DetailPanel";
+import { DetailsDialog } from "./components/DetailsDialog";
 import { DownloadList } from "./components/DownloadList";
 import { Banner } from "./components/primitives";
 import { RemoveDialog } from "./components/RemoveDialog";
@@ -119,7 +119,7 @@ export function App() {
   const removing = tasks.find((t) => t.id === removingId) ?? null;
 
   const rowActions = {
-    onSelect: (id: string) => setSelectedId((cur) => (cur === id ? null : id)),
+    onSelect: (id: string) => setSelectedId(id),
     onPause: (id: string) => run(() => api.pause(id)),
     onResume: (id: string) => run(() => api.resume(id)),
     onReveal: (id: string) => run(() => api.reveal(id)),
@@ -165,19 +165,6 @@ export function App() {
             <EmptyState filtered={tasks.length > 0} onAdd={() => setAddText("")} />
           )}
         </div>
-        {selected && (
-          <div className="max-h-[50%] shrink-0 overflow-y-auto border-t border-line bg-surface pt-4">
-            <DetailPanel
-              task={selected}
-              actions={{
-                ...rowActions,
-                onClose: () => setSelectedId(null),
-                onCancel: (id) => run(() => api.cancel(id)),
-                onResume: (id) => (canResume(selected) ? run(() => api.resume(id)) : undefined),
-              }}
-            />
-          </div>
-        )}
       </main>
 
       <StatusBar speed={sum.speed} active={sum.active} queued={sum.queued} settings={settings} />
@@ -196,6 +183,22 @@ export function App() {
             setFilter("all");
             setSelectedId(id);
             toast("That link is already in the list.", "neutral");
+          }}
+        />
+      )}
+      {selected && (
+        <DetailsDialog
+          task={selected}
+          actions={{
+            ...rowActions,
+            onClose: () => setSelectedId(null),
+            onCancel: (id) => run(() => api.cancel(id)),
+            onResume: (id) => (canResume(selected) ? run(() => api.resume(id)) : undefined),
+            // One dialog at a time: Escape would otherwise close both.
+            onRemove: (id) => {
+              setSelectedId(null);
+              setRemovingId(id);
+            },
           }}
         />
       )}

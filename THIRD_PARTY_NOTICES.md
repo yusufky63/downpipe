@@ -29,6 +29,7 @@ No external programs (yt-dlp, FFmpeg, aria2) are bundled.
 | tauri-build | 2.7.3 | Apache-2.0 OR MIT |
 | tauri-plugin-dialog | 2.8.3 | Apache-2.0 OR MIT |
 | tauri-plugin-opener | 2.7.2 | Apache-2.0 OR MIT |
+| tauri-plugin-single-instance | 2.5.4 | Apache-2.0 OR MIT |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 |
 | tokio | 1.53.3 | MIT |
 | tokio-util | 0.7.20 | MIT |
@@ -40,7 +41,7 @@ No external programs (yt-dlp, FFmpeg, aria2) are bundled.
 
 ## Rust: all transitive dependencies by license
 
-562 crates in total. Most are MIT and/or Apache-2.0; the others are permissive (BSD-3-Clause, ISC, Zlib, Unicode-3.0, Unlicense, 0BSD, CC0-1.0, BSL-1.0, CDLA-Permissive-2.0) except for these weak-copyleft crates, all pulled in by Tauri's HTML tooling or `dirs`:
+563 crates in total. Most are MIT and/or Apache-2.0; the others are permissive (BSD-3-Clause, ISC, Zlib, Unicode-3.0, Unlicense, 0BSD, CC0-1.0, BSL-1.0, CDLA-Permissive-2.0) except for these weak-copyleft crates, all pulled in by Tauri's HTML tooling or `dirs`:
 
 | Crate | Version | License |
 |---|---|---|
@@ -63,7 +64,11 @@ MPL-2.0 is file-level copyleft: these crates are used unmodified, and their sour
 | @tauri-apps/api | 2.12.4 | Apache-2.0 OR MIT |
 | lucide-react | 1.50.0 | ISC |
 
-## Fonts (bundled with the desktop UI)
+## JavaScript (browser extension)
+
+The extension bundle contains only Downpipe's own code. Its build uses esbuild 0.28.2 (MIT) and the type definitions in @types/chrome 0.3.4 (MIT); neither is shipped.
+
+## Fonts (bundled with the desktop UI and the extension popup)
 
 | Font | Package | License |
 |---|---|---|

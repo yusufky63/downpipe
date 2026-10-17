@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   bytesToRate,
   formatBytes,
+  formatDate,
   formatDuration,
   formatSpeed,
   hostOf,
@@ -26,6 +27,15 @@ describe("formatBytes", () => {
   it("formats speeds and hides zero", () => {
     expect(formatSpeed(2 * 1024 * 1024)).toBe("2.0 MiB/s");
     expect(formatSpeed(0)).toBe("–");
+  });
+});
+
+describe("formatDate", () => {
+  it("formats unix seconds and rejects missing values", () => {
+    // Local time zone varies between machines, so check the shape.
+    expect(formatDate(1_792_181_400)).toMatch(/^\d{1,2} [A-Z][a-z]{2} 2026, \d{2}:\d{2}$/);
+    expect(formatDate(null)).toBe("–");
+    expect(formatDate(0)).toBe("–");
   });
 });
 

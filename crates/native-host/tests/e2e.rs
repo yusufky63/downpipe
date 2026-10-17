@@ -1,0 +1,374 @@
+//! End to end: framed messages go into the real `downpipe-native-host`
+//! binary, through the local pipe into a real `Manager`, and the file comes
+//! from the fault-injection test server.
+
+use std::path::Path;
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant};
+
+use downpipe_core::http::{EngineConfig, KIB};
+use downpipe_core::{Manager, Settings, TaskSnapshot, TaskState};
+use downpipe_native_host::frame;
+use downpipe_native_host::ipc::{self, AppRequest, AppResponse, ENDPOINT_ENV, Endpoint};
+use downpipe_native_host::protocol::DownloadRequest;
+use downpipe_native_host::server::BridgeServer;
+use downpipe_test_server::{TestServer, content};
+use serde_json::{Value, json};
+
+const HOST: &str = env!("CARGO_BIN_EXE_downpipe-native-host");
+/// What Chrome passes on the command line.
+const ORIGIN: &str = "chrome-extension://efgicfboaldflckpncfdojkeoaamflpf/";
+
+fn config() -> EngineConfig {
+    EngineConfig {
+        max_connections: 2,
+        initial_connections: 2,
+        min_split_size: 64 * KIB,
+        checkpoint_interval: Duration::from_millis(100),
+        retry_base_delay: Duration::from_millis(50),
+        retry_max_delay: Duration::from_millis(200),
+        ..EngineConfig::default()
+    }
+}
+
+/// Never the user's real endpoint, so a running Downpipe is not disturbed.
+fn test_endpoint(dir: &Path) -> Endpoint {
+    if cfg!(windows) {
+        Endpoint::new(format!(r"\\.\pipe\downpipe-e2e-{}", uuid::Uuid::new_v4()))
+    } else {
+        Endpoint::new(dir.join("bridge").join("bridge.sock"))
+    }
+}
+
+/// A desktop app without the window: a manager plus the bridge server.
+struct App {
+    manager: Manager,
+    endpoint: Endpoint,
+    serving: tokio::task::JoinHandle<()>,
+    _data: tempfile::TempDir,
+    downloads: tempfile::TempDir,
+}
+
+impl App {
+    async fn start() -> Self {
+        let data = tempfile::tempdir().unwrap();
+        let downloads = tempfile::tempdir().unwrap();
+        let manager = Manager::open_with(data.path(), config()).await.unwrap();
+        manager
+            .update_settings(Settings {
+                download_dir: downloads.path().to_path_buf(),
+                ..manager.settings()
+            })
+            .unwrap();
+        let endpoint = test_endpoint(data.path());
+        let server = BridgeServer::bind(endpoint.clone()).unwrap();
+        let serving = tokio::spawn(server.serve(manager.clone(), "9.8.7-test"));
+        Self {
+            manager,
+            endpoint,
+            serving,
+            _data: data,
+            downloads,
+        }
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.serving.abort();
+    }
+}
+
+/// The host process, driven the way a browser drives it.
+struct Host {
+    child: Child,
+}
+
+impl Host {
+    fn spawn(endpoint: &Endpoint) -> Self {
+        let child = Command::new(HOST)
+            .arg(ORIGIN)
+            .arg("--parent-window=0")
+            .env(ENDPOINT_ENV, endpoint.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start downpipe-native-host");
+        Self { child }
+    }
+
+    fn send_raw(&mut self, bytes: &[u8]) {
+        use std::io::Write;
+        let stdin = self.child.stdin.as_mut().unwrap();
+        stdin.write_all(bytes).unwrap();
+        stdin.flush().unwrap();
+    }
+
+    fn ask(&mut self, message: &Value) -> Value {
+        frame::write_frame(
+            self.child.stdin.as_mut().unwrap(),
+            message.to_string().as_bytes(),
+        )
+        .unwrap();
+        self.recv()
+    }
+
+    fn recv(&mut self) -> Value {
+        let bytes = frame::read_frame(self.child.stdout.as_mut().unwrap())
+            .unwrap()
+            .expect("the host answered");
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    /// Close stdin like a browser closing the port, then wait for the exit.
+    fn finish(mut self) -> ExitStatus {
+        drop(self.child.stdin.take());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                return status;
+            }
+            assert!(Instant::now() < deadline, "the host did not exit");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+impl Drop for Host {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+async fn wait_for(
+    manager: &Manager,
+    id: &str,
+    cond: impl Fn(&TaskSnapshot) -> bool,
+) -> TaskSnapshot {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            if let Some(task) = manager.get(id)
+                && cond(&task)
+            {
+                return task;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("condition not reached in time")
+}
+
+// The host blocks on its pipes, so the bridge server needs worker threads of
+// its own while the test thread talks to the host.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn link_from_the_browser_downloads_in_the_manager() {
+    let web = TestServer::start().await.unwrap();
+    let app = App::start().await;
+    let mut host = Host::spawn(&app.endpoint);
+
+    let pong = host.ask(&json!({"protocol_version": 1, "type": "ping", "id": "p1"}));
+    assert_eq!(pong["type"], "pong", "{pong}");
+    assert_eq!(pong["id"], "p1");
+    assert_eq!(pong["app_running"], true);
+    assert_eq!(pong["app_version"], "9.8.7-test");
+    assert_eq!(pong["host_version"], env!("CARGO_PKG_VERSION"));
+
+    // Throttled so it is still running when the same link arrives again.
+    let size = 512 * KIB;
+    let url = web.url(&format!("/file/{size}?rate=262144&name=from-browser.bin"));
+    let page = web.url("/downloads.html");
+    let download = json!({
+        "protocol_version": 1,
+        "type": "download",
+        "id": "d1",
+        "resource_url": url,
+        "page_url": page,
+        "referrer": page,
+        "mime_type": "application/octet-stream",
+    });
+    let accepted = host.ask(&download);
+    assert_eq!(accepted["type"], "accepted", "{accepted}");
+    assert_eq!(accepted["id"], "d1");
+    let task_id = accepted["task_id"].as_str().unwrap().to_string();
+
+    let again = host.ask(&download);
+    assert_eq!(again["type"], "error", "{again}");
+    assert_eq!(again["code"], "duplicate");
+    assert_eq!(again["task_id"], task_id.as_str());
+
+    assert!(host.finish().success());
+
+    let done = wait_for(&app.manager, &task_id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+    let path = done.record.path.unwrap();
+    assert_eq!(path.parent().unwrap(), app.downloads.path());
+    assert_eq!(path.file_name().unwrap(), "from-browser.bin");
+    assert_eq!(std::fs::read(&path).unwrap(), content(size, 0));
+    assert_eq!(app.manager.list().len(), 1);
+
+    // The referrer reached the web server as `Referer`; no cookie ever did.
+    let requests = web.state.requests();
+    assert!(!requests.is_empty());
+    for request in &requests {
+        assert_eq!(request.referer.as_deref(), Some(page.as_str()));
+        assert_eq!(request.cookie, None);
+    }
+}
+
+/// What the popup does: ask for the downloads it sent until they finish.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn progress_of_sent_downloads_is_reported() {
+    let web = TestServer::start().await.unwrap();
+    let app = App::start().await;
+    let mut host = Host::spawn(&app.endpoint);
+
+    let size = 768 * KIB;
+    let accepted = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "download",
+        "resource_url": web.url(&format!("/file/{size}?rate=262144&name=progress.bin")),
+    }));
+    let task_id = accepted["task_id"].as_str().unwrap().to_string();
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut states = Vec::new();
+    let last = loop {
+        let answer = host.ask(&json!({
+            "protocol_version": 1,
+            "type": "tasks",
+            "id": "q",
+            "task_ids": [task_id, "not-a-download"],
+        }));
+        assert_eq!(answer["type"], "tasks", "{answer}");
+        assert_eq!(answer["id"], "q");
+        // Unknown ids are simply left out.
+        let tasks = answer["tasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), 1, "{answer}");
+        let task = tasks[0].clone();
+        assert_eq!(task["task_id"], task_id.as_str());
+        let state = task["state"].as_str().unwrap().to_string();
+        if states.last() != Some(&state) {
+            states.push(state.clone());
+        }
+        if state == "completed" {
+            break task;
+        }
+        assert!(Instant::now() < deadline, "still {state}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(
+        states.iter().any(|s| s == "downloading"),
+        "never seen running: {states:?}"
+    );
+    assert_eq!(last["file_name"], "progress.bin");
+    assert_eq!(last["downloaded"], size);
+    assert_eq!(last["total"], size);
+    assert!(host.finish().success());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn app_not_running_is_reported_to_the_extension() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut host = Host::spawn(&test_endpoint(dir.path()));
+
+    let pong = host.ask(&json!({"protocol_version": 1, "type": "ping"}));
+    assert_eq!(pong["type"], "pong", "{pong}");
+    assert_eq!(pong["app_running"], false);
+    assert!(pong.get("app_version").is_none());
+
+    let answer = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "download",
+        "resource_url": "https://example.org/file.zip",
+    }));
+    assert_eq!(answer["type"], "error");
+    assert_eq!(answer["code"], "app_not_running");
+    assert!(
+        answer["message"].as_str().unwrap().contains("not running"),
+        "{answer}"
+    );
+    assert!(host.finish().success());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bad_messages_never_reach_the_manager() {
+    let app = App::start().await;
+    let mut host = Host::spawn(&app.endpoint);
+
+    let cookies = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "download",
+        "resource_url": "https://example.org/file.zip",
+        "cookies": "session=secret",
+    }));
+    assert_eq!(cookies["code"], "cookies_not_accepted", "{cookies}");
+
+    let script = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "download",
+        "resource_url": "javascript:alert(document.cookie)",
+    }));
+    assert_eq!(script["code"], "invalid_url", "{script}");
+
+    let newer = host.ask(&json!({"protocol_version": 2, "type": "ping"}));
+    assert_eq!(newer["code"], "unsupported_version", "{newer}");
+
+    let garbage = {
+        frame::write_frame(host.child.stdin.as_mut().unwrap(), b"{not json").unwrap();
+        host.recv()
+    };
+    assert_eq!(garbage["code"], "invalid_message", "{garbage}");
+
+    // A length prefix over the limit: answered, then the session ends.
+    host.send_raw(&(frame::MAX_MESSAGE_LEN as u32 + 1).to_ne_bytes());
+    let too_large = host.recv();
+    assert_eq!(too_large["code"], "message_too_large", "{too_large}");
+    assert!(!host.finish().success());
+
+    assert!(app.manager.list().is_empty());
+}
+
+/// Anything running as the user can open the pipe, so the app validates
+/// requests itself instead of trusting the host.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn app_validates_requests_that_skip_the_host() {
+    let app = App::start().await;
+    let endpoint = app.endpoint.clone();
+    let answer = tokio::task::spawn_blocking(move || {
+        let request = AppRequest::download(DownloadRequest::new("file:///etc/passwd"), None);
+        ipc::call(&endpoint, &request, Duration::from_secs(5))
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    match answer {
+        AppResponse::Error { code, .. } => assert_eq!(code, "invalid_url"),
+        other => panic!("{other:?}"),
+    }
+    assert!(app.manager.list().is_empty());
+
+    let endpoint = app.endpoint.clone();
+    let answer = tokio::task::spawn_blocking(move || {
+        let flood = (0..1000).map(|i| format!("t{i}")).collect();
+        ipc::call(&endpoint, &AppRequest::tasks(flood), Duration::from_secs(5))
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    match answer {
+        AppResponse::Error { code, .. } => assert_eq!(code, "invalid_message"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_server_cannot_take_over_the_endpoint() {
+    let app = App::start().await;
+    let err = BridgeServer::bind(app.endpoint.clone()).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse, "{err}");
+}

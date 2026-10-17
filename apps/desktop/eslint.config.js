@@ -7,6 +7,10 @@ export default tseslint.config(
   { ignores: ["dist", "src-tauri"] },
   js.configs.recommended,
   {
+    files: ["scripts/**/*.mjs", "eslint.config.js"],
+    languageOptions: { globals: globals.node },
+  },
+  {
     files: ["public/**/*.js"],
     languageOptions: { globals: globals.browser, sourceType: "script" },
   },

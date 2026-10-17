@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Downpipe",
+  "description": "Send links and browser downloads to the Downpipe desktop app.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "downpipe@downpipe.dev",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": { "required": ["none"] }
+    }
+  },
+  "permissions": ["contextMenus", "nativeMessaging", "notifications", "storage"],
+  "optional_permissions": ["downloads"],
+  "background": { "scripts": ["background.js"] },
+  "action": {
+    "default_title": "Downpipe",
+    "default_popup": "popup.html",
+    "default_icon": { "32": "icons/icon-32.png", "64": "icons/icon-64.png" }
+  },
+  "icons": { "32": "icons/icon-32.png", "64": "icons/icon-64.png", "128": "icons/icon-128.png" }
+}

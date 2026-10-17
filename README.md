@@ -2,9 +2,9 @@
 
 An open-source download manager for Windows, macOS and Linux. Downpipe splits a file across several HTTP connections when that makes it faster, survives pauses, restarts and crashes without starting over, and never publishes a file under its real name until every byte is in place.
 
-It is built as a Rust engine with a desktop app (Tauri) and a command-line tool on top. Browser integration and web-media support are planned in that order; see [Roadmap](#roadmap).
+It is built as a Rust engine with a desktop app (Tauri), a command-line tool and a browser extension on top. Web-media support is next; see [Roadmap](#roadmap).
 
-> Status: early development (0.1). The HTTP engine, queue, CLI and desktop app work and are tested; there are no signed releases yet.
+> Status: early development (0.2). The HTTP engine, queue, CLI, desktop app and browser bridge work and are tested; there are no signed releases yet.
 
 ## What works today
 
@@ -22,8 +22,9 @@ It is built as a Rust engine with a desktop app (Tauri) and a command-line tool 
 | Safety | Server-supplied file names are sanitized (path traversal, Windows device names, reserved characters); existing files are never overwritten. |
 | Desktop app | Download list with per-segment progress, details panel, add-links dialog (paste several at once), settings, light and dark themes. |
 | CLI | `downpipe get`, `downpipe resume`, `downpipe probe`. Ctrl+C pauses cleanly. |
+| Browser bridge | Chrome, Edge and Firefox extension: **Download with Downpipe** on any link, optional capture of the downloads the browser starts (the browser keeps them if Downpipe is closed), a notification for every hand-over, and a toolbar popup with the connection status and the live progress of what the browser sent. Talks to the app through Native Messaging and a local pipe, never a network port; the desktop app ships the native host and registers it for your user account when it starts. |
 
-What Downpipe does **not** do: it does not bypass DRM, paywalls or logins, it does not read browser cookies, and it does not send your downloads or links to any server of ours. See [Legal](docs/LEGAL.md).
+What Downpipe does **not** do: it does not bypass DRM, paywalls or logins, it does not read browser cookies (the extension refuses to pass them), and it does not send your downloads or links to any server of ours. See [Legal](docs/LEGAL.md).
 
 ## Install from source
 
@@ -42,6 +43,22 @@ Desktop app (development mode):
 ```powershell
 cd C:\path\to\downpipe; pnpm install; pnpm desktop
 ```
+
+If an installed Downpipe is already running, a second start only brings its window forward. To run a development build next to it, give it its own catalog: `$env:DOWNPIPE_DATA_DIR="C:\path\to\dev-data"; pnpm desktop`.
+
+Desktop installers (the native host for the browser extension is included):
+
+```powershell
+cd C:\path\to\downpipe; pnpm install; pnpm --filter @downpipe/desktop tauri build
+```
+
+Browser extension:
+
+```powershell
+cd C:\path\to\downpipe; pnpm extension
+```
+
+Then load `apps/browser-extension/dist/chrome` as an unpacked extension in Chrome or Edge (or `dist/firefox` as a temporary add-on in Firefox). The desktop app registers its browser bridge for your user account every time it starts, so once Downpipe has run, the extension's popup says **Connected to Downpipe**. The Windows uninstallers remove that registration again, unless another copy of the host has taken it over. Step by step, with registering by hand, macOS and Linux paths and the registry keys: [docs/BROWSER_BRIDGE.md](docs/BROWSER_BRIDGE.md).
 
 ## Command line
 
@@ -73,7 +90,7 @@ Exit codes: `0` finished, `1` failed, `2` paused or canceled.
 4. **Checkpoint.** Every five seconds, and always on pause, written data is synced and the finished ranges are recorded in `name.part.meta` with the ETag, Last-Modified and size they belong to.
 5. **Finish.** After the last byte, the optional checksum is verified and `name.part` is renamed to `name` (or `name (1)` if that exists by then).
 
-Details: [docs/DOWNLOAD_ENGINE.md](docs/DOWNLOAD_ENGINE.md). Component overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Security model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
+Details: [docs/DOWNLOAD_ENGINE.md](docs/DOWNLOAD_ENGINE.md). Component overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Browser bridge: [docs/BROWSER_BRIDGE.md](docs/BROWSER_BRIDGE.md). Security model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
 
 ## Repository layout
 
@@ -81,7 +98,9 @@ Details: [docs/DOWNLOAD_ENGINE.md](docs/DOWNLOAD_ENGINE.md). Component overview:
 crates/http-engine   downpipe-http   probe, segments, workers, resume meta, checksum, rate limit
 crates/core          downpipe-core   queue, state machine, SQLite catalog, settings
 crates/cli           downpipe        command-line interface
+crates/native-host   downpipe-native-host   browser bridge: Native Messaging host, protocol, local pipe
 apps/desktop         Tauri 2 + React desktop app (src-tauri is the Rust side)
+apps/browser-extension   Manifest V3 extension for Chrome, Edge and Firefox
 tools/test-server    fault-injection HTTP server used by tests and for benchmarks
 docs/                architecture, engine, security and legal notes
 ```
@@ -91,7 +110,7 @@ docs/                architecture, engine, security and legal notes
 All checks:
 
 ```powershell
-cargo fmt --all --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test; pnpm check
+cargo fmt --all --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace; pnpm check; pnpm --filter @downpipe/desktop build; pnpm extension
 ```
 
 Tests run against `tools/test-server`, a local server that can ignore ranges, drop connections, return 429/503 with `Retry-After`, change the file between requests, throttle one region of a file and more. Nothing in the test suite touches the internet. To try the app or CLI against it:
@@ -100,14 +119,14 @@ Tests run against `tools/test-server`, a local server that can ignore ranges, dr
 cargo run -p downpipe-test-server
 ```
 
-It prints ready-to-use URLs for each failure mode.
+It prints ready-to-use URLs for each failure mode, and `http://127.0.0.1:17655/` lists them as links to right-click in a browser with the extension.
 
 ## Roadmap
 
 The order follows one rule: each step has to work end to end before the next one starts.
 
 1. **HTTP engine, resume, adaptive segmentation, queue, CLI, desktop shell** — done (0.1).
-2. **Browser bridge.** Chrome/Edge/Firefox extension that hands downloads to the app through Native Messaging (no local HTTP port), with origin checks and no cookies in messages.
+2. **Browser bridge.** Chrome/Edge/Firefox extension that hands downloads to the app through Native Messaging (no local HTTP port), with origin checks and no cookies in messages, registered by the desktop app itself — done (0.2). Still to come for the bridge: store-signed extension builds, and a per-site cookie opt-in for downloads that need a signed-in session.
 3. **Media detection.** Find the real manifest or media request behind a page instead of `blob:` URLs; HLS and DASH downloads with fragment concurrency.
 4. **Site providers.** Optional, separately updated adapter around yt-dlp for supported sites, a format chooser, and FFmpeg for muxing separate audio and video. Downloads of DRM-protected media are refused.
 5. **Local API and web UI**, then a plugin SDK.

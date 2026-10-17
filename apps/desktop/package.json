@@ -1,7 +1,7 @@
 {
   "name": "@downpipe/desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
+    "sidecar": "node scripts/sidecar.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

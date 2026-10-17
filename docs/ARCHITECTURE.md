@@ -3,6 +3,12 @@
 Downpipe is a set of layers that each know as little as possible about the others. The UI does not know how ranges work, the engine does not know about queues, and nothing below the provider layer (planned) will know what YouTube is.
 
 ```text
+ apps/browser-extension
+            |  Native Messaging (stdio)
+            v
+ crates/native-host  downpipe-native-host
+            |  named pipe / Unix socket
+            v
  apps/desktop (Tauri + React)        crates/cli (downpipe)
             |  commands + events                |
             v                                   |
@@ -57,6 +63,16 @@ Credentials embedded in URLs and custom headers are kept in memory only. The dat
 
 The React UI (`apps/desktop/src`) keeps one array of task snapshots and applies events to it (`lib/tasks.ts`).
 
+## Browser bridge
+
+`apps/browser-extension` adds **Download with Downpipe** to link context menus and, when the user switches it on, captures downloads the browser starts. Its service worker sends a small, versioned JSON message through Native Messaging. The browser starts `downpipe-native-host` for it, but only because the host manifest lists the extension's id.
+
+`downpipe-native-host` validates each message (`protocol.rs`), forwards it over a local named pipe or Unix socket (`ipc.rs`) and returns the app's answer. The app serves that endpoint from a Tokio task (`server.rs`, started in `apps/desktop/src-tauri/src/main.rs`), validates the request again and calls `Manager::add` with the referrer as an in-memory `Referer` header. When the app is not running the host answers `app_not_running`, and captured downloads stay with the browser.
+
+The same crate builds both ends of the pipe, so the end-to-end test (`crates/native-host/tests/e2e.rs`) runs the real host binary against the real server and a real `Manager`, downloading from the test server.
+
+Protocol, install locations and troubleshooting: [BROWSER_BRIDGE.md](BROWSER_BRIDGE.md).
+
 ## CLI
 
 `downpipe` talks to the engine directly, without the queue or database. Its resume state is the same `.part.meta` file, so a download started in the CLI can also be resumed by running the command again or with `downpipe resume`.
@@ -67,6 +83,6 @@ The React UI (`apps/desktop/src`) keeps one array of task snapshots and applies 
 
 ## Planned layers
 
-- **Browser extension + Native Messaging host.** The extension observes downloads and media requests and passes candidates to the app over Native Messaging. The host manifest lists the allowed extension ids explicitly; no HTTP port is opened for the extension.
+- **Media detection in the extension.** Find the manifest or media request behind a page instead of `blob:` URLs and pass candidates over the existing bridge; `page_url` is already part of the protocol for this.
 - **Media resolver and providers.** `MediaResolver::resolve(page_url) -> MediaDescriptor` with formats, subtitles and playlists; a `DownloadPlan` of direct HTTP, HLS, DASH and mux steps. yt-dlp runs as an optional external process with argument arrays (never a shell string) and its JSON output is validated before use.
 - **Local API.** Loopback-only REST + event stream for a web UI, reusing `Manager`.

@@ -5,8 +5,9 @@
 node_modules/
 apps/*/dist/
 
-# Tauri generated
+# Tauri generated, and the native host copied in by apps/desktop/scripts/sidecar.mjs
 apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/binaries/
 
 # Local state and partial downloads
 *.part

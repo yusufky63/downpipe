@@ -52,6 +52,26 @@ export interface Settings {
   max_connections_per_download: number;
   /** Bytes per second; 0 means unlimited. */
   speed_limit: number;
+  /** Re-register the browser bridge for this user at every start. */
+  register_browser_host: boolean;
+}
+
+export type BridgeBrowser = "chrome" | "edge" | "chromium" | "firefox";
+
+export type BridgeState =
+  | "registered"
+  | "not_installed"
+  | "missing"
+  | "invalid"
+  | "other_host"
+  | "extension_not_allowed"
+  | "failed";
+
+export interface BridgeRegistration {
+  /** The native host this copy of the app ships. */
+  host: string;
+  host_found: boolean;
+  browsers: { browser: BridgeBrowser; state: BridgeState; detail: string | null }[];
 }
 
 export interface AddOptions {
@@ -86,6 +106,8 @@ export const api = {
   clearFinished: () => invoke<null>("clear_finished"),
   settings: () => invoke<Settings>("get_settings"),
   updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),
+  bridgeStatus: () => invoke<BridgeRegistration>("browser_bridge_status"),
+  registerBridge: () => invoke<BridgeRegistration>("register_browser_bridge"),
   pickFolder: (initial: string | null) => invoke<string | null>("pick_folder", { initial }),
   reveal: (id: string) => invoke<null>("reveal_download", { id }),
   open: (id: string) => invoke<null>("open_download", { id }),

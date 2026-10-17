@@ -1,0 +1,35 @@
+[package]
+name = "downpipe-native-host"
+description = "Browser bridge for Downpipe: the Native Messaging host and the desktop app's end of it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "downpipe-native-host"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+dirs.workspace = true
+# Only the desktop app's side (`server`) uses the core. The host binary never
+# calls into it, so the linker drops it from the executable.
+downpipe-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+downpipe-test-server.workspace = true
+tempfile.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true
