@@ -292,7 +292,7 @@ Requests:
 Responses carry `protocol_version`, the request's `id` and a `type`:
 
 ```json
-{"protocol_version": 1, "id": "p1", "type": "pong", "host_version": "0.5.1", "app_running": true, "app_version": "0.5.1", "features": ["media", "page", "list", "torrent"]}
+{"protocol_version": 1, "id": "p1", "type": "pong", "host_version": "0.5.2", "app_running": true, "app_version": "0.5.2", "features": ["media", "page", "list", "torrent"]}
 {"protocol_version": 1, "id": "m1", "type": "accepted", "task_id": "8e48dd86-..."}
 {"protocol_version": 1, "id": "m2", "type": "accepted", "task_id": "68b6ffff-...", "awaiting_confirmation": true}
 {"protocol_version": 1, "id": "y2", "type": "list_opened", "page_url": "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb"}
