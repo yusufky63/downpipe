@@ -20,8 +20,8 @@ use tokio::task::JoinHandle;
 use crate::settings::{MAIN_QUEUE, Settings};
 use crate::store::Store;
 use crate::task::{
-    AddOptions, ConfirmOptions, Live, MediaChoices, MediaInfo, QueueMove, SiteChoices, SiteInfo,
-    SiteOptions, TaskId, TaskRecord, TaskSnapshot, TaskState,
+    AddOptions, ConfirmOptions, Live, MediaChoices, MediaInfo, OnDuplicate, QueueMove, SiteChoices,
+    SiteInfo, SiteOptions, TaskId, TaskRecord, TaskSnapshot, TaskState,
 };
 
 const DB_FILE: &str = "downpipe.db";
@@ -259,13 +259,24 @@ impl Manager {
 
         let snapshot = {
             let mut st = self.inner.state.lock();
-            if let Some(dup) = st
+            let same = |e: &&Entry| e.record.url == key;
+            // A question about this link already waits: never a second one.
+            if let Some(asking) = st
                 .tasks
                 .iter()
-                .find(|e| e.record.url == key && !e.record.state.is_finished())
+                .filter(same)
+                .find(|e| e.live.awaiting_confirmation)
             {
-                return Err(CoreError::Duplicate(dup.record.id.clone()));
+                return Err(CoreError::Duplicate(asking.record.id.clone()));
             }
+            let duplicate_of = match (st.tasks.iter().find(same), opts.on_duplicate) {
+                (Some(dup), OnDuplicate::Refuse) => {
+                    return Err(CoreError::Duplicate(dup.record.id.clone()));
+                }
+                (Some(dup), OnDuplicate::Ask) => Some(dup.record.id.clone()),
+                (_, _) => None,
+            };
+            let confirm = opts.confirm || duplicate_of.is_some();
             let now = unix_now();
             let file_name = opts
                 .file_name
@@ -302,7 +313,7 @@ impl Manager {
                 dir,
                 file_name,
                 path: None,
-                state: if opts.paused || opts.confirm {
+                state: if opts.paused || confirm {
                     TaskState::Paused
                 } else {
                     TaskState::Queued
@@ -339,7 +350,8 @@ impl Manager {
                 relink: false,
             };
             let mut entry = entry;
-            entry.live.awaiting_confirmation = opts.confirm;
+            entry.live.awaiting_confirmation = confirm;
+            entry.live.duplicate_of = duplicate_of;
             entry.live.from_app = opts.from_app;
             let snapshot = entry.snapshot();
             st.tasks.push(entry);

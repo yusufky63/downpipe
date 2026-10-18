@@ -40,6 +40,9 @@ pub struct Settings {
     /// Downloads sent by the browser wait until the user confirms their
     /// name, folder and queue (IDM's "Download File Info").
     pub confirm_browser_downloads: bool,
+    /// Interface language as a code such as `tr` or `pt-BR`; empty follows
+    /// the system. The desktop app decides which codes it has.
+    pub language: String,
     /// Download queues. The first is always the main queue, whose limit is
     /// `max_concurrent_downloads`.
     pub queues: Vec<Queue>,
@@ -137,6 +140,7 @@ impl Default for Settings {
             watch_clipboard: false,
             keep_awake: true,
             confirm_browser_downloads: true,
+            language: String::new(),
             queues: default_queues(),
             ffmpeg_path: String::new(),
             yt_dlp_path: String::new(),
@@ -154,6 +158,16 @@ impl Settings {
             self.download_dir = default_download_dir();
         }
         self.proxy = self.proxy.trim().to_string();
+        self.language = self.language.trim().to_string();
+        // A language tag; anything else is treated as "follow the system".
+        if self.language.len() > 16
+            || !self
+                .language
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-')
+        {
+            self.language.clear();
+        }
         self.user_agent = self.user_agent.trim().to_string();
         // Pasted paths often come quoted from a file manager.
         self.ffmpeg_path = self.ffmpeg_path.trim().trim_matches('"').to_string();
@@ -506,6 +520,21 @@ mod tests {
         assert_eq!(s.queue_limit("night-downloads"), 1);
         assert_eq!(s.queue_limit("missing"), 1);
         assert_eq!(s.schedule.queue, "", "unknown queue falls back to all");
+    }
+
+    #[test]
+    fn language_is_a_tag_or_empty() {
+        let pick = |language: &str| {
+            Settings {
+                language: language.into(),
+                ..Settings::default()
+            }
+            .normalized()
+            .language
+        };
+        assert_eq!(pick(" pt-BR "), "pt-BR");
+        assert_eq!(pick(""), "");
+        assert_eq!(pick("../../etc"), "", "not a language tag");
     }
 
     #[test]

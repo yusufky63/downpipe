@@ -238,6 +238,9 @@ pub struct Live {
     pub from_app: bool,
     /// Stream downloads: fragments done and in all.
     pub fragments: Option<Fragments>,
+    /// Held because its link is already in the list (that download's id):
+    /// the confirmation asks what to do, as IDM does.
+    pub duplicate_of: Option<TaskId>,
 }
 
 impl Live {
@@ -251,6 +254,7 @@ impl Live {
             notices: p.notices.clone(),
             awaiting_confirmation: false,
             from_app: false,
+            duplicate_of: None,
             // Site downloads report whole formats, not fragments.
             fragments: p
                 .media
@@ -317,6 +321,24 @@ pub struct AddOptions {
     /// The URL is a stream manifest. Without it, `.m3u8` and `.mpd` links
     /// are recognized by their extension.
     pub media: Option<MediaKind>,
+    /// What to do when the link is already in the list.
+    pub on_duplicate: OnDuplicate,
+}
+
+/// What [`crate::Manager::add`] does with a link that is already in the list,
+/// finished or not.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnDuplicate {
+    /// Refuse with `CoreError::Duplicate`, so the caller can ask the user.
+    #[default]
+    Refuse,
+    /// Add another download; its file gets a free name next to the first.
+    AddCopy,
+    /// Add it held for confirmation and marked with `duplicate_of`, so the
+    /// confirmation asks: for downloads the browser sends, which cannot
+    /// wait for an answer.
+    Ask,
 }
 
 /// What the user chose in the confirmation dialog.

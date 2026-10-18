@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use downpipe_core::http::filename;
-use downpipe_core::{AddOptions, CoreError, Manager, TaskSnapshot};
+use downpipe_core::{AddOptions, CoreError, Manager, OnDuplicate, TaskSnapshot};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 use crate::frame::{self, FrameError};
@@ -285,6 +285,8 @@ fn add(manager: &Manager, request: DownloadRequest, origin: Option<&str>) -> App
         // either way, so it never waits on a dialog, but it is told the
         // download is waiting for that answer.
         confirm: manager.settings().confirm_browser_downloads,
+        // A link already in the list is asked about in the app, as IDM does.
+        on_duplicate: OnDuplicate::Ask,
         ..AddOptions::default()
     };
     accepted(manager.add(options))
@@ -303,13 +305,12 @@ fn add_media(manager: &Manager, request: MediaRequest, origin: Option<&str>) -> 
         url: request.manifest_url,
         // Named after the page; the engine sets the extension once it knows
         // what the stream holds.
-        file_name: request
-            .title
-            .map(|title| filename::sanitize(&format!("{title}.mp4"))),
+        file_name: request.title.map(|title| video_file_name(&title)),
         headers: page_headers(request.referrer, request.origin),
         media: Some(request.kind),
         // Same question as for a file, with the quality to pick as well.
         confirm: manager.settings().confirm_browser_downloads,
+        on_duplicate: OnDuplicate::Ask,
         ..AddOptions::default()
     };
     accepted(manager.add(options))
@@ -324,15 +325,25 @@ fn add_page(manager: &Manager, request: PageRequest, origin: Option<&str>) -> Ap
     let options = AddOptions {
         url: request.page_url,
         // Named after the page; yt-dlp sets the extension.
-        file_name: request
-            .title
-            .map(|title| filename::sanitize(&format!("{title}.mp4"))),
+        file_name: request.title.map(|title| video_file_name(&title)),
         // No headers: yt-dlp fetches the page itself, without the browser's
         // referrer or cookies.
         confirm: manager.settings().confirm_browser_downloads,
+        on_duplicate: OnDuplicate::Ask,
         ..AddOptions::default()
     };
     accepted(manager.add(options))
+}
+
+/// A file name from a page title. Titles often contain slashes ("SpaceX
+/// (@SpaceX) / X"), which `sanitize` would read as folders and keep only the
+/// last part of, so they become dashes first.
+fn video_file_name(title: &str) -> String {
+    let flat: String = title
+        .chars()
+        .map(|c| if matches!(c, '/' | '\\') { '-' } else { c })
+        .collect();
+    filename::sanitize(&format!("{}.mp4", flat.trim()))
 }
 
 /// The referrer as the one header a browser request may bring along.
@@ -396,5 +407,20 @@ where
         // away with the pipe before it was read.
         let mut byte = [0u8; 1];
         let _ = tokio::time::timeout(IO_TIMEOUT, stream.read(&mut byte)).await;
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::video_file_name;
+
+    #[test]
+    fn slashes_in_titles_do_not_cut_the_name() {
+        assert_eq!(
+            video_file_name("SpaceX (@SpaceX) / X"),
+            "SpaceX (@SpaceX) - X.mp4"
+        );
+        assert_eq!(video_file_name(r"a\b"), "a-b.mp4");
+        assert_eq!(video_file_name("Plain title"), "Plain title.mp4");
     }
 }

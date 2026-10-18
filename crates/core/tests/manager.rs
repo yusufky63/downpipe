@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use downpipe_core::http::{EngineConfig, KIB, MIB, meta};
 use downpipe_core::{
-    AddOptions, ConfirmOptions, CoreError, Manager, ManagerEvent, QueueMove, Settings,
+    AddOptions, ConfirmOptions, CoreError, Manager, ManagerEvent, OnDuplicate, QueueMove, Settings,
     TaskSnapshot, TaskState,
 };
 use downpipe_test_server::{TestServer, content};
@@ -244,6 +244,52 @@ async fn duplicates_and_bad_input_are_rejected() {
         .unwrap_err();
     assert!(matches!(err, CoreError::Download(_)));
     manager.cancel(&first.record.id).unwrap();
+}
+
+/// A link already in the list, even a finished one, is refused unless the
+/// caller asks for a copy or for the question to wait in the app.
+#[tokio::test]
+async fn duplicate_links_are_refused_copied_or_asked_about() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open(data.path()).await;
+    let url = server.url(&format!("/file/{}/same.bin", 64 * KIB));
+    let first = add(&manager, url.clone(), out.path());
+    wait_for(&manager, &first.record.id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+
+    let again = |on_duplicate| {
+        manager.add(AddOptions {
+            url: url.clone(),
+            dir: Some(out.path().to_path_buf()),
+            on_duplicate,
+            ..AddOptions::default()
+        })
+    };
+    let err = again(OnDuplicate::Refuse).unwrap_err();
+    assert!(matches!(err, CoreError::Duplicate(ref id) if *id == first.record.id));
+
+    let asked = again(OnDuplicate::Ask).unwrap();
+    assert_eq!(asked.record.state, TaskState::Paused);
+    assert!(asked.live.awaiting_confirmation);
+    assert_eq!(
+        asked.live.duplicate_of.as_deref(),
+        Some(first.record.id.as_str())
+    );
+    // While that question waits, the link is not added a third time.
+    let err = again(OnDuplicate::AddCopy).unwrap_err();
+    assert!(matches!(err, CoreError::Duplicate(ref id) if *id == asked.record.id));
+    manager.remove(&asked.record.id, true).unwrap();
+
+    let copy = again(OnDuplicate::AddCopy).unwrap();
+    let done = wait_for(&manager, &copy.record.id, |t| {
+        t.record.state == TaskState::Completed
+    })
+    .await;
+    assert_eq!(done.record.path.unwrap(), out.path().join("same (1).bin"));
 }
 
 #[tokio::test]

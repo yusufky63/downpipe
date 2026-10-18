@@ -14,8 +14,8 @@ pub use settings::{
 };
 pub use store::Store;
 pub use task::{
-    AddOptions, ConfirmOptions, Fragments, Live, MediaChoices, MediaInfo, QueueMove, SiteChoices,
-    SiteInfo, SiteOptions, TaskId, TaskRecord, TaskSnapshot, TaskState,
+    AddOptions, ConfirmOptions, Fragments, Live, MediaChoices, MediaInfo, OnDuplicate, QueueMove,
+    SiteChoices, SiteInfo, SiteOptions, TaskId, TaskRecord, TaskSnapshot, TaskState,
 };
 
 pub use downpipe_http as http;

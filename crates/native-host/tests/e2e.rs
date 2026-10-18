@@ -207,10 +207,18 @@ async fn link_from_the_browser_downloads_in_the_manager() {
     );
     let task_id = accepted["task_id"].as_str().unwrap().to_string();
 
+    // The same link again is asked about in the app, as IDM does; the
+    // browser is answered at once and told so.
     let again = host.ask(&download);
-    assert_eq!(again["type"], "error", "{again}");
-    assert_eq!(again["code"], "duplicate");
-    assert_eq!(again["task_id"], task_id.as_str());
+    assert_eq!(again["type"], "accepted", "{again}");
+    assert_eq!(again["awaiting_confirmation"], true, "{again}");
+    let asked = again["task_id"].as_str().unwrap().to_string();
+    assert_ne!(asked, task_id);
+    // A third time, while that question waits, adds nothing new.
+    let third = host.ask(&download);
+    assert_eq!(third["type"], "error", "{third}");
+    assert_eq!(third["code"], "duplicate");
+    assert_eq!(third["task_id"], asked.as_str());
 
     assert!(host.finish().success());
 
@@ -222,7 +230,13 @@ async fn link_from_the_browser_downloads_in_the_manager() {
     assert_eq!(path.parent().unwrap(), app.downloads.path());
     assert_eq!(path.file_name().unwrap(), "from-browser.bin");
     assert_eq!(std::fs::read(&path).unwrap(), content(size, 0));
-    assert_eq!(app.manager.list().len(), 1);
+    let question = app.manager.get(&asked).unwrap();
+    assert!(question.live.awaiting_confirmation);
+    assert_eq!(
+        question.live.duplicate_of.as_deref(),
+        Some(task_id.as_str())
+    );
+    assert_eq!(app.manager.list().len(), 2);
 
     // The referrer reached the web server as `Referer`; no cookie ever did.
     let requests = web.state.requests();
