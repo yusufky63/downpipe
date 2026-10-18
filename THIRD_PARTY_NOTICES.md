@@ -19,11 +19,13 @@ No external programs (yt-dlp, Deno, FFmpeg, aria2) are bundled. Stream downloads
 | dirs | 7.0.0 | MIT OR Apache-2.0 |
 | drag (desktop: drag files out of the list) | 2.1.1 | Apache-2.0 OR MIT |
 | fastrand | 2.5.0 | Apache-2.0 OR MIT |
+| flate2 (gzip, for extracting .tar.gz archives) | 1.1.10 | MIT OR Apache-2.0 |
 | futures-util | 0.3.34 | MIT OR Apache-2.0 |
 | hex | 0.4.3 | MIT OR Apache-2.0 |
 | httpdate | 1.0.3 | MIT OR Apache-2.0 |
 | indicatif | 0.18.6 | MIT |
 | keepawake (desktop: keep the computer awake while downloading) | 0.6.1 | MIT |
+| lzma-rust2 (XZ, for extracting .tar.xz archives) | 0.22.0 | Apache-2.0 |
 | parking_lot | 0.12.5 | MIT OR Apache-2.0 |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 |
 | reqwest | 0.13.5 | MIT OR Apache-2.0 |
@@ -31,7 +33,9 @@ No external programs (yt-dlp, Deno, FFmpeg, aria2) are bundled. Stream downloads
 | rusqlite (bundles SQLite, public domain) | 0.40.2 | MIT |
 | serde | 1.0.229 | MIT OR Apache-2.0 |
 | serde_json | 1.0.154 | MIT OR Apache-2.0 |
+| sevenz-rust2 (extracting 7z archives; its own lzma-rust2 0.16.5 comes with it) | 0.20.2 | Apache-2.0 |
 | sha2 | 0.11.1 | MIT OR Apache-2.0 |
+| tar (extracting tar archives) | 0.4.46 | MIT OR Apache-2.0 |
 | tauri | 2.12.4 | Apache-2.0 OR MIT |
 | tauri-build | 2.7.3 | Apache-2.0 OR MIT |
 | tauri-plugin-autostart | 2.7.0 | Apache-2.0 OR MIT |
@@ -47,11 +51,11 @@ No external programs (yt-dlp, Deno, FFmpeg, aria2) are bundled. Stream downloads
 | url | 2.5.8 | MIT OR Apache-2.0 |
 | uuid | 1.28.0 | Apache-2.0 OR MIT |
 | windows-sys | 0.61.2 | MIT OR Apache-2.0 |
-| zip (reads the Deno archive the tool installer downloads) | 9.0.5 | MIT |
+| zip (reads the Deno archive the tool installer downloads, and extracts downloaded zip archives; with Deflate64 through deflate64 0.1.12, MIT) | 9.0.5 | MIT |
 
 ## Rust: all transitive dependencies by license
 
-623 crates in total. Most are MIT and/or Apache-2.0; the others are permissive (BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, Unlicense, 0BSD, CC0-1.0, BSL-1.0, CDLA-Permissive-2.0) except for these weak-copyleft crates, all pulled in by Tauri's HTML tooling or `dirs`:
+629 crates in total. Most are MIT and/or Apache-2.0; the others are permissive (BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, Unlicense, 0BSD, CC0-1.0, BSL-1.0, CDLA-Permissive-2.0) except for these weak-copyleft crates, all pulled in by Tauri's HTML tooling or `dirs`:
 
 | Crate | Version | License |
 |---|---|---|

@@ -26,7 +26,7 @@ pub mod info;
 pub mod install;
 pub mod job;
 pub mod pages;
-mod process;
+pub mod process;
 pub mod progress;
 pub mod tools;
 

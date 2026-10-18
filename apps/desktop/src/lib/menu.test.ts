@@ -5,8 +5,8 @@ import { buildMenu, linksText, type MenuEntry } from "./menu";
 import { makeTask as task } from "./testing";
 
 const queues: Queue[] = [
-  { id: "main", name: "Main", max_concurrent: 3 },
-  { id: "night", name: "Night", max_concurrent: 1 },
+  { id: "main", name: "Main", max_concurrent: 3, command: "" },
+  { id: "night", name: "Night", max_concurrent: 1, command: "" },
 ];
 
 /** Top-level items by action, with submenus flattened. */

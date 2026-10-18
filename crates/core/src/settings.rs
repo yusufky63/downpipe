@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::post::PostSettings;
 use crate::rules::{SiteRule, normalize_rules};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,6 +68,9 @@ pub struct Settings {
     pub duplicate_answer: String,
     /// Remote control from a phone or another computer (off by default).
     pub remote: RemoteSettings,
+    /// After a download completes: the default command, the virus scan and
+    /// what happens to extracted archives.
+    pub post: PostSettings,
 }
 
 /// Port the remote control listens on unless the user picks another.
@@ -146,6 +150,9 @@ pub struct Queue {
     /// 1 to 16. Ignored for the main queue, which uses
     /// `Settings::max_concurrent_downloads`.
     pub max_concurrent: u32,
+    /// Command line run after each of its downloads completes, instead of
+    /// the one in the settings. Empty: the settings'.
+    pub command: String,
 }
 
 impl Default for Queue {
@@ -154,6 +161,7 @@ impl Default for Queue {
             id: String::new(),
             name: String::new(),
             max_concurrent: 1,
+            command: String::new(),
         }
     }
 }
@@ -167,6 +175,8 @@ pub struct Category {
     pub extensions: Vec<String>,
     /// Empty: a folder named after the category inside the download folder.
     pub folder: String,
+    /// Extract archives of this category (zip, tar, 7z) after they download.
+    pub extract: bool,
 }
 
 /// Start and stop the queue at fixed times of day (local time).
@@ -223,6 +233,7 @@ impl Default for Settings {
             site_rules: Vec::new(),
             duplicate_answer: "ask".into(),
             remote: RemoteSettings::default(),
+            post: PostSettings::default(),
         }
     }
 }
@@ -257,6 +268,7 @@ impl Settings {
         }
 
         self.remote = std::mem::take(&mut self.remote).normalized();
+        self.post = std::mem::take(&mut self.post).normalized();
         self.categories = self
             .categories
             .into_iter()
@@ -333,6 +345,12 @@ impl Settings {
         if !self.use_categories {
             return None;
         }
+        self.category_of(file_name)
+    }
+
+    /// The category a file name's type belongs to, whether or not files are
+    /// sorted into category folders.
+    pub fn category_of(&self, file_name: &str) -> Option<&Category> {
         let ext = extension_of(file_name)?;
         self.categories.iter().find(|c| c.extensions.contains(&ext))
     }
@@ -377,6 +395,7 @@ fn category(name: &str, extensions: &[&str]) -> Category {
         name: name.into(),
         extensions: extensions.iter().map(|e| (*e).to_string()).collect(),
         folder: String::new(),
+        extract: false,
     }
 }
 
@@ -427,6 +446,7 @@ pub fn default_queues() -> Vec<Queue> {
         id: MAIN_QUEUE.into(),
         name: "Main".into(),
         max_concurrent: 3,
+        command: String::new(),
     }]
 }
 
@@ -437,6 +457,7 @@ fn normalize_queues(queues: Vec<Queue>, main_limit: u32) -> Vec<Queue> {
     for mut q in queues {
         q.name = q.name.trim().to_string();
         q.id = q.id.trim().to_string();
+        q.command = q.command.trim().to_string();
         q.max_concurrent = q.max_concurrent.clamp(1, 16);
         if q.id == MAIN_QUEUE {
             main.get_or_insert(q);
@@ -508,6 +529,7 @@ mod tests {
                     name: " Books ".into(),
                     extensions: vec![".EPUB".into(), "epub".into(), " ".into(), "mobi".into()],
                     folder: String::new(),
+                    extract: false,
                 },
                 Category::default(),
             ],
@@ -562,6 +584,29 @@ mod tests {
         assert!(s.close_to_tray && s.notify_on_finish && s.use_categories);
         assert!(!s.start_with_system && !s.schedule.enabled);
         assert_eq!(s.categories, default_categories());
+        assert!(!s.post.scan && s.post.command.is_empty() && !s.post.delete_archive);
+        assert_eq!(s.post.timeout_secs, 600);
+        assert!(
+            s.categories.iter().all(|c| !c.extract),
+            "extraction is opt-in"
+        );
+    }
+
+    #[test]
+    fn post_settings_are_trimmed_and_clamped() {
+        let s = Settings {
+            post: PostSettings {
+                command: "  notify-send {name} ".into(),
+                timeout_secs: 0,
+                scanner: " clamscan ".into(),
+                ..PostSettings::default()
+            },
+            ..Settings::default()
+        }
+        .normalized();
+        assert_eq!(s.post.command, "notify-send {name}");
+        assert_eq!(s.post.scanner, "clamscan");
+        assert_eq!(s.post.timeout_secs, 5);
     }
 
     #[test]
@@ -590,6 +635,7 @@ mod tests {
             name: "Work".into(),
             extensions: vec![],
             folder: "Projects/Work".into(),
+            extract: false,
         };
         assert_eq!(
             s.category_dir(&custom),
@@ -612,11 +658,13 @@ mod tests {
                     id: String::new(),
                     name: " Night downloads ".into(),
                     max_concurrent: 0,
+                    command: " notify {name} ".into(),
                 },
                 Queue {
                     id: "night-downloads".into(),
                     name: "Other".into(),
                     max_concurrent: 99,
+                    command: String::new(),
                 },
                 Queue::default(),
             ],
@@ -635,6 +683,7 @@ mod tests {
         );
         assert_eq!(s.queues[0].name, "Main");
         assert_eq!(s.queues[1].max_concurrent, 1);
+        assert_eq!(s.queues[1].command, "notify {name}");
         assert_eq!(s.queues[2].max_concurrent, 16);
         assert_eq!(
             s.queue_limit("main"),

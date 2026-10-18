@@ -2,11 +2,13 @@ import { FolderOpen } from "lucide-react";
 import { useEffect, useEffectEvent, useId, useState, type FormEvent } from "react";
 
 import { useI18n } from "../i18n";
-import { api, errorMessage, isCommandError, onConfirmClose, type Choices, type ConfirmOptions, type Queue, type Task } from "../lib/api";
+import { api, errorMessage, isCommandError, onConfirmClose, type Choices, type ConfirmOptions, type Queue, type Settings, type Task } from "../lib/api";
 import { describeError } from "../lib/errors";
 import { withStop } from "../lib/format";
 import { REFUSED_STREAM, audioName, audiosFor, initialChoice, kindName, needsMerge, qualityOption, selectionFor } from "../lib/media";
+import { categoryExtracts, inheritedCommand, isArchive } from "../lib/post";
 import { displayName, knownSize } from "../lib/tasks";
+import { PostFields } from "./PostFields";
 import { Banner, Button, Dialog, inputClass } from "./primitives";
 
 /** What reading a stream's or a video page's qualities came to. */
@@ -47,6 +49,7 @@ export function ConfirmDialog({
   task,
   waiting,
   queues,
+  settings,
   inWindow = false,
   onFit,
   onConfirm,
@@ -58,6 +61,8 @@ export function ConfirmDialog({
   /** More downloads waiting after this one. */
   waiting: number;
   queues: Queue[];
+  /** For what runs after the download: the default command and the categories. */
+  settings?: Settings;
   /** The whole confirmation window rather than a dialog in the main window. */
   inWindow?: boolean;
   /** In the window: the height it needs. */
@@ -77,6 +82,9 @@ export function ConfirmDialog({
   const [dir, setDir] = useState(task.dir);
   const [queue, setQueue] = useState(task.queue);
   const [stopAsking, setStopAsking] = useState(false);
+  const [command, setCommand] = useState(task.post_actions.command);
+  // Null until the box is touched: the category then decides.
+  const [extract, setExtract] = useState<boolean | null>(task.post_actions.extract);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // A video page (YouTube) is chosen like a stream, with yt-dlp's formats.
@@ -149,6 +157,10 @@ export function ConfirmDialog({
         start,
         // Without the stream's qualities the best one is taken when it starts.
         media: choices ? selectionFor(choices, videoId, audioId) : null,
+        post:
+          command.trim() !== task.post_actions.command || extract !== task.post_actions.extract
+            ? { command: command.trim(), extract }
+            : null,
       });
       if (stopAsking) onStopAsking?.();
     } catch (err) {
@@ -195,6 +207,7 @@ export function ConfirmDialog({
   const size = knownSize(task.total, video?.estimated_size);
   const pickQueue = queues.length > 1;
   const small = `${inputClass} h-8 text-[13px]`;
+  const archive = !stream && isArchive(name.trim());
 
   return (
     <Dialog
@@ -345,6 +358,18 @@ export function ConfirmDialog({
                 ))}
               </select>
             </>
+          )}
+
+          {settings && (
+            <PostFields
+              compact
+              command={command}
+              onCommand={setCommand}
+              inherited={inheritedCommand(settings, queue)}
+              archive={archive}
+              extract={extract ?? categoryExtracts(settings, name.trim())}
+              onExtract={setExtract}
+            />
           )}
         </div>
         {stream && <StreamNotice inspection={inspection} site={site} videoId={videoId} onOpenSettings={onOpenSettings} />}

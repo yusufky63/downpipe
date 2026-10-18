@@ -151,6 +151,7 @@ async fn new_downloads_take_the_folder_and_queue_of_the_most_specific_rule() {
         id: "night".into(),
         name: "Night".into(),
         max_concurrent: 1,
+        command: String::new(),
     });
     let absolute = out.path().join("Mirrors");
     settings.site_rules = vec![

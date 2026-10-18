@@ -293,6 +293,7 @@ async fn browser_downloads_wait_for_the_user() {
                 queue: None,
                 start: true,
                 media: None,
+                post: None,
             },
         )
         .unwrap();

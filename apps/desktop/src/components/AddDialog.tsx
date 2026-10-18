@@ -12,10 +12,12 @@ export interface Duplicate {
   existing: string;
 }
 import { looksLikeCurl, parseCurl, type CurlError } from "../lib/curl";
-import { parseUrls } from "../lib/format";
+import { nameFromUrl, parseUrls } from "../lib/format";
 import { headersText, parseHeaders, type HeaderProblem } from "../lib/headers";
 import { MAX_EXPANDED, expandPatterns, linksFromList } from "../lib/patterns";
+import { categoryExtracts, inheritedCommand, isArchive } from "../lib/post";
 import { sitePage } from "../lib/sites";
+import { PostFields } from "./PostFields";
 import { Button, Dialog, Field, inputClass } from "./primitives";
 
 function headerProblemText(t: Translate, p: HeaderProblem): string {
@@ -76,6 +78,9 @@ export function AddDialog({
   const [checksum, setChecksum] = useState("");
   const [paused, setPaused] = useState(false);
   const [queue, setQueue] = useState(MAIN_QUEUE);
+  const [command, setCommand] = useState("");
+  // Null until the box is touched: the category then decides, also later.
+  const [extract, setExtract] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Headers (cookies among them) live in this dialog's state and the core's
@@ -116,6 +121,10 @@ export function AddDialog({
   // yt-dlp builds a video's file itself: no connections or checksum to set.
   const firstPage = single && urls[0] !== undefined ? sitePage(urls[0]) : null;
   const video = firstPage !== null;
+  // The names known now; the server may still name the file differently.
+  const names = single && fileName.trim() ? [fileName.trim()] : urls.map(nameFromUrl);
+  const archives = names.filter(isArchive);
+  const extractShown = extract ?? archives.some((name) => categoryExtracts(settings, name));
 
   /** Fills the form from a cURL command; GET only, anything else is refused with the reason. */
   const fillFromCurl = (command: string) => {
@@ -181,6 +190,7 @@ export function AddDialog({
         // A video page then asks for its quality here, not in the confirmation window.
         from_app: true,
         headers: sent.headers.length > 0 ? sent.headers : undefined,
+        post: { command: command.trim(), extract },
       };
       try {
         added.push(await api.add(options));
@@ -428,6 +438,14 @@ export function AddDialog({
             />
           )}
         </Field>
+        <PostFields
+          command={command}
+          onCommand={setCommand}
+          inherited={inheritedCommand(settings, queue)}
+          archive={archives.length > 0}
+          extract={extractShown}
+          onExtract={setExtract}
+        />
       </form>
     </Dialog>
   );

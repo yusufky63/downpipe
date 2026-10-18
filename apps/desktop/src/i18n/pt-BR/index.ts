@@ -10,9 +10,10 @@ import { dialogs } from "./dialogs";
 import { errors } from "./errors";
 import { app, list } from "./list";
 import { media } from "./media";
+import { post } from "./post";
 import { remote } from "./remote";
 import { settings } from "./settings";
 import { sites } from "./sites";
 import { feeds, grabber } from "./web";
 
-export const ptBR: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, sites, media, confirm, errors, builtin, remote, grabber, feeds };
+export const ptBR: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, sites, media, confirm, errors, builtin, remote, grabber, feeds, post };

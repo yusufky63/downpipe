@@ -3,11 +3,12 @@ import { useState, type FormEvent, type ReactNode } from "react";
 
 import { useI18n } from "../i18n";
 import { longDate } from "../i18n/format";
-import { errorMessage, type Task } from "../lib/api";
+import { errorMessage, type PostActions, type Settings, type Task } from "../lib/api";
 import { canRelink } from "../lib/menu";
 import { formatBytes, formatDuration, formatPercent, formatSpeed, percent } from "../lib/format";
 import { engineQuality, kindName, sizeIsEstimate } from "../lib/media";
 import { canCancel, canPause, canResume, displayName, errorDetail, errorText, isRunning, needsNewLink, stateInfo, waitingText } from "../lib/tasks";
+import { PostSection } from "./PostSection";
 import { Badge, Banner, Button, Dialog, IconButton, inputClass } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
 import { RateFields, draftBytes, rateDraft } from "./SpeedLimitDialog";
@@ -25,16 +26,23 @@ export interface DetailActions {
   onRedownload: (id: string) => void;
   /** Bytes per second; null leaves only the global limit. */
   onSpeedLimit: (id: string, limit: number | null) => void;
+  /** The folder its archive was extracted into. */
+  onOpenExtracted: (id: string) => void;
+  /** Rejects with the reason a command line was refused. */
+  onSetPost: (id: string, actions: PostActions) => Promise<void>;
 }
 
 export function DetailsDialog({
   task,
   actions,
   queueName,
+  settings,
   startRelink = false,
 }: {
   task: Task;
   actions: DetailActions;
+  /** For the command and extraction a download gets by default. */
+  settings: Settings | null;
   /** Null for the main queue, which needs no mention. */
   queueName: string | null;
   /** Opened from "Use a new link…": the form is already open. */
@@ -157,6 +165,8 @@ export function DetailsDialog({
             <Stat label={t("details.stats.resume")} value={task.resumable ? t("details.stats.supported") : t("common.unknown")} />
           </div>
         ) : null}
+
+        <PostSection task={task} settings={settings} onOpenExtracted={actions.onOpenExtracted} onSave={actions.onSetPost} />
 
         {canRelink(task) && <ChangeLink task={task} startOpen={startRelink} onChangeUrl={actions.onChangeUrl} />}
 

@@ -18,8 +18,9 @@ use downpipe_core::feeds::Feeds;
 use downpipe_core::providers::ToolsStatus;
 use downpipe_core::providers::install::Tool;
 use downpipe_core::{
-    AddOptions, ConfirmOptions, CoreError, Manager, MediaChoices, QueueMove, RefusedHost,
-    RuleProblem, RuleTest, Settings, SiteChoices, SiteRule, TaskSnapshot, TaskState, rules,
+    AddOptions, ConfirmOptions, CoreError, Manager, MediaChoices, PostActions, QueueMove,
+    RefusedHost, RuleProblem, RuleTest, Settings, SiteChoices, SiteRule, TaskSnapshot, TaskState,
+    rules,
 };
 use downpipe_native_host::ipc::Endpoint;
 use downpipe_native_host::manifest::{self, Layout, Stale, Status};
@@ -265,6 +266,17 @@ fn confirm_download(
     options: ConfirmOptions,
 ) -> CmdResult<()> {
     Ok(manager.confirm(&id, options)?)
+}
+
+/// A download's own command and extraction choice, for the next time it
+/// completes.
+#[tauri::command]
+fn set_post_actions(
+    manager: State<'_, Manager>,
+    id: String,
+    actions: PostActions,
+) -> CmdResult<()> {
+    Ok(manager.set_post_actions(&id, actions)?)
 }
 
 /// The qualities and audio tracks of a stream download, read from its
@@ -557,8 +569,16 @@ fn reveal_download(app: AppHandle, manager: State<'_, Manager>, id: String) -> C
         .get(&id)
         .ok_or_else(|| CommandError::new(GONE, "That download no longer exists"))?;
     let record = task.record;
+    // An archive deleted after it was extracted: its folder instead.
+    let extracted = record
+        .post
+        .as_ref()
+        .and_then(|p| p.extract.as_ref())
+        .and_then(|e| e.folder.clone())
+        .filter(|f| f.is_dir());
     let target = match (record.state, record.path) {
         (TaskState::Completed, Some(path)) if path.exists() => path,
+        (TaskState::Completed, Some(_)) if extracted.is_some() => extracted.unwrap_or_default(),
         (_, Some(path)) => {
             let part = downpipe_core::http::meta::part_path(&path);
             if part.exists() { part } else { record.dir }
@@ -572,6 +592,25 @@ fn reveal_download(app: AppHandle, manager: State<'_, Manager>, id: String) -> C
         app.opener().reveal_item_in_dir(&target)
     };
     result.map_err(|e| CommandError::new("open_failed", e.to_string()))
+}
+
+/// Open the folder a download's archive was extracted into. By id, like
+/// the other file actions: the folder comes from the catalog.
+#[tauri::command]
+fn open_extracted(app: AppHandle, manager: State<'_, Manager>, id: String) -> CmdResult<()> {
+    let task = manager
+        .get(&id)
+        .ok_or_else(|| CommandError::new("not_found", "That download no longer exists"))?;
+    let folder = task
+        .record
+        .post
+        .and_then(|p| p.extract)
+        .and_then(|e| e.folder)
+        .filter(|f| f.is_dir())
+        .ok_or_else(|| CommandError::new("not_found", "The extracted folder is gone"))?;
+    app.opener()
+        .open_path(folder.to_string_lossy(), None::<&str>)
+        .map_err(|e| CommandError::new("open_failed", e.to_string()))
 }
 
 /// Open a completed download with its default application.
@@ -844,6 +883,8 @@ fn main() {
             pick_folder,
             reveal_download,
             open_download,
+            open_extracted,
+            set_post_actions,
             change_download_url,
             confirm_download,
             inspect_media,

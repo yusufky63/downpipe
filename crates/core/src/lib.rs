@@ -3,6 +3,7 @@
 
 pub mod feeds;
 mod manager;
+pub mod post;
 pub mod rules;
 pub mod schedule;
 mod settings;
@@ -10,6 +11,10 @@ mod store;
 mod task;
 
 pub use manager::{CoreError, Manager, ManagerEvent};
+pub use post::{
+    CommandReport, CommandResult, ExtractReport, ExtractResult, PostActions, PostReport,
+    PostSettings, PostStep, ScanReport, ScanResult,
+};
 pub use rules::{RefusedHost, RuleProblem, RuleProxy, RuleTest, SiteRule};
 pub use settings::{
     Category, DEFAULT_REMOTE_PORT, DUPLICATE_ANSWERS, MAIN_QUEUE, Queue, RemoteSettings, Schedule,

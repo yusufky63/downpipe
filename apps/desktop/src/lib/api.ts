@@ -84,6 +84,73 @@ export interface Task {
   /** Stream downloads while they run: fragments done and in all. */
   fragments: { done: number; total: number } | null;
   eta_secs: number | null;
+  /** Its own command and extraction choice; empty values follow the queue, category and settings. */
+  post_actions: PostActions;
+  /** What the virus scan, the extraction and the command found, once it completed. */
+  post: PostReport | null;
+  /** Completed, and a post-download step runs now. */
+  post_step: PostStep | null;
+}
+
+export interface PostActions {
+  /** Command line run when it completes. Empty: the queue's, else the one in Settings. */
+  command: string;
+  /** Extract it if it is an archive; null lets its category decide. */
+  extract: boolean | null;
+}
+
+export type PostStep = "scanning" | "extracting" | "running_command";
+
+export type ScanResult = "clean" | "threat" | "missing" | "failed";
+
+export interface ScanReport {
+  result: ScanResult;
+  /** "Microsoft Defender", or the scanner program's file name. */
+  scanner: string;
+  /** The threat's name, or why the scan failed. */
+  detail?: string;
+}
+
+export interface ExtractReport {
+  result: "done" | "failed";
+  folder?: string;
+  files: number;
+  bytes: number;
+  /** Entries left out: unsafe names, links, special files, duplicates. */
+  skipped: number;
+  archive_deleted: boolean;
+  error?: "encrypted" | "too_large" | "too_many_entries" | "corrupt" | "io";
+  detail?: string;
+}
+
+export interface CommandReport {
+  result: "ok" | "failed" | "timed_out" | "not_started" | "invalid";
+  program: string;
+  exit_code?: number;
+  /** The end of what it printed. */
+  output: string;
+  detail?: string;
+}
+
+export interface PostReport {
+  scan?: ScanReport;
+  extract?: ExtractReport;
+  command?: CommandReport;
+  /** A threat was found, so nothing was extracted and the command did not run. */
+  stopped_by_threat: boolean;
+}
+
+/** Settings for what happens after downloads complete. */
+export interface PostSettings {
+  /** Run after every completed download whose queue or own choice sets none. */
+  command: string;
+  /** Seconds a command or a scan may take, 5 to 86400. */
+  timeout_secs: number;
+  scan: boolean;
+  /** Scanner command line; empty is Microsoft Defender on Windows. */
+  scanner: string;
+  /** Delete an archive once everything in it was extracted. */
+  delete_archive: boolean;
 }
 
 export type MediaKind = "hls" | "dash";
@@ -239,6 +306,8 @@ export interface Settings {
   duplicate_answer: DuplicateAnswer;
   /** The remote control; changed only with `api.setRemote` and `api.newRemoteToken`. */
   remote: RemoteSettings;
+  /** After a download completes: the default command, the virus scan, archives. */
+  post: PostSettings;
 }
 
 export interface RemoteSettings {
@@ -347,6 +416,8 @@ export interface Queue {
   name: string;
   /** Downloads at once, 1 to 16. Ignored for the main queue. */
   max_concurrent: number;
+  /** Run after each of its downloads completes, instead of the one in Settings. */
+  command: string;
 }
 
 export interface Category {
@@ -355,6 +426,8 @@ export interface Category {
   extensions: string[];
   /** Empty: a folder named after the category inside the download folder. */
   folder: string;
+  /** Extract its archives (zip, tar, 7z) after they download. */
+  extract: boolean;
 }
 
 export interface Schedule {
@@ -411,6 +484,8 @@ export interface AddOptions {
   on_duplicate?: OnDuplicate;
   /** Sent with every request; kept in memory only, never written to disk. */
   headers?: [string, string][];
+  /** Its own command and extraction choice. */
+  post?: PostActions;
 }
 
 export type OnDuplicate = "refuse" | "add_copy" | "ask";
@@ -425,6 +500,8 @@ export interface ConfirmOptions {
   start: boolean;
   /** Streams and video pages: the quality and audio to download. */
   media?: MediaSelection | null;
+  /** Replaces its own command and extraction choice. */
+  post?: PostActions | null;
 }
 
 export type QueueMove = "up" | "down" | "top" | "bottom";
@@ -568,6 +645,9 @@ export const api = {
   pickFolder: (initial: string | null) => invoke<string | null>("pick_folder", { initial }),
   reveal: (id: string) => invoke<null>("reveal_download", { id }),
   open: (id: string) => invoke<null>("open_download", { id }),
+  /** The folder its archive was extracted into. */
+  openExtracted: (id: string) => invoke<null>("open_extracted", { id }),
+  setPostActions: (id: string, actions: PostActions) => invoke<null>("set_post_actions", { id, actions }),
   changeUrl: (id: string, url: string) => invoke<null>("change_download_url", { id, url }),
   confirm: (id: string, options: ConfirmOptions) => invoke<null>("confirm_download", { id, options }),
   /** Reads the stream's manifest; downloads no media. */

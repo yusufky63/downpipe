@@ -39,6 +39,9 @@ export function makeTask(id: string, patch: Partial<Task> = {}): Task {
     resume_at: null,
     fragments: null,
     eta_secs: null,
+    post_actions: { command: "", extract: null },
+    post: null,
+    post_step: null,
     ...patch,
   };
 }

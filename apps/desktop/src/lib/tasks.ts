@@ -2,6 +2,7 @@ import { t, type MessageKey } from "../i18n/core";
 import type { ManagerEvent, Task, TaskState, WaitReason } from "./api";
 import { describeFailure } from "./errors";
 import { formatBytes, nameFromUrl } from "./format";
+import { postBadge } from "./post";
 
 export type Filter = "all" | "active" | "queued" | "completed" | "failed";
 
@@ -155,6 +156,9 @@ export type Tone = "primary" | "positive" | "danger" | "warning" | "neutral";
 
 export function stateInfo(task: Task): { label: string; tone: Tone } {
   if (task.awaiting_confirmation) return { label: t("states.confirm"), tone: "warning" };
+  // Completed, but still being scanned or extracted, or flagged by the scan.
+  const post = task.state === "completed" ? postBadge(task) : null;
+  if (post) return post;
   return { label: t(`states.${task.state}`), tone: STATE_TONES[task.state] };
 }
 

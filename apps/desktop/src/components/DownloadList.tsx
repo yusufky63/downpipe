@@ -20,6 +20,7 @@ import { formatBytes, formatDuration, formatPercent, formatSpeed, hostOf, percen
 import { sizeIsEstimate, streamLabel } from "../lib/media";
 import type { Modifiers } from "../lib/selection";
 import type { Sort, SortKey } from "../lib/sort";
+import { postProblem, threatFound } from "../lib/post";
 import { scrollToRow, visibleRange } from "../lib/windowing";
 import { canPause, canResume, displayName, errorText, isRunning, lastActivity, needsNewLink, stateInfo, waitingText } from "../lib/tasks";
 import { resumesText } from "../lib/until";
@@ -313,7 +314,7 @@ function DownloadRow({
         ? formatBytes(task.downloaded)
         : "–";
   const detail =
-    (task.state === "failed" ? errorText(task) : waitingText(task)) ??
+    (task.state === "failed" ? errorText(task) : task.state === "completed" ? postProblem(task) : waitingText(task)) ??
     [resumesText(task, now), hostOf(task.url), streamLabel(task), task.category && categoryLabel(task.category), queueName].filter(Boolean).join(" · ");
   const done = task.state === "completed";
   const name = displayName(task);
@@ -376,7 +377,7 @@ function DownloadRow({
           </span>
           <Badge tone={info.tone}>{info.label}</Badge>
         </div>
-        <span className={`truncate font-mono text-[12px] ${task.state === "failed" ? "text-danger-fg" : "text-ink-muted"}`} title={detail}>
+        <span className={`truncate font-mono text-[12px] ${task.state === "failed" || threatFound(task) ? "text-danger-fg" : "text-ink-muted"}`} title={detail}>
           {detail}
         </span>
         {/* Narrow windows fold progress into the name cell. */}

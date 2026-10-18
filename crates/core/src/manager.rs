@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use downpipe_http::media::{self, MediaKind, MediaRequest};
@@ -18,6 +19,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
+use crate::post::{self, Plan, PostActions, PostReport, Update};
 use crate::rules::{self, RefusedHost, RuleProxy, SiteRule};
 use crate::settings::{MAIN_QUEUE, Settings};
 use crate::store::Store;
@@ -141,6 +143,24 @@ struct Entry {
     /// This download's own speed limit, shared with its running job so a
     /// change applies at once.
     limiter: Arc<RateLimiter>,
+    /// Post-download steps running for it now.
+    post_job: Option<PostJob>,
+}
+
+/// Running post-download steps. Aborting the task ends a command or scanner
+/// (its process is killed when dropped); the flag stops an extraction,
+/// which runs on a blocking thread.
+#[derive(Debug)]
+struct PostJob {
+    cancel: Arc<AtomicBool>,
+    task: JoinHandle<()>,
+}
+
+impl PostJob {
+    fn stop(self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        self.task.abort();
+    }
 }
 
 /// What a stop request should turn into once the engine has stopped.
@@ -202,6 +222,7 @@ impl Manager {
                 after_stop: AfterStop::Pause,
                 last_persist: Instant::now(),
                 relink: false,
+                post_job: None,
             });
         }
 
@@ -279,6 +300,7 @@ impl Manager {
             None => None,
         };
         downpipe_http::build_headers(&opts.headers)?;
+        let post_actions = checked_actions(opts.post)?;
         // A video page (YouTube) goes to the site provider under one link
         // per video, whatever tracking or timestamp the link carried.
         let page = pages::recognize(&url);
@@ -388,6 +410,8 @@ impl Manager {
                 speed_limit: None,
                 resume_at: None,
                 site_rule: rule.map(|r| r.pattern),
+                post_actions,
+                post: None,
             };
             st.store.upsert(&record)?;
             let entry = Entry {
@@ -401,6 +425,7 @@ impl Manager {
                 after_stop: AfterStop::Pause,
                 last_persist: Instant::now(),
                 relink: false,
+                post_job: None,
             };
             let mut entry = entry;
             entry.live.awaiting_confirmation = confirm;
@@ -613,6 +638,9 @@ impl Manager {
                 .position(|e| e.record.id == id)
                 .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
             let entry = &mut st.tasks[idx];
+            if let Some(job) = entry.post_job.take() {
+                job.stop();
+            }
             if let Some(control) = &entry.control {
                 entry.after_stop = AfterStop::Remove;
                 if delete_files {
@@ -678,6 +706,7 @@ impl Manager {
     /// Apply what the user chose for a download held for confirmation.
     pub fn confirm(&self, id: &str, choice: ConfirmOptions) -> Result<(), CoreError> {
         let start = choice.start;
+        let post = choice.post.map(checked_actions).transpose()?;
         self.inner.with_entry(id, |st, entry| {
             if !entry.live.awaiting_confirmation {
                 return Err(invalid("confirm", entry.record.state));
@@ -707,6 +736,9 @@ impl Manager {
                     site.quality = None;
                 }
             }
+            if let Some(post) = post {
+                entry.record.post_actions = post;
+            }
             entry.live.awaiting_confirmation = false;
             entry.set_state(if start {
                 TaskState::Queued
@@ -728,6 +760,9 @@ impl Manager {
             if entry.control.is_some() || entry.record.state != TaskState::Completed {
                 return Err(invalid("download again", entry.record.state));
             }
+            if let Some(job) = entry.post_job.take() {
+                job.stop();
+            }
             let r = &mut entry.record;
             if replace {
                 if let Some(path) = r.path.as_ref().filter(|p| p.exists()) {
@@ -742,6 +777,7 @@ impl Manager {
             r.completed_at = None;
             r.error = None;
             r.error_kind = None;
+            r.post = None;
             entry.live = Live::default();
             entry.set_state(TaskState::Queued);
             st.store.upsert(&entry.record)?;
@@ -749,6 +785,21 @@ impl Manager {
         })?;
         self.inner.schedule();
         Ok(())
+    }
+
+    /// Change what happens once a download completes: its own command and
+    /// whether to extract it. Takes effect the next time it completes.
+    pub fn set_post_actions(&self, id: &str, actions: PostActions) -> Result<(), CoreError> {
+        let actions = checked_actions(actions)?;
+        self.inner.with_entry(id, |st, entry| {
+            if entry.record.post_actions == actions {
+                return Ok(None);
+            }
+            entry.record.post_actions = actions;
+            entry.record.updated_at = unix_now();
+            st.store.upsert(&entry.record)?;
+            Ok(Some(entry.snapshot()))
+        })
     }
 
     /// What a stream download can be: its qualities and audio tracks, read
@@ -991,6 +1042,7 @@ impl Manager {
                 rules::describe(problem.code)
             )));
         }
+        post::validate_settings(&settings).map_err(CoreError::InvalidSetting)?;
         if settings.user_agent.chars().any(char::is_control) {
             return Err(CoreError::InvalidSetting(
                 "the user agent cannot contain control characters".into(),
@@ -1059,6 +1111,14 @@ impl Manager {
         let supervisors: Vec<JoinHandle<()>> = {
             let mut st = self.inner.state.lock();
             st.shutting_down = true;
+            // Post-download steps do not continue after a restart; a command
+            // or scanner still running is stopped with the app.
+            for e in &mut st.tasks {
+                if let Some(job) = e.post_job.take() {
+                    job.stop();
+                    e.live.post_step = None;
+                }
+            }
             st.tasks
                 .iter_mut()
                 .filter_map(|e| {
@@ -1264,8 +1324,99 @@ impl Inner {
             }
         };
         let ((), result) = tokio::join!(forward, handle.wait());
-        self.on_finished(&id, result);
+        if let Some(plan) = self.on_finished(&id, result) {
+            self.start_post(&id, plan);
+        }
         self.schedule();
+    }
+
+    /// Run the post-download steps of a download that just completed.
+    fn start_post(self: &Arc<Self>, id: &str, plan: Plan) {
+        let _runtime = self.runtime.enter();
+        let mut st = self.state.lock();
+        if st.shutting_down {
+            return;
+        }
+        let Some(entry) = st.tasks.iter_mut().find(|e| e.record.id == id) else {
+            return;
+        };
+        if entry.record.state != TaskState::Completed || entry.post_job.is_some() {
+            return;
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        let inner = self.clone();
+        let task_id = id.to_string();
+        let flag = cancel.clone();
+        let task = tokio::spawn(async move {
+            let apply = |update| inner.apply_post(&task_id, &flag, update);
+            post::run(&task_id, plan, flag.clone(), apply).await;
+        });
+        entry.post_job = Some(PostJob { cancel, task });
+    }
+
+    /// Record one post-download update; `false` when the download is gone
+    /// or its steps were stopped.
+    fn apply_post(&self, id: &str, cancel: &AtomicBool, update: Update) -> bool {
+        if cancel.load(Ordering::Relaxed) {
+            return false;
+        }
+        let snapshot = {
+            let mut st = self.state.lock();
+            let State { store, tasks, .. } = &mut *st;
+            let Some(entry) = tasks.iter_mut().find(|e| e.record.id == id) else {
+                return false;
+            };
+            if entry.record.state != TaskState::Completed {
+                return false;
+            }
+            let mut persist = true;
+            let report = || PostReport::default();
+            match update {
+                Update::Step(step) => {
+                    entry.live.post_step = Some(step);
+                    persist = false;
+                }
+                Update::Scan(scan) => {
+                    entry.record.post.get_or_insert_with(report).scan = Some(scan);
+                }
+                Update::Extract(extract) => {
+                    entry.record.post.get_or_insert_with(report).extract = Some(extract);
+                }
+                Update::Command(command) => {
+                    entry.record.post.get_or_insert_with(report).command = Some(command);
+                }
+                Update::StoppedByThreat => {
+                    entry
+                        .record
+                        .post
+                        .get_or_insert_with(report)
+                        .stopped_by_threat = true;
+                }
+                Update::ArchiveDeleted => {
+                    if let Some(extract) =
+                        entry.record.post.as_mut().and_then(|p| p.extract.as_mut())
+                    {
+                        extract.archive_deleted = true;
+                    }
+                }
+                Update::Done => {
+                    entry.live.post_step = None;
+                    entry.post_job = None;
+                    persist = false;
+                }
+            }
+            if persist {
+                entry.record.updated_at = unix_now();
+                if let Err(e) = store.upsert(&entry.record) {
+                    tracing::warn!("could not persist the post-download report: {e}");
+                }
+            }
+            entry.snapshot()
+        };
+        self.emit(ManagerEvent::Updated {
+            task: Box::new(snapshot),
+        });
+        true
     }
 
     fn on_progress(&self, id: &str, p: &downpipe_http::Progress) {
@@ -1324,7 +1475,10 @@ impl Inner {
         });
     }
 
-    fn on_finished(&self, id: &str, result: Result<Outcome, DownloadError>) {
+    /// Record how a download ended; returns the post-download steps to run
+    /// when it completed and has some.
+    fn on_finished(&self, id: &str, result: Result<Outcome, DownloadError>) -> Option<Plan> {
+        let mut plan = None;
         let event = {
             let mut st = self.state.lock();
             let State {
@@ -1333,9 +1487,7 @@ impl Inner {
                 settings,
                 ..
             } = &mut *st;
-            let Some(idx) = tasks.iter().position(|e| e.record.id == id) else {
-                return;
-            };
+            let idx = tasks.iter().position(|e| e.record.id == id)?;
             let entry = &mut tasks[idx];
             entry.control = None;
             entry.supervisor = None;
@@ -1353,7 +1505,7 @@ impl Inner {
                 tasks.remove(idx);
                 drop(st);
                 self.emit(ManagerEvent::Removed { id: id.to_string() });
-                return;
+                return None;
             }
 
             let r = &mut entry.record;
@@ -1372,8 +1524,14 @@ impl Inner {
                     r.error = None;
                     r.error_kind = None;
                     r.resume_at = None;
+                    r.post = None;
                     entry.live.segments.clear();
                     entry.set_state(TaskState::Completed);
+                    // A download removed while it finished gets no steps.
+                    if after != AfterStop::Remove {
+                        plan = Plan::new(settings, &entry.record);
+                        entry.live.post_step = plan.as_ref().map(Plan::first_step);
+                    }
                 }
                 Ok(Outcome::Paused {
                     downloaded, total, ..
@@ -1408,6 +1566,7 @@ impl Inner {
             }
         };
         self.emit(event);
+        plan
     }
 }
 
@@ -1664,6 +1823,15 @@ fn move_into(path: &Path, dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     let dest = filename::unique_path(dir, name);
     std::fs::rename(path, &dest)?;
     Ok(dest)
+}
+
+/// Post-download choices from a dialog, trimmed and checked: a command line
+/// that cannot run is refused before it is stored.
+fn checked_actions(actions: PostActions) -> Result<PostActions, CoreError> {
+    let actions = actions.normalized();
+    post::validate_actions(&actions)
+        .map_err(|e| CoreError::InvalidSetting(format!("command after download: {e}")))?;
+    Ok(actions)
 }
 
 fn invalid(action: &'static str, state: TaskState) -> CoreError {

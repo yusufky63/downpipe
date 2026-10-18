@@ -69,6 +69,7 @@ async fn manager(data: &Path, downloads: &Path) -> Manager {
         id: String::new(),
         name: "Podcasts".into(),
         max_concurrent: 1,
+        command: String::new(),
     });
     m.update_settings(Settings {
         download_dir: downloads.to_path_buf(),
