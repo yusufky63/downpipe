@@ -2,6 +2,12 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
+## Unreleased
+
+### Changed
+
+- **Settings tabs in two rows.** The eleven tabs of the settings dialog sit in two rows (more on a narrow window) instead of one row that hid the last tabs off the edge, and the bar stays in place while a long tab scrolls.
+
 ## 0.5.1 — 2026-10-18
 
 ### Fixed

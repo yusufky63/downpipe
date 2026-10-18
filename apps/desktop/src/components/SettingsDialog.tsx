@@ -32,6 +32,8 @@ import { TorrentSettingsPanel } from "./TorrentSettings";
 export type SettingsTab = "downloads" | "queues" | "categories" | "post" | "network" | "sites" | "media" | "torrent" | "schedule" | "app" | "remote";
 
 const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "post", "network", "sites", "media", "torrent", "schedule", "app", "remote"];
+/** The tab bar's two rows: six tabs, then five. */
+const TAB_ROWS: readonly (readonly SettingsTab[])[] = [TABS.slice(0, 6), TABS.slice(6)];
 
 /** Defender is the default scanner only there. */
 const WINDOWS = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
@@ -246,28 +248,38 @@ export function SettingsDialog({
         </>
       }
     >
-      <div role="tablist" aria-label={t("settings.tabsLabel")} className="scrollbar-none -mx-5 -mt-5 mb-5 flex overflow-x-auto border-b border-line px-3">
-        {TABS.map((id) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            id={`${tabIds}-${id}`}
-            aria-selected={tab === id}
-            aria-controls={`${tabIds}-${id}-panel`}
-            onClick={() => setTab(id)}
-            className={`-mb-px shrink-0 border-b-2 px-3 py-2.5 text-[13px] transition-colors duration-150 ${
-              tab === id ? "border-primary text-ink" : "border-transparent text-ink-secondary hover:text-ink"
-            }`}
-          >
-            {id === "post"
-              ? t("post.settings.tab")
-              : id === "remote"
-                ? t("remote.settings.tab")
-                : id === "torrent"
-                  ? t("torrent.settings.tab")
-                  : t(`settings.tabs.${id}`)}
-          </button>
+      {/* Eleven tabs do not fit one row in any language, so they sit in two
+          rows, every one in sight; the bar stays put while a long tab scrolls. */}
+      <div
+        role="tablist"
+        aria-label={t("settings.tabsLabel")}
+        className="sticky -top-5 z-20 -mx-5 -mt-5 mb-5 flex flex-col gap-1 border-b border-line bg-canvas px-4 py-2.5"
+      >
+        {TAB_ROWS.map((row, i) => (
+          <div key={i} role="presentation" className="flex flex-wrap gap-1">
+            {row.map((id) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                id={`${tabIds}-${id}`}
+                aria-selected={tab === id}
+                aria-controls={`${tabIds}-${id}-panel`}
+                onClick={() => setTab(id)}
+                className={`inline-flex h-8 shrink-0 items-center rounded-md border px-2.5 text-[13px] transition-colors duration-150 ${
+                  tab === id ? "border-primary bg-primary-soft text-ink" : "border-transparent text-ink-secondary hover:bg-surface-muted hover:text-ink"
+                }`}
+              >
+                {id === "post"
+                  ? t("post.settings.tab")
+                  : id === "remote"
+                    ? t("remote.settings.tab")
+                    : id === "torrent"
+                      ? t("torrent.settings.tab")
+                      : t(`settings.tabs.${id}`)}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
 
