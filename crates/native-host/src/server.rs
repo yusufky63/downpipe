@@ -247,6 +247,13 @@ impl Bridge {
     }
 }
 
+/// Kinds are short snake_case words; anything else is not passed on.
+fn valid_kind(kind: &str) -> bool {
+    !kind.is_empty()
+        && kind.len() <= 32
+        && kind.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+}
+
 fn task_status(task: TaskSnapshot) -> TaskStatus {
     let record = task.record;
     let file_name = record
@@ -265,6 +272,7 @@ fn task_status(task: TaskSnapshot) -> TaskStatus {
         error: record
             .error
             .map(|e| e.chars().take(MAX_TASK_ERROR_LEN).collect()),
+        error_kind: record.error_kind.filter(|k| valid_kind(k)),
         awaiting_confirmation: task.live.awaiting_confirmation,
     }
 }
@@ -436,5 +444,19 @@ mod title_tests {
         );
         assert_eq!(video_file_name(r"a\b"), "a-b.mp4");
         assert_eq!(video_file_name("Plain title"), "Plain title.mp4");
+    }
+}
+
+#[cfg(test)]
+mod kind_tests {
+    use super::valid_kind;
+
+    #[test]
+    fn only_plain_kinds_reach_the_extension() {
+        assert!(valid_kind("not_found"));
+        assert!(valid_kind("expired_link"));
+        assert!(!valid_kind(""));
+        assert!(!valid_kind("Not Found"));
+        assert!(!valid_kind(&"a".repeat(33)));
     }
 }

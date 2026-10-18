@@ -54,9 +54,31 @@ export const add: Messages["add"] = {
     hint: "İsteğe bağlı, ör. sha256:9f86d0… Dosya yalnızca eşleşirse yerine konur.",
     videoHint: "Yalnızca dosyalar için: yt-dlp videonun dosyasını sitenin biçimlerinden birleştirir.",
   },
+  /** Sent with every request, kept in memory only. */
+  headers: {
+    label: "İstek başlıkları",
+    hint: "İsteğe bağlı. Her satıra bir tane, Ad: değer biçiminde. Her istekle gönderilir; yalnızca bellekte tutulur, asla kaydedilmez.",
+  },
+  /** "Paste as cURL": a command from the browser's developer tools. */
+  curl: {
+    button: "cURL olarak yapıştır",
+    label: "cURL komutu",
+    hint: "Tarayıcının geliştirici araçlarında: Ağ, isteğe sağ tıklayın, cURL olarak kopyala. Yalnızca GET istekleri indirilebilir.",
+    apply: "Doldur",
+    filled: "Komuttan dolduruldu: bağlantı ve başlıkları.",
+    ignored: "Alınmayanlar: {list}.",
+    notCurl: "Bu bir cURL komutu değil. curl ile başlamalı.",
+    quote: "Komuttaki bir tırnak hiç kapanmıyor. Komutun tamamını yeniden kopyalayın.",
+    noUrl: "Komutta http veya https bağlantısı yok.",
+    method: "Bu istek {method} kullanıyor. Downpipe yalnızca GET ile indirir, bu yüzden bu isteği tekrarlayamaz.",
+    data: "Bu istek veri gönderiyor ({option}), bu da onu bir POST yapar. Downpipe yalnızca GET ile indirir.",
+  },
   errors: {
     listTooLarge: "Bu dosya bir bağlantı listesi için çok büyük.",
     noLinks: "En az bir http ya da https bağlantısı yapıştırın.",
     forLink: "{url}: {error}",
+    headerFormat: "Satır {line}: Ad: değer biçiminde yazın.",
+    headerName: "Satır {line}: {name} geçerli bir başlık adı değil.",
+    headerManaged: "Satır {line}: {name} başlığını Downpipe kendisi ayarlar.",
   },
 };

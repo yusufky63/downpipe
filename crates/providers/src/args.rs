@@ -110,7 +110,9 @@ fn base(tools: &Tools, proxy: Option<&str>) -> Vec<OsString> {
         value.push(&js.path);
         args.push(value);
     }
-    if let Some(proxy) = proxy.filter(|p| !p.is_empty()) {
+    // An empty proxy is yt-dlp's "connect directly", which a site rule
+    // without a proxy asks for even when the system has one.
+    if let Some(proxy) = proxy {
         args.push("--proxy".into());
         args.push(proxy.into());
     }
@@ -419,6 +421,12 @@ mod tests {
         assert_eq!(at("--ffmpeg-location"), Some("C:/ffmpeg/ffmpeg.exe"));
         assert_eq!(at("--proxy"), Some("socks5://127.0.0.1:9050"));
         assert_eq!(at("--limit-rate"), Some("1000000"));
+        let direct = text(&inspect("https://youtu.be/x", &tools, Some("")));
+        let i = direct.iter().position(|a| a == "--proxy").unwrap();
+        assert_eq!(direct[i + 1], "", "an empty proxy connects directly");
+        assert!(
+            !text(&inspect("https://youtu.be/x", &tools, None)).contains(&"--proxy".to_string())
+        );
         assert_eq!(at("-P"), Some("D:/Video"));
         assert_eq!(at("-o"), Some("100%% zoo.%(ext)s"));
         assert_eq!(at("-f"), Some("bv*+ba/b"));

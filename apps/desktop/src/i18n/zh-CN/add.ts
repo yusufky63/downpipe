@@ -51,9 +51,31 @@ export const add: Messages["add"] = {
     hint: "可选，例如 sha256:9f86d0… 仅当校验和匹配时，文件才会被重命名到最终位置。",
     videoHint: "仅适用于文件：yt-dlp 会用网站提供的格式合成视频文件。",
   },
+  /** Sent with every request, kept in memory only. */
+  headers: {
+    label: "请求头",
+    hint: "可选。每行一个，格式为 名称: 值。随每个请求发送，只保存在内存中，从不写入磁盘。",
+  },
+  /** "Paste as cURL": a command from the browser's developer tools. */
+  curl: {
+    button: "以 cURL 粘贴",
+    label: "cURL 命令",
+    hint: "在浏览器的开发者工具中：网络，右键点击请求，复制为 cURL。只能下载 GET 请求。",
+    apply: "填入",
+    filled: "已从命令填入：链接及其请求头。",
+    ignored: "已略过：{list}。",
+    notCurl: "这不是 cURL 命令。它必须以 curl 开头。",
+    quote: "命令中有一个引号没有闭合。请重新复制完整的命令。",
+    noUrl: "命令中没有 http 或 https 链接。",
+    method: "此请求使用 {method}。Downpipe 只用 GET 下载，因此无法重复此请求。",
+    data: "此请求会发送数据（{option}），即为 POST 请求。Downpipe 只用 GET 下载。",
+  },
   errors: {
     listTooLarge: "该文件太大，不能作为链接列表。",
     noLinks: "请至少粘贴一个 http 或 https 链接。",
     forLink: "{url}：{error}",
+    headerFormat: "第 {line} 行：请写成 名称: 值 的格式。",
+    headerName: "第 {line} 行：{name} 不是有效的请求头名称。",
+    headerManaged: "第 {line} 行：{name} 由 Downpipe 自行设置。",
   },
 };

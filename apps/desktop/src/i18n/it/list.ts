@@ -27,9 +27,9 @@ export const list: Messages["list"] = {
     more: "Altro",
     clear: "Cancella selezione",
   },
-  failure: {
-    expiredLink: "Il link è scaduto: il server ha inviato una pagina web invece del file. Usa un nuovo link; la parte scaricata viene conservata.",
-    loginRequired: "Il server chiede di accedere. Accedi nel browser, poi usa un nuovo link; la parte scaricata viene conservata.",
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "Riprende: {time}",
   },
   menu: {
     label: "Azioni del download",
@@ -54,6 +54,12 @@ export const list: Messages["list"] = {
     properties: "Proprietà",
     remove: "Rimuovi…",
     removeMany: { one: "Rimuovi {count} download…", many: "Rimuovi {count} download…", other: "Rimuovi {count} download…" },
+    speedLimit: "Limite di velocità…",
+    pauseUntil: "Metti in pausa fino a",
+    until30m: "30 minuti",
+    until1h: "1 ora",
+    untilTonight: "Stanotte alle {time}",
+    untilCustom: "Scegli un orario…",
   },
 };
 

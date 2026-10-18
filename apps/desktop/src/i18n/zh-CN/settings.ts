@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "队列",
     categories: "类别",
     network: "网络",
+    sites: "站点",
     media: "媒体",
     schedule: "计划",
     app: "应用",
@@ -24,8 +25,12 @@ export const settings: Messages["settings"] = {
     connectionsHint: "上限。Downpipe 先使用 2 个连接，仅在有助于提速时才增加。范围 1 到 32。",
     speedLimit: "速度限制",
     speedLimitHint: "由所有下载共享。留空表示不限速。立即生效。",
+    speedLimitInvalid: "请输入数字，例如 1.5 或 1,5。",
     noLimit: "不限速",
     unit: "速度限制单位",
+    duplicate: "链接已在列表中时",
+    duplicateHint: "询问中的“不再询问”也会设置此项。",
+    duplicateAsk: "每次都询问",
   },
   queues: {
     intro:

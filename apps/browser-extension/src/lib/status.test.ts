@@ -5,6 +5,7 @@ import {
   bridgeStatus,
   downloadOutcome,
   errorText,
+  kindText,
   keptMessage,
   pageOutcome,
   streamOutcome,
@@ -89,8 +90,18 @@ describe("downloadOutcome", () => {
   });
 
   it("falls back to the host's message for codes it does not know", () => {
-    expect(errorText("forbidden", "The server refused access")).toBe("The server refused access");
+    expect(errorText("something_new", "The server refused access")).toBe("The server refused access");
     expect(errorText("weird", "")).toBe("Downpipe refused the download (weird).");
+  });
+
+  it("words the engine's failure kinds and the bridge's own codes", () => {
+    expect(errorText("forbidden", "the server refused the request (HTTP 403)")).toMatch(/^The server refused the download\./);
+    expect(errorText("invalid_header", "invalid header: x")).toBe("One of this download's custom headers is not valid.");
+    expect(errorText("cookies_not_accepted", "cookies are never accepted by Downpipe")).toBe("Downpipe never accepts cookies from the browser.");
+    expect(kindText("http_status", "unexpected HTTP status 502")).toBe("The server answered with an error (HTTP 502).");
+    expect(kindText("http_status", undefined)).toBe("The server answered with an error.");
+    expect(kindText(undefined, "x")).toBeUndefined();
+    expect(kindText("not_a_kind", "x")).toBeUndefined();
   });
 });
 

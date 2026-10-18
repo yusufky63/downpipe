@@ -48,6 +48,8 @@ pub struct SiteRequest {
     /// `{index}`.
     pub index: Option<(u32, u32)>,
     pub tools: Tools,
+    /// `None`: yt-dlp's own choice (the system proxy). An empty string
+    /// connects directly.
     pub proxy: Option<String>,
     /// Bytes per second, 0 for no limit.
     pub rate_limit: u64,

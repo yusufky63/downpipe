@@ -2,11 +2,9 @@ import { useId, useState } from "react";
 
 import { useI18n } from "../i18n";
 import type { Task } from "../lib/api";
+import type { DuplicateChoice } from "../lib/duplicates";
 import { displayName, stateInfo } from "../lib/tasks";
 import { Button, Dialog } from "./primitives";
-
-/** IDM's three answers to "this address is already in the list". */
-export type DuplicateChoice = "copy" | "overwrite" | "existing";
 
 /**
  * Asked when a link that is already in the list is added again, from the
@@ -27,11 +25,13 @@ export function DuplicateDialog({
   /** The whole confirmation window rather than a dialog in the main window. */
   inWindow?: boolean;
   onFit?: (height: number) => void;
-  onChoose: (choice: DuplicateChoice) => void;
+  /** `remember`: "Don't ask again" was ticked, so the choice becomes the setting. */
+  onChoose: (choice: DuplicateChoice, remember: boolean) => void;
   onCancel: () => void;
 }) {
   const { t } = useI18n();
   const [choice, setChoice] = useState<DuplicateChoice>("copy");
+  const [remember, setRemember] = useState(false);
   const group = useId();
   // Replacing a file only makes sense once there is one.
   const canOverwrite = existing.state === "completed";
@@ -54,7 +54,7 @@ export function DuplicateDialog({
           <Button variant="ghost" size="sm" onClick={onCancel}>
             {t("common.cancel")}
           </Button>
-          <Button variant="primary" size="sm" onClick={() => onChoose(choice)}>
+          <Button variant="primary" size="sm" onClick={() => onChoose(choice, remember)}>
             {t("dialogs.duplicate.ok")}
           </Button>
         </>
@@ -81,6 +81,18 @@ export function DuplicateDialog({
             </label>
           ))}
         </fieldset>
+        <label className="flex cursor-pointer items-start gap-2 border-t border-line pt-3 text-[13px] text-ink-secondary">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+            className="mt-0.5 size-4 accent-primary"
+          />
+          <span className="flex flex-col gap-0.5">
+            {t("dialogs.duplicate.remember")}
+            <span className="text-[12px] text-ink-muted">{t("dialogs.duplicate.rememberHint")}</span>
+          </span>
+        </label>
       </div>
     </Dialog>
   );

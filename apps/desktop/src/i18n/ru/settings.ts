@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "Очереди",
     categories: "Категории",
     network: "Сеть",
+    sites: "Сайты",
     media: "Медиа",
     schedule: "Расписание",
     app: "Приложение",
@@ -24,8 +25,12 @@ export const settings: Messages["settings"] = {
     connectionsHint: "Верхний предел. Downpipe начинает с 2 и добавляет новые, только пока они помогают. От 1 до 32.",
     speedLimit: "Ограничение скорости",
     speedLimitHint: "Общее для всех загрузок. Оставьте пустым, чтобы не ограничивать. Применяется сразу.",
+    speedLimitInvalid: "Введите число, например 1,5 или 1.5.",
     noLimit: "Без ограничения",
     unit: "Единица ограничения скорости",
+    duplicate: "Если ссылка уже есть в списке",
+    duplicateHint: "«Больше не спрашивать» в вопросе тоже меняет этот параметр.",
+    duplicateAsk: "Спрашивать каждый раз",
   },
   queues: {
     intro:

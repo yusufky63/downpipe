@@ -30,3 +30,9 @@
 .field[data-off="true"] .help {
   color: var(--text-muted);
 }
+
+/* The button's own settings, while the button is off. */
+.switch-row[data-off="true"] .row-title,
+.switch-row[data-off="true"] .row-detail {
+  color: var(--text-muted);
+}

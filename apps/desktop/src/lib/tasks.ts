@@ -1,7 +1,7 @@
 import { t, type MessageKey } from "../i18n/core";
 import type { ManagerEvent, Task, TaskState, WaitReason } from "./api";
-import { formatBytes, nameFromUrl, sentence } from "./format";
-import { SITE_FAILURE_TEXTS } from "./siteErrors";
+import { describeFailure } from "./errors";
+import { formatBytes, nameFromUrl } from "./format";
 
 export type Filter = "all" | "active" | "queued" | "completed" | "failed";
 
@@ -128,17 +128,14 @@ export function needsNewLink(task: Task): boolean {
 
 const NEW_LINK_KINDS = new Set(["expired_link", "login_required", "forbidden"]);
 
-const FAILURE_TEXTS: Partial<Record<string, MessageKey>> = {
-  expired_link: "list.failure.expiredLink",
-  login_required: "list.failure.loginRequired",
-  ...SITE_FAILURE_TEXTS,
-};
-
 /** What went wrong: in the user's language for the kinds the app knows, else the engine's message. */
 export function errorText(task: Task): string | null {
-  const key = task.error_kind === null ? undefined : FAILURE_TEXTS[task.error_kind];
-  if (key) return t(key);
-  return task.error ? sentence(task.error) : null;
+  return describeFailure(task.error_kind, task.error)?.text ?? null;
+}
+
+/** The engine's own words for a failure the app worded itself, for the details dialog. */
+export function errorDetail(task: Task): string | null {
+  return describeFailure(task.error_kind, task.error)?.detail ?? null;
 }
 
 const WAIT_TEXTS: Record<WaitReason, MessageKey> = {

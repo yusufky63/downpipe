@@ -3,7 +3,7 @@
 // row says about such a download.
 import { currentLocale, t } from "../i18n/core";
 import type { AudioOption, ChoiceOptions, Choices, MediaKind, MediaSelection, SubtitleOption, SubtitleRef, Task, VideoOption } from "./api";
-import { formatBytes } from "./format";
+import { formatBytes, formatDecimal } from "./format";
 
 const KIND_NAMES: Record<MediaKind, string> = { hls: "HLS", dash: "DASH" };
 
@@ -24,7 +24,7 @@ export function qualityName(v: VideoOption): string {
   const fps = Number.parseFloat(v.frame_rate ?? "");
   const rate = Number.isFinite(fps) && fps > 30.5 ? ` ${Math.round(fps)}` : "";
   if (v.height) return `${v.height}p${rate}`;
-  if (v.bandwidth) return `${(v.bandwidth / 1_000_000).toFixed(1)} Mbit/s`;
+  if (v.bandwidth) return `${formatDecimal(v.bandwidth / 1_000_000, 1)} Mbit/s`;
   return t("media.defaultQuality");
 }
 
@@ -86,7 +86,7 @@ export function qualityDetail(v: VideoOption): string {
   const codec = codecName(v.codecs);
   if (codec) parts.push(codec);
   if (v.bandwidth) {
-    parts.push(v.audio_only ? `${Math.round(v.bandwidth / 1000)} kbit/s` : `${(v.bandwidth / 1_000_000).toFixed(1)} Mbit/s`);
+    parts.push(v.audio_only ? `${formatDecimal(Math.round(v.bandwidth / 1000), 0)} kbit/s` : `${formatDecimal(v.bandwidth / 1_000_000, 1)} Mbit/s`);
   }
   if (v.estimated_size) parts.push(t("media.aboutSize", { size: formatBytes(v.estimated_size) }));
   return parts.join(" · ");

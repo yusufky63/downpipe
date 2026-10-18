@@ -3,7 +3,8 @@ import { useEffect, useEffectEvent, useId, useState, type FormEvent } from "reac
 
 import { useI18n } from "../i18n";
 import { api, errorMessage, isCommandError, onConfirmClose, type Choices, type ConfirmOptions, type SubtitleOption, type Queue, type Task } from "../lib/api";
-import { sentence, withStop } from "../lib/format";
+import { describeError } from "../lib/errors";
+import { withStop } from "../lib/format";
 import {
   REFUSED_STREAM,
   audioName,
@@ -29,9 +30,12 @@ type Inspection =
   /**
    * `refused`: it cannot be downloaded at all (DRM, live, unavailable).
    * `setup`: yt-dlp is missing, which Settings can fix.
+   * `detail`: yt-dlp's or the engine's own words (the site's reason, which
+   * tool), kept beside the translated message.
+   * `explained`: the message is the app's own text for a known yt-dlp
+   * failure, which says what to do.
    */
-  /** `explained`: the message is the app's own text for a known yt-dlp failure. */
-  | { state: "failed"; message: string; refused: boolean; setup: boolean; explained: boolean };
+  | { state: "failed"; message: string; detail: string | null; refused: boolean; setup: boolean; explained: boolean };
 
 /**
  * IDM's "Download File Info": a download caught in the browser waits here
@@ -119,10 +123,10 @@ export function ConfirmDialog({
         const code = isCommandError(err) ? err.code : null;
         const refused = code !== null && REFUSED_STREAM.has(code);
         const setup = code !== null && SITE_SETUP_KINDS.has(code);
-        // yt-dlp's common failures in the user's language, with what to do.
+        // yt-dlp's common failures in the app's own words, with what to do.
         const explained = siteFailureText(code);
-        const message = explained ?? withStop(sentence(errorMessage(err)));
-        setInspection({ state: "failed", message, refused, setup, explained: explained !== null });
+        const { text, detail } = describeError(err);
+        setInspection({ state: "failed", message: explained ?? withStop(text), detail, refused, setup, explained: explained !== null });
       });
     return () => {
       current = false;
@@ -418,7 +422,17 @@ function StreamNotice({
 }) {
   const { t } = useI18n();
   if (inspection.state === "failed") {
-    if (inspection.refused) return <Banner tone="danger">{inspection.message}</Banner>;
+    const detail = inspection.detail && (
+      <span className="mt-1 block select-text break-words font-mono text-[12px] text-ink-secondary">{inspection.detail}</span>
+    );
+    if (inspection.refused) {
+      return (
+        <Banner tone="danger">
+          {inspection.message}
+          {detail}
+        </Banner>
+      );
+    }
     if (inspection.setup) {
       return (
         <Banner tone="warning">
@@ -426,14 +440,23 @@ function StreamNotice({
           <button type="button" className={linkClass} onClick={onOpenSettings}>
             {t("confirm.openMediaSettings")}
           </button>
+          {detail}
         </Banner>
       );
     }
     // A known failure says what to do itself.
-    if (inspection.explained) return <Banner tone="warning">{inspection.message}</Banner>;
+    if (inspection.explained) {
+      return (
+        <Banner tone="warning">
+          {inspection.message}
+          {detail}
+        </Banner>
+      );
+    }
     return (
       <Banner tone="warning">
         {t(site ? "confirm.readFailedPage" : "confirm.readFailedStream", { message: inspection.message })}
+        {detail}
       </Banner>
     );
   }

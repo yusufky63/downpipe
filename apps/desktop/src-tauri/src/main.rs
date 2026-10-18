@@ -4,19 +4,23 @@
 mod background;
 mod clipboard;
 mod confirm;
+mod grab;
 mod i18n;
 mod power;
 mod progress;
+mod remote;
 mod tray;
 
 use std::path::PathBuf;
 
 use background::{Background, WhenDone, WhenDoneView};
+use downpipe_core::feeds::Feeds;
 use downpipe_core::providers::ToolsStatus;
 use downpipe_core::providers::install::Tool;
 use downpipe_core::{
     AddListOptions, AddListResult, AddOptions, ConfirmOptions, CoreError, ListChoices, Manager,
-    MediaChoices, QueueMove, Settings, SiteChoices, TaskSnapshot, TaskState,
+    MediaChoices, QueueMove, RefusedHost, RuleProblem, RuleTest, Settings, SiteChoices, SiteRule,
+    TaskSnapshot, TaskState, rules,
 };
 use downpipe_native_host::ipc::Endpoint;
 use downpipe_native_host::manifest::{self, Layout, Stale, Status};
@@ -45,13 +49,22 @@ impl From<CoreError> for CommandError {
             CoreError::Duplicate(id) => Some(id.clone()),
             _ => None,
         };
+        // "not_found" is also the engine's HTTP 404; a download that left
+        // the list gets a code of its own so the UI words the two apart.
+        let code = match &err {
+            CoreError::NotFound(_) => GONE,
+            _ => err.code(),
+        };
         Self {
-            code: err.code(),
+            code,
             message: err.to_string(),
             id,
         }
     }
 }
+
+/// The download a command names is no longer in the list.
+const GONE: &str = "gone";
 
 impl CommandError {
     fn new(code: &'static str, message: impl Into<String>) -> Self {
@@ -83,6 +96,22 @@ fn pause_download(manager: State<'_, Manager>, id: String) -> CmdResult<()> {
 #[tauri::command]
 fn resume_download(manager: State<'_, Manager>, id: String) -> CmdResult<()> {
     Ok(manager.resume(&id)?)
+}
+
+/// "Pause until": `at` is Unix seconds; the core queues it again then.
+#[tauri::command]
+fn pause_download_until(manager: State<'_, Manager>, id: String, at: i64) -> CmdResult<()> {
+    Ok(manager.pause_until(&id, at)?)
+}
+
+/// Bytes per second; null or 0 leaves only the global limit.
+#[tauri::command]
+fn set_download_speed_limit(
+    manager: State<'_, Manager>,
+    id: String,
+    limit: Option<u64>,
+) -> CmdResult<()> {
+    Ok(manager.set_speed_limit(&id, limit)?)
 }
 
 #[tauri::command]
@@ -119,9 +148,14 @@ fn get_settings(manager: State<'_, Manager>) -> Settings {
 async fn update_settings(
     app: AppHandle,
     manager: State<'_, Manager>,
-    settings: Settings,
+    mut settings: Settings,
 ) -> CmdResult<Settings> {
-    let was_registering = manager.settings().register_browser_host;
+    let current = manager.settings();
+    // The remote control changes only through its own commands, which make
+    // its token; a page saving other settings cannot switch it on or set
+    // the token hash, even from stale settings.
+    settings.remote = current.remote;
+    let was_registering = current.register_browser_host;
     let saved = manager.update_settings(settings)?;
     sync_autostart(&app, saved.start_with_system).map_err(|e| CommandError::new("autostart", e))?;
     if saved.register_browser_host && !was_registering {
@@ -130,6 +164,97 @@ async fn update_settings(
         let _ = tauri::async_runtime::spawn_blocking(register_browser_host).await;
     }
     Ok(saved)
+}
+
+#[derive(Debug, Serialize)]
+struct SiteRulesCheck {
+    problems: Vec<RuleProblem>,
+    /// Present when an address was given.
+    test: Option<RuleTest>,
+}
+
+/// The settings dialog's draft rules, before they are saved: what is wrong
+/// with them, and which one `address` would get. The same code decides at
+/// download time, so the answer cannot differ from what happens.
+#[tauri::command]
+fn check_site_rules(rules: Vec<SiteRule>, address: Option<String>) -> SiteRulesCheck {
+    SiteRulesCheck {
+        problems: rules::problems(&rules),
+        test: address
+            .filter(|a| !a.trim().is_empty())
+            .map(|a| rules::test_address(&rules, &a)),
+    }
+}
+
+#[tauri::command]
+fn refused_hosts(manager: State<'_, Manager>) -> Vec<RefusedHost> {
+    manager.refused_hosts()
+}
+
+/// What the Remote settings page shows: whether it runs, and where.
+#[tauri::command]
+async fn remote_status(
+    manager: State<'_, Manager>,
+    remote: State<'_, remote::Remote>,
+) -> CmdResult<remote::RemoteStatus> {
+    Ok(remote.status(&manager.settings().remote).await)
+}
+
+/// The remote control's state after a change, and a new token when one was
+/// made: the only time it is ever shown.
+#[derive(Debug, Serialize)]
+struct RemoteUpdate {
+    status: remote::RemoteStatus,
+    token: Option<String>,
+}
+
+/// Switch the remote control and choose where it listens. Switching it on
+/// the first time makes its token.
+#[tauri::command]
+async fn set_remote(
+    app: AppHandle,
+    manager: State<'_, Manager>,
+    remote: State<'_, remote::Remote>,
+    enabled: bool,
+    bind: String,
+    port: u16,
+) -> CmdResult<RemoteUpdate> {
+    let mut settings = manager.settings();
+    settings.remote.enabled = enabled;
+    settings.remote.bind = bind;
+    settings.remote.port = port;
+    let token = (enabled && settings.remote.token_hash.is_empty())
+        .then(|| remote::new_token(&mut settings.remote));
+    save_remote(&app, &manager, &remote, settings, token).await
+}
+
+/// Replace the token; the old one stops working at once.
+#[tauri::command]
+async fn new_remote_token(
+    app: AppHandle,
+    manager: State<'_, Manager>,
+    remote: State<'_, remote::Remote>,
+) -> CmdResult<RemoteUpdate> {
+    let mut settings = manager.settings();
+    let token = remote::new_token(&mut settings.remote);
+    save_remote(&app, &manager, &remote, settings, Some(token)).await
+}
+
+async fn save_remote(
+    app: &AppHandle,
+    manager: &Manager,
+    remote: &remote::Remote,
+    settings: Settings,
+    token: Option<String>,
+) -> CmdResult<RemoteUpdate> {
+    let saved = manager.update_settings(settings)?;
+    // Applied here as well as from the settings event, so the answer
+    // already says whether the server could start.
+    remote.apply(app, manager, &saved.remote).await;
+    Ok(RemoteUpdate {
+        status: remote.status(&saved.remote).await,
+        token,
+    })
 }
 
 /// Name, folder and queue for a download the browser sent, then start it
@@ -260,7 +385,7 @@ fn start_drag(
 ) -> CmdResult<()> {
     let task = manager
         .get(&id)
-        .ok_or_else(|| CommandError::new("not_found", "That download no longer exists"))?;
+        .ok_or_else(|| CommandError::new(GONE, "That download no longer exists"))?;
     let path = match (task.record.state, task.record.path) {
         (TaskState::Completed, Some(path)) if path.is_file() => path,
         _ => {
@@ -444,7 +569,7 @@ async fn pick_folder(
 fn reveal_download(app: AppHandle, manager: State<'_, Manager>, id: String) -> CmdResult<()> {
     let task = manager
         .get(&id)
-        .ok_or_else(|| CommandError::new("not_found", "That download no longer exists"))?;
+        .ok_or_else(|| CommandError::new(GONE, "That download no longer exists"))?;
     let record = task.record;
     let target = match (record.state, record.path) {
         (TaskState::Completed, Some(path)) if path.exists() => path,
@@ -468,7 +593,7 @@ fn reveal_download(app: AppHandle, manager: State<'_, Manager>, id: String) -> C
 fn open_download(app: AppHandle, manager: State<'_, Manager>, id: String) -> CmdResult<()> {
     let task = manager
         .get(&id)
-        .ok_or_else(|| CommandError::new("not_found", "That download no longer exists"))?;
+        .ok_or_else(|| CommandError::new(GONE, "That download no longer exists"))?;
     match (task.record.state, task.record.path) {
         (TaskState::Completed, Some(path)) if path.exists() => app
             .opener()
@@ -660,10 +785,16 @@ fn main() {
                 tauri::async_runtime::spawn_blocking(register_browser_host);
             }
             start_browser_bridge(manager.clone());
+            let feeds = Feeds::open(&data_dir, manager.clone())?;
+            grab::spawn_feeds(app.handle().clone(), feeds.clone());
+            app.manage(feeds);
+            app.manage(grab::Grabs::default());
             app.manage(Background::default());
             app.manage(confirm::ConfirmWindow::default());
             background::spawn(app.handle().clone(), manager.clone());
             clipboard::spawn(app.handle().clone(), manager.clone());
+            app.manage(remote::Remote::default());
+            remote::spawn(app.handle().clone(), manager.clone());
             if let Err(err) = tray::create(app.handle()) {
                 tracing::warn!("no tray icon: {err}");
             }
@@ -708,6 +839,8 @@ fn main() {
             add_download,
             pause_download,
             resume_download,
+            pause_download_until,
+            set_download_speed_limit,
             cancel_download,
             remove_download,
             pause_all,
@@ -715,6 +848,11 @@ fn main() {
             clear_finished,
             get_settings,
             update_settings,
+            check_site_rules,
+            refused_hosts,
+            remote_status,
+            set_remote,
+            new_remote_token,
             browser_bridge_status,
             register_browser_bridge,
             pick_folder,
@@ -747,6 +885,13 @@ fn main() {
             close_progress_window,
             open_media_settings,
             settings_closed,
+            grab::start_grab,
+            grab::cancel_grab,
+            grab::list_feeds,
+            grab::add_feed,
+            grab::update_feed,
+            grab::remove_feed,
+            grab::check_feed,
         ])
         .build(tauri::generate_context!());
 
@@ -762,6 +907,7 @@ fn main() {
         if let RunEvent::Exit = event {
             // Write final checkpoints so running downloads continue on the
             // next launch instead of losing the last seconds of progress.
+            handle.state::<Feeds>().stop();
             let manager = handle.state::<Manager>().inner().clone();
             tauri::async_runtime::block_on(manager.shutdown());
         }

@@ -34,5 +34,30 @@ export const dialogs: Messages["dialogs"] = {
     overwrite: "Yeniden ekle ve mevcut dosyayı değiştir",
     existing: "Mevcut indirme bitmişse göster, bitmemişse sürdür",
     ok: "Tamam",
+    remember: "Bir daha sorma, hep böyle yap",
+    rememberHint: "Ayarlar'ın İndirmeler sekmesinden geri değiştirilebilir.",
+  },
+  /** A download's own speed limit, under the global one. {limit} is like "2 MiB/s". */
+  speedLimit: {
+    eyebrow: "Hız sınırı",
+    body: "Yalnızca bu indirme için, {limit} genel sınırın altında.",
+    bodyNoGlobal: "Yalnızca bu indirme için. Genel bir sınır yok.",
+    bodyMany: "Her biri için ayrı ayrı, {limit} genel sınırın altında.",
+    bodyManyNoGlobal: "Her biri için ayrı ayrı. Genel bir sınır yok.",
+    label: "Sınır",
+    unit: "Hız sınırı birimi",
+    placeholder: "Sınır yok",
+    video: "Bir video yeni sınırı yeniden başladığında alır.",
+    remove: "Sınırı kaldır",
+    save: "Sınırı uygula",
+  },
+  /** "Pause until…" with a time of the user's choice. */
+  pauseUntil: {
+    eyebrow: "Şu zamana kadar duraklat",
+    label: "Devam zamanı",
+    hint: "Şimdi duraklar; Downpipe çalışıyorsa bu zamanda, değilse sonraki açılışında kendiliğinden devam eder.",
+    past: "İleride bir zaman seçin.",
+    invalid: "Bir tarih ve saat girin.",
+    submit: "Duraklat",
   },
 };

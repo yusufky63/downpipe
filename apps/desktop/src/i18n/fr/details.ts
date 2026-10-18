@@ -41,9 +41,12 @@ export const details: Messages["details"] = {
       other: "{done} sur {count} fragments",
     },
     queue: "File d'attente",
+    siteRule: "Règle du site",
     checksum: "Somme de contrôle",
     added: "Ajouté",
     finished: "Terminé",
+    speedLimit: "Limite de vitesse",
+    resumes: "Reprise",
   },
   relink: {
     button: "Utiliser un nouveau lien…",
@@ -53,4 +56,12 @@ export const details: Messages["details"] = {
   },
   copy: "Copier",
   copied: "Copié",
+  /** The download's own speed limit, set in place. */
+  speedLimit: {
+    none: "Limite globale seulement",
+    change: "Modifier",
+    set: "Appliquer",
+    remove: "Retirer",
+    label: "Limite de vitesse de ce téléchargement",
+  },
 };

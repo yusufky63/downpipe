@@ -1,9 +1,9 @@
 import { t, type MessageKey } from "../i18n";
-import { formatBytes, formatSpeed, percent, sentence } from "./format";
+import { formatBytes, formatPercent, formatSpeed, percent, sentence } from "./format";
 import { kindLabel, mediaName, type MediaCandidate } from "./media";
 import type { Activity, PageItem } from "./messages";
 import type { TaskState, TaskStatus } from "./protocol";
-import type { BridgeStatus } from "./status";
+import { kindText, type BridgeStatus } from "./status";
 
 export type Tone = "muted" | "primary" | "positive" | "warning" | "danger";
 
@@ -15,6 +15,8 @@ export interface ItemView {
   detail: string;
   /** 0–100 while running with a known size, else null (no bar). */
   progress: number | null;
+  /** The app's own words for a failure the extension worded itself, for the tooltip. */
+  technical?: string;
 }
 
 const RUNNING: readonly TaskState[] = ["queued", "starting", "downloading", "waiting", "verifying"];
@@ -79,12 +81,16 @@ export function itemView(activity: Activity, task: TaskStatus | undefined): Item
   const badge = t(STATE_VIEW[task.state].badge);
   const tone = STATE_VIEW[task.state].tone;
   const pct = percent(task.downloaded, task.total);
-  const pctText = pct === null ? "" : `${Math.floor(pct)}% · `;
+  const pctText = pct === null ? "" : `${formatPercent(Math.floor(pct))} · `;
   switch (task.state) {
     case "completed":
       return { label, badge, tone, detail: formatBytes(task.total ?? task.downloaded), progress: null };
-    case "failed":
-      return { label, badge, tone, detail: task.error ? sentence(task.error) : t("popup.downloadFailed"), progress: null };
+    case "failed": {
+      const raw = task.error ? sentence(task.error) : undefined;
+      const worded = kindText(task.errorKind, task.error);
+      if (worded) return { label, badge, tone, detail: worded, progress: null, ...(raw ? { technical: raw } : {}) };
+      return { label, badge, tone, detail: raw ?? t("popup.downloadFailed"), progress: null };
+    }
     case "canceled":
       return { label, badge, tone, detail: t("popup.canceledInApp"), progress: null };
     case "paused":
