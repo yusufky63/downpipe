@@ -621,6 +621,7 @@ export function App() {
           task={detailsTask}
           queueName={detailsTask.queue === "main" ? null : (queueNames.get(detailsTask.queue) ?? null)}
           startRelink={details?.relink ?? false}
+          settings={settings}
           actions={{
             onClose: () => setDetails(null),
             onPause: (id) => run(() => api.pause(id)),
@@ -639,6 +640,10 @@ export function App() {
             onRedownload: (id) => {
               setDetails(null);
               setRedownloadId(id);
+            },
+            onOpenExtracted: (id) => run(() => api.openExtracted(id)),
+            onSetPost: async (id, post) => {
+              await api.setPostActions(id, post);
             },
           }}
         />
@@ -670,6 +675,7 @@ export function App() {
           task={asking}
           waiting={awaiting.length - 1}
           queues={queues}
+          settings={settings}
           onConfirm={async (options) => {
             await api.confirm(asking.id, options);
           }}

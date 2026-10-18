@@ -6,6 +6,14 @@ All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
 The download engine handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names.
 
+### New
+
+- **After a download** (a new tab in Settings): what happens once a download completes, as JDownloader and IDM users expect. Each step is off until you turn it on, and nothing runs for a download that failed.
+  - **Run a command**: a program and its arguments, such as `"C:\Program Files\7-Zip\7z.exe" x {path} -o{folder}`, with `{path}`, `{name}`, `{folder}` and `{url}` filled in. One for every download, one per queue (in **Queues**) and one per download (in the Add and confirmation dialogs and the details), the download's own first. It runs as a program with an argument list, never through a shell, so file names and links cannot add commands; it is stopped after a time limit (10 minutes by default), and what it printed shows in the details and the log.
+  - **Scan downloads for viruses**: with Microsoft Defender on Windows (`MpCmdRun.exe -Scan -ScanType 3 -File ... -DisableRemediation`), or a scanner command such as ClamAV's `clamscan` elsewhere. The result shows on the download: nothing found, a threat (a red **Threat** badge, a notification, and nothing extracted or run), or no scanner. Nothing is deleted or quarantined.
+  - **Extract archives**: zip, tar, tar.gz, tar.xz and 7z, into a new folder next to the archive, switched on per category (**Categories → Extract archives**) or per download. Entries that would land outside that folder (`../`, absolute and drive paths), links and archives that would expand far beyond their size (zip bombs) are refused; the details list what was left out and open the folder. Optionally the archive is deleted once everything in it was extracted. RAR is not supported; 7-Zip as the command can extract it.
+- Core: `downpipe_core::post` (`PostActions`, `PostSettings`, `PostReport`), `Manager::set_post_actions`, `AddOptions::post`, `ConfirmOptions::post`, the snapshot's `post_actions`, `post` and `post_step`, `Settings::post`, `Queue::command`, `Category::extract`; catalog schema version 6.
+
 ### Fixed
 
 - **Hosts that cap connections.** A server that refuses extra connections with `403`, `429` or `503` while the first one downloads no longer fails the download: Downpipe continues with the connections it accepts and remembers that number for the host until it quits, so the next download from it starts there.

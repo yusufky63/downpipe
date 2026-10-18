@@ -11,9 +11,11 @@ export interface Duplicate {
   /** The download already in the list. */
   existing: string;
 }
-import { parseUrls } from "../lib/format";
+import { nameFromUrl, parseUrls } from "../lib/format";
 import { MAX_EXPANDED, expandPatterns, linksFromList } from "../lib/patterns";
+import { categoryExtracts, inheritedCommand, isArchive } from "../lib/post";
 import { sitePage } from "../lib/sites";
+import { PostFields } from "./PostFields";
 import { Button, Dialog, Field, inputClass } from "./primitives";
 
 /** The Links hint's word on the video pages among several links. */
@@ -48,6 +50,9 @@ export function AddDialog({
   const [checksum, setChecksum] = useState("");
   const [paused, setPaused] = useState(false);
   const [queue, setQueue] = useState(MAIN_QUEUE);
+  const [command, setCommand] = useState("");
+  // Null until the box is touched: the category then decides, also later.
+  const [extract, setExtract] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -81,6 +86,10 @@ export function AddDialog({
   // yt-dlp builds a video's file itself: no connections or checksum to set.
   const firstPage = single && urls[0] !== undefined ? sitePage(urls[0]) : null;
   const video = firstPage !== null;
+  // The names known now; the server may still name the file differently.
+  const names = single && fileName.trim() ? [fileName.trim()] : urls.map(nameFromUrl);
+  const archives = names.filter(isArchive);
+  const extractShown = extract ?? archives.some((name) => categoryExtracts(settings, name));
 
   const browse = async () => {
     const picked = await api.pickFolder(dir || settings.download_dir).catch(() => null);
@@ -112,6 +121,7 @@ export function AddDialog({
         confirm: page,
         // A video page then asks for its quality here, not in the confirmation window.
         from_app: true,
+        post: { command: command.trim(), extract },
       };
       try {
         added.push(await api.add(options));
@@ -298,6 +308,15 @@ export function AddDialog({
             />
           )}
         </Field>
+
+        <PostFields
+          command={command}
+          onCommand={setCommand}
+          inherited={inheritedCommand(settings, queue)}
+          archive={archives.length > 0}
+          extract={extractShown}
+          onExtract={setExtract}
+        />
       </form>
     </Dialog>
   );

@@ -8,6 +8,7 @@ import { details } from "./details";
 import { dialogs } from "./dialogs";
 import { app, list } from "./list";
 import { media } from "./media";
+import { post } from "./post";
 import { settings } from "./settings";
 
-export const ru: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, media, confirm };
+export const ru: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, media, confirm, post };

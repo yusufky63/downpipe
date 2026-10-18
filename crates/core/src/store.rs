@@ -8,10 +8,11 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
+use crate::post::PostActions;
 use crate::settings::Settings;
 use crate::task::{MediaInfo, SiteInfo, TaskRecord, TaskState};
 
-const SCHEMA_VERSION: i32 = 5;
+const SCHEMA_VERSION: i32 = 6;
 
 #[derive(Debug)]
 pub struct Store {
@@ -86,6 +87,15 @@ impl Store {
         if version < 5 {
             // Site downloads (YouTube): site, chosen formats and quality, as JSON.
             conn.execute_batch("ALTER TABLE downloads ADD COLUMN site TEXT;")?;
+            conn.pragma_update(None, "user_version", 5)?;
+        }
+        if version < 6 {
+            // Post-download actions: the download's own choices and what
+            // the steps found, as JSON.
+            conn.execute_batch(
+                "ALTER TABLE downloads ADD COLUMN post_actions TEXT;
+                 ALTER TABLE downloads ADD COLUMN post TEXT;",
+            )?;
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         Ok(Self { conn })
@@ -96,9 +106,9 @@ impl Store {
             "INSERT INTO downloads (id, url, dir, file_name, path, state, total, downloaded,
                                     error, error_kind, checksum, max_connections,
                                     created_at, updated_at, completed_at, category, auto_dir,
-                                    queue, position, media, site)
+                                    queue, position, media, site, post_actions, post)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                     ?18, ?19, ?20, ?21)
+                     ?18, ?19, ?20, ?21, ?22, ?23)
              ON CONFLICT(id) DO UPDATE SET
                 url = excluded.url, dir = excluded.dir, file_name = excluded.file_name,
                 path = excluded.path, state = excluded.state, total = excluded.total,
@@ -108,7 +118,8 @@ impl Store {
                 updated_at = excluded.updated_at, completed_at = excluded.completed_at,
                 category = excluded.category, auto_dir = excluded.auto_dir,
                 queue = excluded.queue, position = excluded.position, media = excluded.media,
-                site = excluded.site",
+                site = excluded.site, post_actions = excluded.post_actions,
+                post = excluded.post",
             params![
                 r.id,
                 r.url,
@@ -131,6 +142,8 @@ impl Store {
                 r.position,
                 media_json(r.media.as_ref()),
                 site_json(r.site.as_ref()),
+                post_actions_json(&r.post_actions),
+                r.post.as_ref().and_then(|p| serde_json::to_string(p).ok()),
             ],
         )?;
         Ok(())
@@ -146,7 +159,7 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT id, url, dir, file_name, path, state, total, downloaded, error, error_kind,
                     checksum, max_connections, created_at, updated_at, completed_at,
-                    category, auto_dir, queue, position, media, site
+                    category, auto_dir, queue, position, media, site, post_actions, post
              FROM downloads ORDER BY created_at, rowid",
         )?;
         let rows = stmt.query_map([], row_to_record)?;
@@ -209,6 +222,13 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<TaskRecord> {
         site: row
             .get::<_, Option<String>>(20)?
             .and_then(|json| serde_json::from_str(&json).ok()),
+        post_actions: row
+            .get::<_, Option<String>>(21)?
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default(),
+        post: row
+            .get::<_, Option<String>>(22)?
+            .and_then(|json| serde_json::from_str(&json).ok()),
     })
 }
 
@@ -218,6 +238,14 @@ fn media_json(media: Option<&MediaInfo>) -> Option<String> {
 
 fn site_json(site: Option<&SiteInfo>) -> Option<String> {
     site.and_then(|s| serde_json::to_string(s).ok())
+}
+
+/// Nothing is stored for the defaults, which is every download without
+/// choices of its own.
+fn post_actions_json(actions: &PostActions) -> Option<String> {
+    (*actions != PostActions::default())
+        .then(|| serde_json::to_string(actions).ok())
+        .flatten()
 }
 
 fn path_str(p: &Path) -> String {
@@ -256,6 +284,8 @@ mod tests {
             position: created * 10,
             media: None,
             site: None,
+            post_actions: PostActions::default(),
+            post: None,
             created_at: created,
             updated_at: created,
             completed_at: None,
@@ -330,6 +360,32 @@ mod tests {
     }
 
     #[test]
+    fn post_actions_and_reports_round_trip() {
+        use crate::post::{ExtractReport, ExtractResult, PostReport};
+        let store = Store::in_memory().unwrap();
+        let mut r = record("p", 1);
+        r.post_actions = PostActions {
+            command: "notify {name}".into(),
+            extract: Some(true),
+        };
+        r.post = Some(PostReport {
+            extract: Some(ExtractReport {
+                result: ExtractResult::Done,
+                folder: Some(PathBuf::from("C:/Downloads/a")),
+                files: 3,
+                bytes: 30,
+                skipped: 1,
+                archive_deleted: false,
+                error: None,
+                detail: None,
+            }),
+            ..PostReport::default()
+        });
+        store.upsert(&r).unwrap();
+        assert_eq!(store.all().unwrap(), vec![r]);
+    }
+
+    #[test]
     fn settings_round_trip() {
         let store = Store::in_memory().unwrap();
         assert_eq!(store.load_settings().unwrap(), None);
@@ -379,6 +435,8 @@ mod tests {
         assert_eq!(old.position, 0);
         assert_eq!(old.media, None);
         assert_eq!(old.site, None);
+        assert_eq!(old.post_actions, PostActions::default());
+        assert_eq!(old.post, None);
         store.upsert(&record("new", 2)).unwrap();
         assert_eq!(store.all().unwrap().len(), 2);
     }

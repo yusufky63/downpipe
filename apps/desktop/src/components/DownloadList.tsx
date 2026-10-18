@@ -8,6 +8,7 @@ import { formatBytes, formatDuration, formatSpeed, hostOf, percent } from "../li
 import { sizeIsEstimate, streamLabel } from "../lib/media";
 import type { Modifiers } from "../lib/selection";
 import type { Sort, SortKey } from "../lib/sort";
+import { postProblem, threatFound } from "../lib/post";
 import { canPause, canResume, displayName, errorText, isRunning, lastActivity, needsNewLink, stateInfo, waitingText } from "../lib/tasks";
 import { Badge, IconButton } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
@@ -171,7 +172,7 @@ function DownloadRow({
         ? formatBytes(task.downloaded)
         : "–";
   const detail =
-    (task.state === "failed" ? errorText(task) : waitingText(task)) ??
+    (task.state === "failed" ? errorText(task) : task.state === "completed" ? postProblem(task) : waitingText(task)) ??
     [hostOf(task.url), streamLabel(task), task.category, queueName].filter(Boolean).join(" · ");
   const done = task.state === "completed";
   const name = displayName(task);
@@ -232,7 +233,7 @@ function DownloadRow({
           </span>
           <Badge tone={info.tone}>{info.label}</Badge>
         </div>
-        <span className={`truncate font-mono text-[12px] ${task.state === "failed" ? "text-danger-fg" : "text-ink-muted"}`} title={detail}>
+        <span className={`truncate font-mono text-[12px] ${task.state === "failed" || threatFound(task) ? "text-danger-fg" : "text-ink-muted"}`} title={detail}>
           {detail}
         </span>
         {/* Narrow windows fold progress into the name cell. */}

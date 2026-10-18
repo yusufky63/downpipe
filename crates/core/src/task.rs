@@ -4,6 +4,8 @@ use downpipe_http::media::{AudioOption, MediaKind, MediaOptions, MediaSelection,
 use downpipe_http::{Phase, Progress, SegmentView, WaitReason};
 use serde::{Deserialize, Serialize};
 
+use crate::post::{PostActions, PostReport, PostStep};
+
 pub type TaskId = String;
 
 /// Lifecycle of a download as the user sees it.
@@ -123,6 +125,12 @@ pub struct TaskRecord {
     /// Set when the URL is a video page a site provider downloads (YouTube).
     #[serde(default)]
     pub site: Option<SiteInfo>,
+    /// What to do once it completes, beyond the defaults.
+    #[serde(default)]
+    pub post_actions: PostActions,
+    /// What the post-download steps found (scan, extraction, command).
+    #[serde(default)]
+    pub post: Option<PostReport>,
     pub created_at: i64,
     pub updated_at: i64,
     pub completed_at: Option<i64>,
@@ -243,6 +251,8 @@ pub struct Live {
     /// Held because its link is already in the list (that download's id):
     /// the confirmation asks what to do, as IDM does.
     pub duplicate_of: Option<TaskId>,
+    /// Completed, and a post-download step is running.
+    pub post_step: Option<PostStep>,
 }
 
 impl Live {
@@ -258,6 +268,7 @@ impl Live {
             awaiting_confirmation: false,
             from_app: false,
             duplicate_of: None,
+            post_step: None,
             // Site downloads report whole formats, not fragments.
             fragments: p
                 .media
@@ -326,6 +337,8 @@ pub struct AddOptions {
     pub media: Option<MediaKind>,
     /// What to do when the link is already in the list.
     pub on_duplicate: OnDuplicate,
+    /// A command to run and whether to extract, once it completes.
+    pub post: PostActions,
 }
 
 /// What [`crate::Manager::add`] does with a link that is already in the list,
@@ -356,6 +369,8 @@ pub struct ConfirmOptions {
     pub start: bool,
     /// Stream downloads: the quality and audio to download.
     pub media: Option<MediaSelection>,
+    /// Replaces the download's post-download choices when set.
+    pub post: Option<PostActions>,
 }
 
 /// Where selected downloads move inside their queue.

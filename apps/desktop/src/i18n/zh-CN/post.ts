@@ -1,0 +1,91 @@
+// After a download completes: the virus scan, extracting archives and a command.
+import type { Messages } from "../core";
+
+export const post: Messages["post"] = {
+  steps: {
+    scanning: "正在扫描",
+    extracting: "正在解压",
+    running_command: "正在运行命令",
+  },
+  threat: "威胁",
+  summary: {
+    threat: "发现威胁：{threat}",
+    notExtracted: "未解压",
+    commandFailed: "下载后命令运行失败",
+  },
+  section: "下载完成后",
+  scan: {
+    label: "病毒扫描",
+    clean: "{scanner} 未发现问题。",
+    threat: "{scanner} 发现了{threat}。未解压或运行任何内容，文件保持原样：是否删除由你决定。",
+    unnamed: "威胁",
+    theScanner: "扫描程序",
+    missing: "未扫描：尚未设置扫描程序。请在“设置 → 下载完成后”中选择一个。",
+    missingNamed: "未扫描：找不到 {scanner}。",
+    failed: "{scanner} 无法扫描该文件：{detail}",
+  },
+  extract: {
+    label: "已解压",
+    done: { other: "{count} 个文件已解压到新文件夹。" },
+    skipped: { other: "已跳过 {count} 个条目：不安全的名称、链接或重复项。" },
+    deleted: "随后已删除压缩包。",
+    openFolder: "打开文件夹",
+    failed: "未解压：{reason}。",
+    errors: {
+      encrypted: "压缩包受密码保护",
+      too_large: "解压后会远超其自身大小（可能是压缩炸弹）",
+      too_many_entries: "条目过多",
+      corrupt: "压缩包已损坏或使用了不支持的压缩方法",
+      io: "无法写入文件",
+    },
+  },
+  command: {
+    label: "命令",
+    ok: "{program} 已完成。",
+    failed: "{program} 以退出代码 {code} 结束。",
+    ended: "{program} 在完成前被终止。",
+    timedOut: "{program} 超出时间限制，已停止。",
+    notStarted: "无法启动 {program}：{detail}",
+    invalid: "该命令无法运行：{detail}",
+    theCommand: "该命令",
+    output: "输出",
+  },
+  fields: {
+    heading: "下载完成后",
+    command: "完成后运行",
+    inherited: "默认：{command}",
+    nothing: "无",
+    hint: "一个程序及其参数，例如 notepad {path}。{path}、{name}、{folder} 和 {url} 会被填入，每个都作为单独的参数，不经过 shell。下载失败时不会运行。",
+    extract: "解压压缩包",
+    extractHint: "完成后解压到其旁边的新文件夹。",
+    save: "保存",
+    saved: "已保存。将在下载完成时生效。",
+  },
+  settings: {
+    tab: "下载完成后",
+    command: "每次下载后运行命令",
+    commandHint:
+      "一个程序及其参数，例如 notepad {path}。{path}、{name}、{folder} 和 {url} 会被填入，每个都作为单独的参数；不经过任何 shell，因此文件名和链接无法添加命令。队列和单个下载可以设置各自的命令。下载失败时不会运行。",
+    timeout: "时间限制",
+    timeoutHint: "命令或扫描在被停止前可运行的秒数，停止时连同其启动的所有进程。5 到 86400。",
+    seconds: "秒",
+    scan: "扫描下载的文件是否有病毒",
+    scanHintWindows:
+      "每次下载完成后使用 Microsoft Defender 扫描。发现威胁时会标记该下载并显示通知；不会删除或隔离任何内容，也不会解压或运行任何内容。",
+    scanHintOther: "每次下载完成后使用下方的扫描程序扫描。发现威胁时会标记该下载并显示通知；不会删除、解压或运行任何内容。",
+    scanner: "扫描程序",
+    scannerPlaceholderWindows: "Microsoft Defender",
+    scannerHint:
+      "留空则在 Windows 上使用 Microsoft Defender。其他扫描程序会以 {path} 或最后一个参数的形式收到文件；与 ClamAV 的 clamscan 一样，退出代码 0 表示安全，1 表示发现威胁。",
+    archives: "压缩包",
+    archivesHint:
+      "当分类（分类）或下载本身要求时，zip、tar、tar.gz、tar.xz 和 7z 压缩包会解压到其旁边的新文件夹。会落到该文件夹之外的条目、链接，以及解压后远超自身大小的压缩包都会被拒绝。不支持 RAR；可以把 7-Zip 设为命令来解压。",
+    deleteArchive: "解压后删除压缩包",
+    deleteArchiveHint: "仅在所有条目都已解压且命令运行之后。",
+    queueCommand: "{name} 中的下载完成后的命令",
+    queueCommandUnnamed: "该队列的下载完成后的命令",
+    queueCommandPlaceholder: "完成后的命令；留空：使用“下载完成后”中的命令",
+    categoryExtract: "解压压缩包",
+    categoryExtractTitle: "下载完成后解压此分类中的 zip、tar 和 7z 压缩包",
+  },
+};

@@ -13,24 +13,39 @@ chrono.workspace = true
 dirs.workspace = true
 downpipe-http.workspace = true
 downpipe-providers.workspace = true
+flate2.workspace = true
+lzma-rust2.workspace = true
 parking_lot.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sevenz-rust2.workspace = true
+tar.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
 uuid.workspace = true
+# Downloaded archives use more methods than the Deno zip: Deflate64 (Windows
+# for large files), LZMA and XZ.
+zip = { workspace = true, features = ["deflate64", "lzma", "xz"] }
 
 [dev-dependencies]
 downpipe-test-server.workspace = true
+# The tests build 7z archives, crafted ones included.
+sevenz-rust2 = { workspace = true, features = ["compress"] }
 tempfile.workspace = true
 
 # Runs its own `main`: the test binary doubles as the fake yt-dlp it starts
 # (see downpipe_test_server::fake_tools).
 [[test]]
 name = "sites"
+harness = false
+
+# Also its own `main`: the binary doubles as the program and the virus
+# scanner the post-download tests run.
+[[test]]
+name = "post"
 harness = false
 
 [lints]

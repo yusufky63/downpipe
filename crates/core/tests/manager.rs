@@ -581,6 +581,7 @@ async fn queues_run_side_by_side_with_their_own_limits() {
         id: String::new(),
         name: "Night".into(),
         max_concurrent: 1,
+        command: String::new(),
     });
     let s = manager.update_settings(s).unwrap();
     let night = s.queues[1].id.clone();
@@ -710,6 +711,7 @@ async fn browser_downloads_wait_for_confirmation() {
                 queue: None,
                 start: true,
                 media: None,
+                post: None,
             },
         )
         .unwrap();

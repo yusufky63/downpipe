@@ -6,12 +6,15 @@
 //! Deno), so stopping it means stopping all of them: on Windows the process
 //! is put in a job object that ends every process in it, on Unix in a
 //! process group of its own.
+//!
+//! The core's post-download actions (a command, a virus scanner) start their
+//! programs the same way.
 
 use std::path::Path;
 use std::process::Stdio;
 
 /// A command for `program` with the settings every external tool gets.
-pub(crate) fn command(program: &Path) -> tokio::process::Command {
+pub fn command(program: &Path) -> tokio::process::Command {
     let mut command = tokio::process::Command::new(program);
     command
         .stdin(Stdio::null())
@@ -33,7 +36,7 @@ pub(crate) fn command(program: &Path) -> tokio::process::Command {
 
 /// The process tree of one started program.
 #[derive(Debug)]
-pub(crate) struct Tree {
+pub struct Tree {
     #[cfg(windows)]
     job: Option<windows::Job>,
     #[cfg(unix)]
@@ -42,7 +45,7 @@ pub(crate) struct Tree {
 
 impl Tree {
     /// Take charge of `child` and everything it starts from now on.
-    pub(crate) fn adopt(child: &tokio::process::Child) -> Self {
+    pub fn adopt(child: &tokio::process::Child) -> Self {
         #[cfg(windows)]
         {
             let job = child.raw_handle().and_then(|handle| {
@@ -60,7 +63,7 @@ impl Tree {
     }
 
     /// End the program and every process it started.
-    pub(crate) fn kill(&self, child: &mut tokio::process::Child) {
+    pub fn kill(&self, child: &mut tokio::process::Child) {
         #[cfg(windows)]
         if let Some(job) = &self.job {
             job.terminate();

@@ -126,6 +126,7 @@ export function ConfirmWindow() {
           task={asking}
           waiting={waiting.length - 1}
           queues={settings.queues}
+          settings={settings}
           inWindow
           onFit={fit}
           onConfirm={async (options) => {

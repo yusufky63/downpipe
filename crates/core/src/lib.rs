@@ -2,12 +2,17 @@
 //! [`downpipe_http`]. Desktop, CLI and future web UIs all drive this.
 
 mod manager;
+pub mod post;
 pub mod schedule;
 mod settings;
 mod store;
 mod task;
 
 pub use manager::{CoreError, Manager, ManagerEvent};
+pub use post::{
+    CommandReport, CommandResult, ExtractReport, ExtractResult, PostActions, PostReport,
+    PostSettings, PostStep, ScanReport, ScanResult,
+};
 pub use settings::{
     Category, MAIN_QUEUE, Queue, Schedule, Settings, default_categories, default_download_dir,
     default_queues, extension_of,
