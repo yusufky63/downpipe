@@ -27,6 +27,29 @@ export function webUrl(raw: string | undefined | null): URL | null {
   return url;
 }
 
+/**
+ * A `magnet:` link the app accepts (a BitTorrent v1 info hash, at most
+ * 8 KiB, no control characters), trimmed; null otherwise. The app parses
+ * the rest.
+ */
+export function magnetUrl(raw: string | undefined | null): string | null {
+  if (!raw || raw.length > MAX_URL_LENGTH || hasControlCharacters(raw)) return null;
+  const link = raw.trim();
+  if (!/^magnet:\?/i.test(link) || !/[?&]xt=urn:btih:[0-9a-z]{32,40}(&|$)/i.test(link)) return null;
+  return link;
+}
+
+/** A magnet link's display name (`dn`), if it has one. */
+export function magnetName(raw: string): string | null {
+  const query = raw.slice(raw.indexOf("?") + 1);
+  try {
+    const name = new URLSearchParams(query).get("dn")?.trim();
+    return name ? name.slice(0, 200) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** What the Fetch standard strips before a URL is used as a referrer. */
 export function withoutSecrets(url: URL): URL {
   const copy = new URL(url.href);
@@ -60,6 +83,7 @@ export function baseName(path: string): string {
 
 /** A short label for a link in the activity list: its file name or host. */
 export function linkLabel(raw: string): string {
+  if (magnetUrl(raw)) return (magnetName(raw) ?? "magnet").slice(0, 80);
   const url = webUrl(raw);
   if (!url) return raw.slice(0, 80);
   const last = baseName(url.pathname);

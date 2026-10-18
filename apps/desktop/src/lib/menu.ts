@@ -68,9 +68,9 @@ export const SHORTCUTS = {
 
 const SEPARATOR: MenuEntry = { kind: "separator" };
 
-/** A video page's address does not expire, so only file and stream links can be replaced. */
+/** A video page's address and a torrent's hash do not expire, so only file and stream links can be replaced. */
 export const canRelink = (t: Task) =>
-  t.site === null && (t.state === "paused" || t.state === "failed" || t.state === "canceled" || t.state === "queued");
+  t.site === null && t.torrent === null && (t.state === "paused" || t.state === "failed" || t.state === "canceled" || t.state === "queued");
 
 export function buildMenu(selected: readonly Task[], queues: readonly Queue[]): MenuEntry[] {
   if (selected.length === 0) return [];
@@ -93,7 +93,14 @@ export function buildMenu(selected: readonly Task[], queues: readonly Queue[]): 
       icon: retry ? "retry" : "play",
       disabled: resumable.length === 0,
     },
-    { kind: "item", action: "pause", label: t("list.menu.pause"), icon: "pause", disabled: !selected.some(canPause) },
+    {
+      kind: "item",
+      action: "pause",
+      // For finished torrents that still upload, pausing stops the seeding.
+      label: selected.every((t) => t.swarm?.seeding) ? t("torrent.stopSeeding") : t("list.menu.pause"),
+      icon: "pause",
+      disabled: !selected.some(canPause),
+    },
   );
   if (one && done) entries.push({ kind: "item", action: "redownload", label: t("list.menu.redownload"), icon: "again" });
   if (one && canRelink(one)) entries.push({ kind: "item", action: "relink", label: t("list.menu.relink"), icon: "link" });

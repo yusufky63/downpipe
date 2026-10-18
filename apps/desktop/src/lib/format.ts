@@ -85,12 +85,21 @@ export function nameFromUrl(url: string): string {
   }
 }
 
-/** Every http(s) URL in pasted text, deduplicated, in order. */
+/** Every http(s) URL and magnet link in pasted text, deduplicated, in order. */
 export function parseUrls(text: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const token of text.split(/\s+/)) {
     const candidate = token.trim().replace(/^[<("']+|[>)"',]+$/g, "");
+    // A magnet link is kept as written: the app reads it, and the URL
+    // parser would not tidy it anyway.
+    if (/^magnet:\?/i.test(candidate) && /[?&]xt=urn:btih:/i.test(candidate)) {
+      if (!seen.has(candidate)) {
+        seen.add(candidate);
+        out.push(candidate);
+      }
+      continue;
+    }
     if (!/^https?:\/\//i.test(candidate)) continue;
     try {
       const normalized = new URL(candidate).toString();

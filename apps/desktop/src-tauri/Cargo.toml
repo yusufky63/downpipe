@@ -14,7 +14,8 @@ serde_json.workspace = true
 tauri-build = { version = "2.7.3", features = [] }
 
 [dependencies]
-downpipe-core.workspace = true
+# BitTorrent ships in the app (see crates/core, feature `torrent`).
+downpipe-core = { workspace = true, features = ["torrent"] }
 downpipe-native-host.workspace = true
 parking_lot.workspace = true
 serde.workspace = true

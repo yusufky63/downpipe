@@ -16,6 +16,7 @@ import {
   api,
   errorMessage,
   inTauri,
+  isCommandError,
   onClipboardLink,
   onManagerEvent,
   onMediaSettings,
@@ -30,6 +31,7 @@ import {
 import { parseUrls } from "./lib/format";
 import { buildMenu, linksText, type MenuAction } from "./lib/menu";
 import { linksFromList } from "./lib/patterns";
+import { MAX_TORRENT_FILE, isTorrentName } from "./lib/torrent";
 import { EMPTY_SELECTION, clickSelect, contextSelect, edge, focusOf, prune, selectAll, step, type Selection } from "./lib/selection";
 import { isTextField, listKey, type ListKey } from "./lib/shortcuts";
 import { DEFAULT_SORT, formatSort, matchesSearch, nextSort, parseSort, sortTasks, type Sort, type SortKey } from "./lib/sort";
@@ -54,7 +56,7 @@ function storedSort(): Sort {
   }
 }
 
-/** Links and .txt lists dragged in from a browser or the file manager. */
+/** Links, .txt lists and .torrent files dragged in from a browser or the file manager. */
 function draggedLinks(e: DragEvent): boolean {
   const types = Array.from(e.dataTransfer.types);
   return types.includes("text/uri-list") || types.includes("text/plain") || types.includes("Files");
@@ -217,7 +219,21 @@ export function App() {
     if (!draggedLinks(e)) return;
     e.preventDefault();
     const parts: string[] = [];
+    let torrents = 0;
     for (const file of Array.from(e.dataTransfer.files)) {
+      if (isTorrentName(file.name) && file.size <= MAX_TORRENT_FILE) {
+        // Added at once and asked about here: which files, where, which queue.
+        torrents += 1;
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        api.addTorrentFile(bytes, { url: "", confirm: true, from_app: true }).then(
+          (task) => setSelection({ ids: [task.id], anchor: task.id }),
+          (err: unknown) => {
+            if (isCommandError(err) && err.code === "duplicate" && err.id) showExisting(err.id);
+            else toast(errorMessage(err));
+          },
+        );
+        continue;
+      }
       if (file.type === "text/plain" || file.name.toLowerCase().endsWith(".txt")) {
         if (file.size <= 2 * 1024 * 1024) parts.push(linksFromList(await file.text()));
       }
@@ -226,7 +242,16 @@ export function App() {
     if (text) parts.push(linksFromList(text));
     const joined = parts.filter(Boolean).join("\n");
     if (parseUrls(joined).length > 0) setAddText(joined);
-    else toast(t("app.dropNothing"), "neutral");
+    else if (torrents === 0) toast(t("app.dropNothing"), "neutral");
+  };
+
+  /** A torrent already in the list: select it and say so. */
+  const showExisting = (id: string) => {
+    setFilter("all");
+    setQueue("");
+    setSelection({ ids: [id], anchor: id });
+    focusRow(id);
+    toast(t("app.duplicate"), "neutral");
   };
 
   const queues = useMemo(() => settings?.queues ?? [], [settings]);
@@ -662,6 +687,7 @@ export function App() {
             }
           }}
           onDuplicates={setDuplicates}
+          onTorrentDuplicate={showExisting}
         />
       )}
       {asking && settings && (

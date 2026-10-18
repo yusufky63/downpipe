@@ -1,4 +1,4 @@
-import { FileText, FolderOpen } from "lucide-react";
+import { FileText, FolderOpen, Magnet } from "lucide-react";
 import { useRef, useState, type DragEvent, type FormEvent } from "react";
 
 import { useI18n } from "../i18n";
@@ -14,7 +14,15 @@ export interface Duplicate {
 import { parseUrls } from "../lib/format";
 import { MAX_EXPANDED, expandPatterns, linksFromList } from "../lib/patterns";
 import { sitePage } from "../lib/sites";
+import { MAX_TORRENT_FILE, isTorrentName, isTorrentUrl } from "../lib/torrent";
 import { Button, Dialog, Field, inputClass } from "./primitives";
+
+/** The Links hint's word on the torrents among several links. */
+function torrentsNote(t: Translate, torrents: number, others: number): string {
+  if (torrents === 0 || (torrents === 1 && others === 0)) return "";
+  if (others === 0) return t("torrent.add.all");
+  return t("torrent.add.some", { count: torrents });
+}
 
 /** The Links hint's word on the video pages among several links. */
 function pagesNote(t: Translate, pages: number, files: number): string {
@@ -30,6 +38,7 @@ export function AddDialog({
   onClose,
   onAdded,
   onDuplicates,
+  onTorrentDuplicate,
 }: {
   /** Kept by the app, so a link copied while the dialog is open joins the list. */
   text: string;
@@ -39,6 +48,8 @@ export function AddDialog({
   onAdded: (tasks: Task[]) => void;
   /** Links already in the list, with what was asked, so the app can ask what to do. */
   onDuplicates: (items: Duplicate[]) => void;
+  /** A .torrent file that is already in the list: that download's id. */
+  onTorrentDuplicate: (existing: string) => void;
 }) {
   const { t } = useI18n();
   // Empty means automatic: the default folder, or the category's folder.
@@ -56,7 +67,9 @@ export function AddDialog({
   // Video pages (YouTube) are not started from here: each goes on to the
   // confirmation dialog, where yt-dlp lists its qualities.
   const pages = urls.filter((url) => sitePage(url) !== null).length;
-  const onlyPages = pages > 0 && pages === urls.length;
+  // Torrents too: their files are chosen in the next dialog.
+  const torrents = urls.filter(isTorrentUrl).length;
+  const onlyPages = pages + torrents > 0 && pages + torrents === urls.length;
   const fileInput = useRef<HTMLInputElement>(null);
 
   // A dropped or chosen list file is appended, so several lists can be combined.
@@ -74,13 +87,41 @@ export function AddDialog({
     if (!file) return;
     e.preventDefault();
     e.stopPropagation();
-    void appendList(file);
+    if (isTorrentName(file.name)) void addTorrent(() => readTorrent(file));
+    else void appendList(file);
+  };
+
+  const torrentOptions = (): AddOptions => ({ url: "", dir: dir.trim() || null, queue, paused, confirm: true, from_app: true });
+
+  const readTorrent = async (file: File): Promise<Task | null> => {
+    if (file.size > MAX_TORRENT_FILE) throw new Error(t("torrent.add.tooLarge"));
+    return api.addTorrentFile(new Uint8Array(await file.arrayBuffer()), torrentOptions());
+  };
+
+  // A .torrent file is added at once; its files are chosen next.
+  const addTorrent = async (add: () => Promise<Task | null>) => {
+    setError(null);
+    try {
+      const task = await add();
+      if (!task) return;
+      onAdded([task]);
+      onClose();
+    } catch (err) {
+      if (isCommandError(err) && err.code === "duplicate" && err.id) {
+        onTorrentDuplicate(err.id);
+        onClose();
+        return;
+      }
+      setError(errorMessage(err));
+    }
   };
   // Per-file options make sense for zero (not typed yet) or one link.
   const single = urls.length <= 1;
   // yt-dlp builds a video's file itself: no connections or checksum to set.
   const firstPage = single && urls[0] !== undefined ? sitePage(urls[0]) : null;
-  const video = firstPage !== null;
+  const firstTorrent = single && urls[0] !== undefined && isTorrentUrl(urls[0]);
+  // Neither has connections, a checksum or a name of its own to set.
+  const video = firstPage !== null || firstTorrent;
 
   const browse = async () => {
     const picked = await api.pickFolder(dir || settings.download_dir).catch(() => null);
@@ -100,7 +141,7 @@ export function AddDialog({
     const problems: string[] = [];
     const duplicates: Duplicate[] = [];
     for (const url of urls) {
-      const page = sitePage(url) !== null;
+      const page = sitePage(url) !== null || isTorrentUrl(url);
       const options: AddOptions = {
         url,
         dir: dir.trim() || null,
@@ -130,7 +171,7 @@ export function AddDialog({
     else onClose();
   };
 
-  const files = urls.length - pages;
+  const files = urls.length - pages - torrents;
   const linksHint =
     expansion.dropped > 0
       ? t("add.links.patternCapped", { count: MAX_EXPANDED })
@@ -140,7 +181,7 @@ export function AddDialog({
           ? t("add.links.found", { count: urls.length })
           : t("add.links.hint");
   // A sentence of its own, joined here so neither text has to carry the space.
-  const note = pagesNote(t, pages, files);
+  const note = [pagesNote(t, pages, files + torrents), torrentsNote(t, torrents, files + pages)].filter(Boolean).join(" ");
 
   return (
     <Dialog
@@ -175,7 +216,15 @@ export function AddDialog({
         <Field
           label={t("add.links.label")}
           error={error}
-          hint={firstPage ? t("add.links.video", { site: firstPage.site }) : note ? `${linksHint} ${note}` : linksHint}
+          hint={
+            firstPage
+              ? t("add.links.video", { site: firstPage.site })
+              : firstTorrent
+                ? t("torrent.add.magnet")
+                : note
+                  ? `${linksHint} ${note}`
+                  : linksHint
+          }
         >
           {(id) => (
             <textarea
@@ -200,6 +249,10 @@ export function AddDialog({
             {t("add.links.importList")}
           </Button>
           <span className="text-[12px] text-ink-muted">{t("add.links.importHint")}</span>
+          <Button size="sm" variant="ghost" onClick={() => void addTorrent(() => api.openTorrentFile(torrentOptions()))} className="ml-auto">
+            <Magnet size={16} strokeWidth={1.75} />
+            {t("torrent.add.openFile")}
+          </Button>
           <input
             ref={fileInput}
             type="file"

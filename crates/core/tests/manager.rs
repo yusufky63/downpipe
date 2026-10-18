@@ -710,6 +710,7 @@ async fn browser_downloads_wait_for_confirmation() {
                 queue: None,
                 start: true,
                 media: None,
+                files: None,
             },
         )
         .unwrap();

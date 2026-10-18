@@ -65,3 +65,19 @@ describe("progress window", () => {
     expect(windowTitle(null)).toBe("Removed - Downpipe");
   });
 });
+
+describe("progress window for a torrent", () => {
+  const torrent = { info_hash: "c9e15763f722f23e98a29decdfae341b98d53056", files: 1, uploaded: 0, private: false };
+  const swarm = { peers: 3, known_peers: 10, upload_speed: 0, seeding: false, fetching_metadata: false };
+
+  it("counts peers, says when it asks for the file list and when it seeds", () => {
+    expect(statusText(task("a", { state: "downloading", torrent, swarm }))).toBe("Receiving data · 3 peers");
+    expect(statusText(task("a", { state: "starting", torrent, swarm: { ...swarm, fetching_metadata: true } }))).toBe(
+      "Asking peers for the file list",
+    );
+    expect(statusText(task("a", { state: "completed", torrent, swarm: { ...swarm, seeding: true } }))).toBe(
+      "Finished, seeding to other peers",
+    );
+    expect(statusText(task("a", { state: "completed", torrent }))).toBe("Finished");
+  });
+});

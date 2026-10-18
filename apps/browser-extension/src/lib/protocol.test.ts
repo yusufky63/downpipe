@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 // so a change on one side that the other does not accept fails a test.
 import capturedFixture from "../../../../crates/native-host/tests/fixtures/download-captured.json";
 import linkFixture from "../../../../crates/native-host/tests/fixtures/download-link.json";
+import magnetFixture from "../../../../crates/native-host/tests/fixtures/download-magnet.json";
 import mediaFixture from "../../../../crates/native-host/tests/fixtures/media-hls.json";
 import pageFixture from "../../../../crates/native-host/tests/fixtures/page-youtube.json";
 import pingFixture from "../../../../crates/native-host/tests/fixtures/ping.json";
@@ -38,6 +39,11 @@ describe("messages match the host's fixtures", () => {
       pageUrl: "https://example.org/downloads",
     });
     expect(fields && downloadMessage(fields, "m1")).toEqual(linkFixture);
+  });
+
+  it("magnet link from the context menu, without page or referrer", () => {
+    const fields = linkFields({ linkUrl: magnetFixture.resource_url, pageUrl: "https://example.org/torrents" });
+    expect(fields && downloadMessage(fields, "m3")).toEqual(magnetFixture);
   });
 
   it("captured browser download", () => {

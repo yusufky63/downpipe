@@ -60,8 +60,8 @@ export const list: Messages["list"] = {
 export const app: Messages["app"] = {
   noEngine: "Dieses Fenster ist die Oberfläche von Downpipe ohne die Engine. Starten Sie die Desktop-App mit pnpm desktop, um herunterzuladen.",
   loadFailed: "Downloads konnten nicht geladen werden: {error}",
-  dropHere: "Links oder eine .txt-Liste hier ablegen, um sie hinzuzufügen",
-  dropNothing: "Legen Sie Links oder eine .txt-Datei mit einem Link pro Zeile ab.",
+  dropHere: "Links, eine .txt-Liste oder eine .torrent-Datei hier ablegen, um sie hinzuzufügen",
+  dropNothing: "Legen Sie Links, eine .txt-Datei mit einem Link pro Zeile oder eine .torrent-Datei ab.",
   copied: {
     link: "Link kopiert.",
     links: { one: "{count} Link kopiert.", other: "{count} Links kopiert." },

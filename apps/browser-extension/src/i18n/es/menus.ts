@@ -4,6 +4,7 @@ import type { Messages } from "../core";
 
 export const menus: Messages["menus"] = {
   link: "Descargar con Downpipe",
+  torrent: "Descargar torrent con Downpipe",
   pageLinks: "Descargar los enlaces de esta página con Downpipe…",
   video: "Descargar este video con Downpipe",
   selection: "Descargar los enlaces seleccionados con Downpipe…",

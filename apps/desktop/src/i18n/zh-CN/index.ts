@@ -9,5 +9,6 @@ import { dialogs } from "./dialogs";
 import { app, list } from "./list";
 import { media } from "./media";
 import { settings } from "./settings";
+import { torrent } from "./torrent";
 
-export const zhCN: Catalog = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, media };
+export const zhCN: Catalog = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, media, torrent };

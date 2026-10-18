@@ -15,11 +15,13 @@ import {
 import { BROWSER_NAMES, bridgeStateInfo, canRegister } from "../lib/bridge";
 import { bytesToRate, rateToBytes, type RateUnit } from "../lib/format";
 import { installButtonLabel, toolRows, toolsToInstall } from "../lib/tools";
+import { fromTorrentDraft, torrentDraft } from "../lib/torrent";
 import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } from "./primitives";
+import { TorrentSettingsPanel } from "./TorrentSettings";
 
-export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "media" | "schedule" | "app";
+export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "media" | "torrent" | "schedule" | "app";
 
-const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "network", "media", "schedule", "app"];
+const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "network", "media", "torrent", "schedule", "app"];
 
 /** Short day names, Monday first like `schedule.days`; 1 January 2024 was a Monday. */
 function weekdays(locale: string): string[] {
@@ -104,6 +106,7 @@ export function SettingsDialog({
   const [ytDlpPath, setYtDlpPath] = useState(settings.yt_dlp_path);
   const [denoPath, setDenoPath] = useState(settings.deno_path);
   const [language, setLanguage] = useState(settings.language);
+  const [torrent, setTorrent] = useState(() => torrentDraft(settings.torrent));
   const [error, setError] = useState<string | null>(null);
   const tabIds = useId();
 
@@ -131,6 +134,7 @@ export function SettingsDialog({
         ffmpeg_path: ffmpegPath.trim(),
         yt_dlp_path: ytDlpPath.trim(),
         deno_path: denoPath.trim(),
+        torrent: fromTorrentDraft(torrent, settings.torrent),
       });
       onSaved(saved);
       onClose();
@@ -177,7 +181,7 @@ export function SettingsDialog({
               tab === id ? "border-primary text-ink" : "border-transparent text-ink-secondary hover:text-ink"
             }`}
           >
-            {t(`settings.tabs.${id}`)}
+            {id === "torrent" ? t("torrent.settings.tab") : t(`settings.tabs.${id}`)}
           </button>
         ))}
       </div>
@@ -388,6 +392,8 @@ export function SettingsDialog({
             />
           </>
         )}
+
+        {tab === "torrent" && <TorrentSettingsPanel draft={torrent} onChange={setTorrent} />}
 
         {tab === "schedule" && (
           <>

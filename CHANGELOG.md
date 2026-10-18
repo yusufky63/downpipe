@@ -6,6 +6,13 @@ All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
 The download engine handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names.
 
+### New
+
+- **BitTorrent.** Magnet links and `.torrent` files download in the same list and queues as everything else, with progress, speed, peers, pause, resume and remove. Paste or type a magnet link in the Add dialog, press **Open a .torrent file**, drop a `.torrent` file on the window, or copy a magnet link while clipboard watching is on. Before it starts, a torrent shows its files with a check box each, the folder and the queue; a magnet link asks peers for the file list first. A finished torrent seeds until it has uploaded as much as it downloaded (ratio 1.0) or for two hours, whichever comes first, and stops when Downpipe quits; **Pause** (or **Stop seeding**) stops it sooner. The details show the info hash, the files chosen, the peers and the ratio.
+- **Settings → BitTorrent:** seed or not, the ratio and time limits, an upload limit, the listening port, DHT, local peer discovery and UPnP port forwarding (off by default). The download limit under Downloads applies to torrents too. A SOCKS5 proxy also carries the connections to peers.
+- **Browser extension.** **Download torrent with Downpipe** on magnet links (where the browser allows a menu on them), magnet links in **Download links on this page**, and `.torrent` in the default file types captured, so the app opens what the file describes.
+- Peers see your IP address while a torrent downloads and seeds: see [SECURITY_MODEL.md](docs/SECURITY_MODEL.md#bittorrent) and the legal note in [LEGAL.md](docs/LEGAL.md#bittorrent).
+
 ### Fixed
 
 - **Hosts that cap connections.** A server that refuses extra connections with `403`, `429` or `503` while the first one downloads no longer fails the download: Downpipe continues with the connections it accepts and remembers that number for the host until it quits, so the next download from it starts there.
@@ -17,6 +24,8 @@ The download engine handles what users of other download managers keep running i
 - `downpipe get` says why it is waiting (`network down, retrying`, `no data, reconnecting`).
 
 ### Engine
+
+- New crate `downpipe-torrent` on [librqbit](https://github.com/ikatson/rqbit) 9.0.1 (Apache-2.0), behind the core's `torrent` feature, which the desktop app turns on. `Progress::torrent`, error kind `torrent`, `Manager::add_torrent_file`, `inspect_torrent` and `stop_seeding`, `Settings::torrent`, and `torrent` (info hash, chosen files, upload total) in the catalog (schema version 6). The bridge's `pong` lists the `torrent` feature. Tests seed from a librqbit peer on loopback, with no DHT, trackers or internet.
 
 - New error kinds `expired_link` and `login_required`; `Progress::waiting` and the snapshot's `waiting` give the reason while a download waits; `EngineConfig::offline_grace` (10 min) and `response_timeout` (60 s); `Engine::connection_limit` reports a host's remembered limit.
 - Test server: `max_conns` and `limit_status` (refuse connections beyond N), `stall_at`/`stall_times` and `hang_times` (silence mid-body or before the headers), `html`/`html_after` and `/login` (web pages instead of the file), `cd` (a raw `Content-Disposition`), `fail_from`, and `TestServer::stop`/`restart` to take the server off the network and back.

@@ -14,7 +14,7 @@ export const add: Messages["add"] = {
   },
   links: {
     label: "Bağlantılar",
-    hint: "Her satıra bir bağlantı ya da file[001-100].zip gibi bir desen. Yalnızca http ve https desteklenir.",
+    hint: "Her satıra bir bağlantı ya da file[001-100].zip gibi bir desen. http, https ve magnet bağlantıları desteklenir.",
     found: { one: "{count} bağlantı bulundu. Her biri için bir indirme.", other: "{count} bağlantı bulundu. Her biri için bir indirme." },
     fromPattern: { one: "Desenden {count} bağlantı. Her biri için bir indirme.", other: "Desenden {count} bağlantı. Her biri için bir indirme." },
     patternCapped: { one: "Desenin yalnızca ilk {count} bağlantısı kullanılır.", other: "Desenin yalnızca ilk {count} bağlantısı kullanılır." },
@@ -54,7 +54,7 @@ export const add: Messages["add"] = {
   },
   errors: {
     listTooLarge: "Bu dosya bir bağlantı listesi için çok büyük.",
-    noLinks: "En az bir http ya da https bağlantısı yapıştırın.",
+    noLinks: "En az bir http, https ya da magnet bağlantısı yapıştırın.",
     forLink: "{url}: {error}",
   },
 };

@@ -13,7 +13,7 @@ export interface CollectedPage {
 }
 
 /**
- * http(s) links from `a[href]` and `area[href]` with their visible text,
+ * http(s) and magnet links from `a[href]` and `area[href]` with their visible text,
  * one entry per address (the fragment is ignored), capped at `max`. With
  * `onlySelection`, only links inside the current text selection, when
  * there is one.
@@ -54,7 +54,7 @@ export function collectPageLinks(onlySelection: boolean, max: number): Collected
     } catch {
       continue;
     }
-    if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+    if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "magnet:") continue;
     url.hash = "";
     const href = url.href;
     if (href === page) continue;

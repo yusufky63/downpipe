@@ -60,8 +60,8 @@ export const list: Messages["list"] = {
 export const app: Messages["app"] = {
   noEngine: "Bu pencere, Downpipe arayüzünün motorsuz hâlidir. İndirmek için masaüstü uygulamasını pnpm desktop ile başlatın.",
   loadFailed: "İndirmeler yüklenemedi: {error}",
-  dropHere: "Eklemek için bağlantıları ya da bir .txt listesini bırakın",
-  dropNothing: "Bağlantıları ya da her satırda bir bağlantı olan bir .txt dosyasını bırakın.",
+  dropHere: "Eklemek için bağlantıları, bir .txt listesini ya da bir .torrent dosyasını bırakın",
+  dropNothing: "Bağlantıları, her satırda bir bağlantı olan bir .txt dosyasını ya da bir .torrent dosyasını bırakın.",
   copied: {
     link: "Bağlantı kopyalandı.",
     links: { one: "{count} bağlantı kopyalandı.", other: "{count} bağlantı kopyalandı." },

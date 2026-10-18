@@ -1,0 +1,39 @@
+[package]
+name = "downpipe-torrent"
+description = "BitTorrent downloads for Downpipe, through librqbit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bytes.workspace = true
+downpipe-http.workspace = true
+futures-util.workspace = true
+# Apache-2.0. Only the parts a client needs: no HTTP API, web UI or
+# Prometheus exporter.
+librqbit = { version = "=9.0.1", default-features = false, features = ["default-tls"] }
+parking_lot.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+tempfile = { workspace = true, optional = true }
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+[features]
+# A seeding peer on loopback for tests in this and other crates.
+testing = ["dep:tempfile"]
+
+[dev-dependencies]
+downpipe-torrent = { path = ".", features = ["testing"] }
+reqwest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

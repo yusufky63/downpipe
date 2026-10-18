@@ -4,7 +4,7 @@
 // or shown.
 import { t } from "../i18n";
 import type { CollectedPage } from "./collect";
-import { MAX_URL_LENGTH, baseName, webUrl } from "./url";
+import { MAX_URL_LENGTH, baseName, magnetName, magnetUrl, webUrl } from "./url";
 
 export const MAX_PAGE_LINKS = 2000;
 export const MAX_LINK_TEXT = 200;
@@ -84,7 +84,18 @@ export function cleanLinks(raw: unknown, pageUrl: string, max = MAX_PAGE_LINKS):
   for (const entry of raw) {
     if (typeof entry !== "object" || entry === null) continue;
     const v = entry as Record<string, unknown>;
-    const url = typeof v.url === "string" ? webUrl(v.url) : null;
+    const magnet = typeof v.url === "string" ? magnetUrl(v.url) : null;
+    const url = magnet === null && typeof v.url === "string" ? webUrl(v.url) : null;
+    if (magnet) {
+      if (index.has(magnet)) continue;
+      if (links.length >= max) {
+        dropped = true;
+        break;
+      }
+      index.set(magnet, links.length);
+      links.push({ url: magnet, text: cleanText(v.text, MAX_LINK_TEXT) });
+      continue;
+    }
     if (!url) continue;
     url.hash = "";
     if (url.href.length > MAX_URL_LENGTH || url.href === pageUrl) continue;
@@ -191,6 +202,8 @@ export function linkExtension(raw: string): string | null {
 }
 
 export function linkView(link: PageLink): LinkView {
+  // A torrent: named by its link's `dn`, grouped under "torrent".
+  if (magnetUrl(link.url)) return { ...link, name: magnetName(link.url) ?? "magnet", ext: "torrent", page: false };
   const url = webUrl(link.url);
   const ext = linkExtension(link.url);
   const name = (url && lastSegment(url)) || url?.hostname || link.url;

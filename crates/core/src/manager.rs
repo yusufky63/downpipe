@@ -21,8 +21,10 @@ use crate::settings::{MAIN_QUEUE, Settings};
 use crate::store::Store;
 use crate::task::{
     AddOptions, ConfirmOptions, Live, MediaChoices, MediaInfo, OnDuplicate, QueueMove, SiteChoices,
-    SiteInfo, SiteOptions, TaskId, TaskRecord, TaskSnapshot, TaskState,
+    SiteInfo, SiteOptions, Swarm, TaskId, TaskRecord, TaskSnapshot, TaskState, TorrentChoices,
+    TorrentInfo,
 };
+use crate::torrent::{self, MAX_TORRENT_FILE, Parsed, SeedState};
 
 const DB_FILE: &str = "downpipe.db";
 /// Folder in the data folder where yt-dlp and Deno go when the user has
@@ -101,6 +103,8 @@ struct Inner {
     events: broadcast::Sender<ManagerEvent>,
     /// Downpipe's own copies of the site provider's tools.
     tools_dir: PathBuf,
+    /// BitTorrent: the session, `.torrent` files and seeding.
+    torrents: torrent::Service,
 }
 
 #[derive(Debug)]
@@ -155,6 +159,7 @@ impl Manager {
         .map_err(|e| CoreError::Io(std::io::Error::other(e)))??;
 
         let limiter = Arc::new(RateLimiter::new(settings.speed_limit));
+        let torrents = torrent::Service::new(data_dir, &settings);
         let engine = Engine::with_limiter(engine_config(&config, &settings), limiter.clone())?;
 
         let mut records = records;
@@ -204,6 +209,7 @@ impl Manager {
                 }),
                 events,
                 tools_dir: data_dir.join(TOOLS_DIR),
+                torrents,
             }),
         };
         manager.inner.schedule();
@@ -232,6 +238,17 @@ impl Manager {
     }
 
     pub fn add(&self, opts: AddOptions) -> Result<TaskSnapshot, CoreError> {
+        // A magnet link, or a `.torrent` file the browser or a link points
+        // at: a BitTorrent download. Without BitTorrent support a `.torrent`
+        // link is an ordinary file.
+        let torrent_name = opts
+            .file_name
+            .as_deref()
+            .is_some_and(torrent::is_torrent_name);
+        let magnet = is_magnet(&opts.url);
+        if magnet || torrent::AVAILABLE && (torrent_name || torrent::is_torrent_link(&opts.url)) {
+            return self.add_torrent(opts, None);
+        }
         let url = parse_web_url(&opts.url)?;
         let checksum = match opts
             .checksum
@@ -336,6 +353,7 @@ impl Manager {
                 completed_at: None,
                 media,
                 site,
+                torrent: None,
             };
             st.store.upsert(&record)?;
             let entry = Entry {
@@ -365,6 +383,9 @@ impl Manager {
     }
 
     pub fn pause(&self, id: &str) -> Result<(), CoreError> {
+        if self.seeding_hash(id).is_some() {
+            return self.stop_seeding(id);
+        }
         self.inner.with_entry(id, |st, entry| {
             if let Some(control) = &entry.control {
                 entry.after_stop = AfterStop::Pause;
@@ -422,7 +443,7 @@ impl Manager {
                 TaskState::Completed => Err(invalid("cancel", TaskState::Completed)),
                 TaskState::Canceled => Ok(None),
                 _ => {
-                    remove_partial(&entry.record);
+                    self.inner.remove_partial(&entry.record);
                     entry.record.downloaded = 0;
                     entry.live = Live::default();
                     entry.set_state(TaskState::Canceled);
@@ -464,6 +485,12 @@ impl Manager {
                     "a video page keeps its address; add the other page as a new download".into(),
                 ));
             }
+            // A torrent is found by its hash, not by a link that expires.
+            if entry.record.torrent.is_some() {
+                return Err(CoreError::InvalidUrl(
+                    "a torrent keeps its link; add another torrent as a new download".into(),
+                ));
+            }
             entry.url = url.to_string();
             entry.record.url = key;
             // Without a file name the engine never started, so there is no
@@ -484,6 +511,9 @@ impl Manager {
 
     /// Forget a download; with `delete_files`, also delete what it wrote.
     pub fn remove(&self, id: &str, delete_files: bool) -> Result<(), CoreError> {
+        if let Some(hash) = self.seeding_hash(id) {
+            self.inner.torrents.stop_seeding(&hash);
+        }
         let removed = {
             let mut st = self.inner.state.lock();
             let idx = st
@@ -503,11 +533,19 @@ impl Manager {
             } else {
                 if delete_files {
                     match (&entry.record.state, &entry.record.path) {
+                        // Only the torrent's own files: its path may be a
+                        // folder the user put other things in.
+                        (TaskState::Completed, Some(_)) if entry.record.torrent.is_some() => {
+                            self.inner.remove_partial(&entry.record);
+                        }
                         (TaskState::Completed, Some(path)) => {
                             let _ = std::fs::remove_file(path);
                         }
-                        _ => remove_partial(&entry.record),
+                        _ => self.inner.remove_partial(&entry.record),
                     }
+                }
+                if entry.record.torrent.is_some() {
+                    self.inner.torrents.forget(id);
                 }
                 st.store.delete(id)?;
                 st.tasks.remove(idx);
@@ -576,6 +614,19 @@ impl Manager {
             if let Some(queue) = choice.queue.filter(|q| st.settings.queue(q).is_some()) {
                 entry.record.queue = queue;
             }
+            if let Some(files) = choice.files
+                && let Some(t) = entry.record.torrent.as_mut()
+            {
+                if files.is_empty() {
+                    return Err(CoreError::InvalidSetting(
+                        "choose at least one file of the torrent".into(),
+                    ));
+                }
+                let mut files = files;
+                files.sort_unstable();
+                files.dedup();
+                t.only_files = (t.files == 0 || files.len() < t.files).then_some(files);
+            }
             if let Some(selection) = choice.media {
                 // Named again once the stream or page is read.
                 if let Some(info) = entry.record.media.as_mut() {
@@ -607,14 +658,21 @@ impl Manager {
             if entry.control.is_some() || entry.record.state != TaskState::Completed {
                 return Err(invalid("download again", entry.record.state));
             }
-            let r = &mut entry.record;
-            if replace {
-                if let Some(path) = r.path.as_ref().filter(|p| p.exists()) {
+            if let Some(t) = entry.record.torrent.as_ref() {
+                // A torrent is downloaded into the same place again: the
+                // pieces still on disk are checked and kept unless replaced.
+                self.inner.torrents.stop_seeding(&t.info_hash);
+                if replace {
+                    self.inner.remove_partial(&entry.record);
+                }
+            } else if replace {
+                if let Some(path) = entry.record.path.as_ref().filter(|p| p.exists()) {
                     std::fs::remove_file(path)?;
                 }
             } else {
-                r.file_name = None;
+                entry.record.file_name = None;
             }
+            let r = &mut entry.record;
             r.path = None;
             r.total = None;
             r.downloaded = 0;
@@ -864,6 +922,7 @@ impl Manager {
             *self.inner.engine.lock() = engine;
         }
         self.inner.limiter.set_rate(settings.speed_limit);
+        self.inner.torrents.configure(&settings);
         self.inner.emit(ManagerEvent::Settings {
             settings: Box::new(settings.clone()),
         });
@@ -890,6 +949,8 @@ impl Manager {
         if tokio::time::timeout(SHUTDOWN_GRACE, all).await.is_err() {
             tracing::warn!("some downloads did not stop within {SHUTDOWN_GRACE:?}");
         }
+        // Seeding stops with the app; what was uploaded is kept.
+        self.inner.torrents.shutdown().await;
     }
 
     fn ids(&self, pred: impl Fn(TaskState) -> bool) -> Vec<TaskId> {
@@ -982,7 +1043,10 @@ impl Inner {
                     continue;
                 }
                 *busy += 1;
-                let handle = if entry.record.site.is_some() {
+                let handle = if entry.record.torrent.is_some() {
+                    self.torrents
+                        .start(entry.torrent_request(&engine), settings)
+                } else if entry.record.site.is_some() {
                     let tools = site_tools
                         .get_or_insert_with(|| {
                             downpipe_providers::tools::find(&self.tool_config(settings))
@@ -1034,7 +1098,11 @@ impl Inner {
             }
         };
         let ((), result) = tokio::join!(forward, handle.wait());
+        let completed = matches!(result, Ok(Outcome::Completed { .. }));
         self.on_finished(&id, result);
+        if completed {
+            self.follow_seeding(&id);
+        }
         self.schedule();
     }
 
@@ -1079,6 +1147,9 @@ impl Inner {
                 site.selection = Some(m.selection.clone());
                 media_changed = true;
             }
+            if let (Some(t), Some(tp)) = (r.torrent.as_mut(), p.torrent.as_ref()) {
+                t.uploaded = tp.uploaded;
+            }
             entry.live = Live::from_progress(p);
             if state_changed || media_changed || entry.last_persist.elapsed() >= PERSIST_EVERY {
                 entry.record.updated_at = unix_now();
@@ -1111,12 +1182,17 @@ impl Inner {
             entry.supervisor = None;
             entry.live.speed = 0;
             entry.live.connections = 0;
+            // Peers belong to a running torrent; seeding sets them again.
+            entry.live.swarm = None;
             let after = entry.after_stop;
             if result.is_ok() {
                 entry.relink = false;
             }
 
             if after == AfterStop::Remove && !matches!(result, Ok(Outcome::Completed { .. })) {
+                if entry.record.torrent.is_some() {
+                    self.torrents.forget(id);
+                }
                 if let Err(e) = store.delete(id) {
                     tracing::warn!("could not delete task: {e}");
                 }
@@ -1129,7 +1205,13 @@ impl Inner {
             let r = &mut entry.record;
             match result {
                 Ok(Outcome::Completed { path, bytes, .. }) => {
-                    let (path, category) = sort_into_category(settings, r, path);
+                    // A torrent's files stay where they are: they are what
+                    // it seeds from.
+                    let (path, category) = if r.torrent.is_some() {
+                        (path, r.category.clone())
+                    } else {
+                        sort_into_category(settings, r, path)
+                    };
                     r.category = category;
                     if let Some(dir) = path.parent() {
                         r.dir = dir.to_path_buf();
@@ -1376,6 +1458,12 @@ fn final_path(record: &TaskRecord) -> Option<PathBuf> {
         .or_else(|| record.file_name.as_ref().map(|n| record.dir.join(n)))
 }
 
+fn is_magnet(link: &str) -> bool {
+    link.trim()
+        .get(..7)
+        .is_some_and(|s| s.eq_ignore_ascii_case("magnet:"))
+}
+
 fn remove_partial(record: &TaskRecord) {
     if record.site.is_some() {
         if let Some(name) = &record.file_name {
@@ -1417,8 +1505,9 @@ fn video_name(hint: &str) -> String {
 
 /// Bring the displayed progress in line with what is actually on disk.
 fn refresh_from_meta(record: &mut TaskRecord) {
-    // Site downloads keep no meta file; yt-dlp finds its own parts again.
-    if record.state.is_finished() || record.site.is_some() {
+    // Site downloads keep no meta file; yt-dlp finds its own parts again,
+    // and librqbit checks a torrent's pieces when it starts.
+    if record.state.is_finished() || record.site.is_some() || record.torrent.is_some() {
         return;
     }
     let Some(path) = final_path(record) else {
@@ -1442,4 +1531,353 @@ fn unix_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
+// BitTorrent. Torrents share the list, the queues and the state machine
+// with everything else; what differs lives here.
+
+impl Manager {
+    /// Add a torrent from the bytes of a `.torrent` file (dropped on the
+    /// window or picked in the Add dialog). `opts.url` is ignored.
+    pub fn add_torrent_file(
+        &self,
+        bytes: &[u8],
+        opts: AddOptions,
+    ) -> Result<TaskSnapshot, CoreError> {
+        if bytes.len() > MAX_TORRENT_FILE {
+            return Err(CoreError::InvalidUrl(
+                "that file is too large to be a torrent".into(),
+            ));
+        }
+        self.add_torrent(opts, Some(bytes))
+    }
+
+    fn add_torrent(
+        &self,
+        opts: AddOptions,
+        file: Option<&[u8]>,
+    ) -> Result<TaskSnapshot, CoreError> {
+        let (parsed, memory_url) = match file {
+            Some(bytes) => {
+                let parsed = torrent::parse_file(bytes)?;
+                (parsed.clone(), parsed.link)
+            }
+            None if is_magnet(&opts.url) => {
+                let parsed = torrent::parse_magnet(&opts.url)?;
+                (parsed.clone(), parsed.link)
+            }
+            None => {
+                // A `.torrent` on a web server: what it holds is known once
+                // it is fetched (in the confirmation dialog or at start).
+                let url = parse_web_url(&opts.url)?;
+                downpipe_http::build_headers(&opts.headers)?;
+                let name = opts
+                    .file_name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|n| !n.is_empty())
+                    .map(str::to_string)
+                    .or_else(|| filename::from_url(&url));
+                let parsed = Parsed {
+                    info_hash: String::new(),
+                    name: name.map(|n| strip_torrent_extension(&n)),
+                    link: downpipe_http::redact_url(&url),
+                    files: 0,
+                    total: None,
+                    private: false,
+                };
+                (parsed, url.to_string())
+            }
+        };
+        let snapshot = {
+            let mut st = self.inner.state.lock();
+            let same = |e: &&Entry| {
+                e.record.url == parsed.link
+                    || (!parsed.info_hash.is_empty()
+                        && e.record
+                            .torrent
+                            .as_ref()
+                            .is_some_and(|t| t.info_hash == parsed.info_hash))
+            };
+            if let Some(asking) = st
+                .tasks
+                .iter()
+                .filter(same)
+                .find(|e| e.live.awaiting_confirmation)
+            {
+                return Err(CoreError::Duplicate(asking.record.id.clone()));
+            }
+            let duplicate_of = match (st.tasks.iter().find(same), opts.on_duplicate) {
+                (Some(dup), OnDuplicate::Refuse) => {
+                    return Err(CoreError::Duplicate(dup.record.id.clone()));
+                }
+                // Two entries would write the same files and seed them
+                // twice; the one in the list is the torrent.
+                (Some(_), OnDuplicate::AddCopy) => {
+                    return Err(CoreError::InvalidUrl(
+                        "this torrent is already in the list; a second copy would write the same files"
+                            .into(),
+                    ));
+                }
+                (Some(dup), OnDuplicate::Ask) => Some(dup.record.id.clone()),
+                (None, _) => None,
+            };
+            let confirm = opts.confirm || duplicate_of.is_some();
+            let now = unix_now();
+            // One file goes into the folder of its type; a folder of files
+            // has no single type and goes into the download folder.
+            let category = parsed
+                .name
+                .as_deref()
+                .filter(|_| parsed.files <= 1)
+                .and_then(|name| st.settings.category_for(name))
+                .cloned();
+            let auto_dir = opts.dir.is_none();
+            let dir = match (opts.dir, &category) {
+                (Some(dir), _) => dir,
+                (None, Some(c)) => st.settings.category_dir(c),
+                (None, None) => st.settings.download_dir.clone(),
+            };
+            let record = TaskRecord {
+                id: uuid::Uuid::new_v4().to_string(),
+                url: parsed.link.clone(),
+                dir,
+                file_name: parsed
+                    .name
+                    .as_deref()
+                    .filter(|_| parsed.files > 0)
+                    .map(filename::sanitize),
+                path: None,
+                state: if opts.paused || confirm {
+                    TaskState::Paused
+                } else {
+                    TaskState::Queued
+                },
+                total: parsed.total,
+                downloaded: 0,
+                error: None,
+                error_kind: None,
+                checksum: None,
+                max_connections: None,
+                category: category.map(|c| c.name),
+                auto_dir,
+                queue: opts
+                    .queue
+                    .filter(|q| st.settings.queue(q).is_some())
+                    .unwrap_or_else(|| MAIN_QUEUE.into()),
+                position: next_position(&st.tasks),
+                created_at: now,
+                updated_at: now,
+                completed_at: None,
+                media: None,
+                site: None,
+                torrent: Some(TorrentInfo {
+                    info_hash: parsed.info_hash.clone(),
+                    name: parsed.name.clone(),
+                    files: parsed.files,
+                    only_files: None,
+                    uploaded: 0,
+                    private: parsed.private,
+                }),
+            };
+            if let Some(bytes) = file {
+                self.inner.torrents.keep_file(&record.id, bytes)?;
+            }
+            if let Err(e) = st.store.upsert(&record) {
+                self.inner.torrents.forget(&record.id);
+                return Err(e.into());
+            }
+            let mut entry = Entry {
+                url: memory_url,
+                record,
+                live: Live::default(),
+                headers: opts.headers,
+                control: None,
+                supervisor: None,
+                after_stop: AfterStop::Pause,
+                last_persist: Instant::now(),
+                relink: false,
+            };
+            entry.live.awaiting_confirmation = confirm;
+            entry.live.duplicate_of = duplicate_of;
+            entry.live.from_app = opts.from_app;
+            let snapshot = entry.snapshot();
+            st.tasks.push(entry);
+            snapshot
+        };
+        self.inner.emit(ManagerEvent::Updated {
+            task: Box::new(snapshot.clone()),
+        });
+        self.inner.schedule();
+        Ok(snapshot)
+    }
+
+    /// A torrent's files, for choosing which to download: read from its
+    /// `.torrent` file, or fetched first (a link to one) or asked from peers
+    /// (a magnet link, which can take up to two minutes). Nothing else is
+    /// downloaded. The download learns the torrent's name and size.
+    pub async fn inspect_torrent(&self, id: &str) -> Result<TorrentChoices, CoreError> {
+        let request = {
+            let st = self.inner.state.lock();
+            let entry = st
+                .tasks
+                .iter()
+                .find(|e| e.record.id == id)
+                .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
+            if entry.record.torrent.is_none() {
+                return Err(invalid("list the files of", entry.record.state));
+            }
+            let engine = self.inner.engine.lock().clone();
+            entry.torrent_request(&engine)
+        };
+        let (choices, parsed) = self.inner.torrents.choices(&request).await?;
+        self.inner.with_entry(id, |st, entry| {
+            let r = &mut entry.record;
+            let Some(t) = r.torrent.as_mut() else {
+                return Ok(None);
+            };
+            t.info_hash = parsed.info_hash;
+            t.name = parsed.name.clone();
+            t.files = parsed.files;
+            t.private = parsed.private;
+            if entry.control.is_none() && !r.state.is_finished() {
+                r.file_name = parsed.name.as_deref().map(filename::sanitize);
+                r.total = parsed.total;
+                // Now that the files are known, one file may belong to a
+                // category the magnet link's name did not tell.
+                if r.auto_dir && parsed.files == 1 && r.downloaded == 0 {
+                    let category = parsed
+                        .name
+                        .as_deref()
+                        .and_then(|name| st.settings.category_for(name))
+                        .cloned();
+                    r.dir = match &category {
+                        Some(c) => st.settings.category_dir(c),
+                        None => st.settings.download_dir.clone(),
+                    };
+                    r.category = category.map(|c| c.name);
+                }
+            }
+            st.store.upsert(&entry.record)?;
+            Ok(Some(entry.snapshot()))
+        })?;
+        Ok(choices)
+    }
+
+    /// Stop uploading a finished torrent. Its files stay.
+    pub fn stop_seeding(&self, id: &str) -> Result<(), CoreError> {
+        let hash = self.seeding_hash(id).ok_or_else(|| {
+            let state = self
+                .get(id)
+                .map_or(TaskState::Completed, |t| t.record.state);
+            invalid("stop seeding", state)
+        })?;
+        self.inner.torrents.stop_seeding(&hash);
+        Ok(())
+    }
+
+    /// The info hash of a download that seeds right now.
+    fn seeding_hash(&self, id: &str) -> Option<String> {
+        let st = self.inner.state.lock();
+        let entry = st.tasks.iter().find(|e| e.record.id == id)?;
+        let seeding = entry.live.swarm.as_ref().is_some_and(|s| s.seeding);
+        let hash = entry.record.torrent.as_ref()?.info_hash.clone();
+        seeding.then_some(hash)
+    }
+}
+
+impl Inner {
+    /// After a torrent finished: show its seeding in the list until it
+    /// stops, and keep what it uploaded.
+    fn follow_seeding(self: &Arc<Self>, id: &str) {
+        let hash = {
+            let st = self.state.lock();
+            st.tasks
+                .iter()
+                .find(|e| e.record.id == id && e.record.state == TaskState::Completed)
+                .and_then(|e| e.record.torrent.as_ref())
+                .map(|t| t.info_hash.clone())
+        };
+        let Some(hash) = hash else {
+            return;
+        };
+        let inner = Arc::downgrade(self);
+        let id = id.to_string();
+        self.torrents.watch_seeding(&hash, move |s| {
+            if let Some(inner) = inner.upgrade() {
+                inner.on_seeding(&id, &s);
+            }
+        });
+    }
+
+    fn on_seeding(&self, id: &str, s: &SeedState) {
+        let snapshot = {
+            let mut st = self.state.lock();
+            let State { store, tasks, .. } = &mut *st;
+            let Some(entry) = tasks.iter_mut().find(|e| e.record.id == id) else {
+                return;
+            };
+            if entry.record.state != TaskState::Completed {
+                return;
+            }
+            entry.live.swarm = s.seeding.then_some(Swarm {
+                peers: s.peers,
+                known_peers: 0,
+                upload_speed: s.upload_speed,
+                seeding: true,
+                fetching_metadata: false,
+            });
+            if let Some(t) = entry.record.torrent.as_mut() {
+                t.uploaded = s.uploaded;
+            }
+            if !s.seeding || entry.last_persist.elapsed() >= PERSIST_EVERY {
+                entry.last_persist = Instant::now();
+                if let Err(e) = store.upsert(&entry.record) {
+                    tracing::warn!("could not persist seeding: {e}");
+                }
+            }
+            entry.snapshot()
+        };
+        self.emit(ManagerEvent::Updated {
+            task: Box::new(snapshot),
+        });
+    }
+
+    /// Delete what an unfinished download wrote; a torrent's own files only.
+    fn remove_partial(&self, record: &TaskRecord) {
+        match &record.torrent {
+            // Never started: the files there, if any, are not its own.
+            Some(_) if record.downloaded == 0 && record.state != TaskState::Completed => {}
+            Some(t) => {
+                self.torrents
+                    .delete_files(&record.id, &record.dir, t.only_files.as_deref());
+            }
+            None => remove_partial(record),
+        }
+    }
+}
+
+impl Entry {
+    fn torrent_request(&self, engine: &Engine) -> torrent::Request {
+        let t = self.record.torrent.as_ref();
+        torrent::Request {
+            id: self.record.id.clone(),
+            link: self.url.clone(),
+            headers: self.headers.clone(),
+            client: engine.client().clone(),
+            dir: self.record.dir.clone(),
+            only_files: t.and_then(|t| t.only_files.clone()),
+            uploaded: t.map_or(0, |t| t.uploaded),
+        }
+    }
+}
+
+/// `ubuntu.iso.torrent` -> `ubuntu.iso`: the name of what it downloads.
+fn strip_torrent_extension(name: &str) -> String {
+    match name.len().checked_sub(".torrent".len()) {
+        Some(at) if name.is_char_boundary(at) && name[at..].eq_ignore_ascii_case(".torrent") => {
+            name[..at].to_string()
+        }
+        _ => name.to_string(),
+    }
 }

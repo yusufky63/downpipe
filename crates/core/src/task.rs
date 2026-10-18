@@ -123,6 +123,9 @@ pub struct TaskRecord {
     /// Set when the URL is a video page a site provider downloads (YouTube).
     #[serde(default)]
     pub site: Option<SiteInfo>,
+    /// Set for BitTorrent downloads (a magnet link, a `.torrent` file).
+    #[serde(default)]
+    pub torrent: Option<TorrentInfo>,
     pub created_at: i64,
     pub updated_at: i64,
     pub completed_at: Option<i64>,
@@ -174,6 +177,69 @@ impl SiteInfo {
             quality: None,
         }
     }
+}
+
+/// What a BitTorrent download remembers between sessions. The file list
+/// itself is in the torrent's `.torrent` file in the data folder (see
+/// [`crate::Manager::inspect_torrent`]), so a torrent of thousands of files
+/// does not travel with every progress event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TorrentInfo {
+    /// BitTorrent v1 info hash, lower-case hex.
+    pub info_hash: String,
+    /// The torrent's name: the magnet link's until the metadata is known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Files in the torrent; 0 while the metadata is not known yet.
+    #[serde(default)]
+    pub files: usize,
+    /// Indices of the files to download; `None` for all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub only_files: Option<Vec<usize>>,
+    /// Bytes uploaded to peers in all, for the ratio.
+    #[serde(default)]
+    pub uploaded: u64,
+    /// A private torrent (BEP 27): its trackers only, no DHT or PEX.
+    #[serde(default)]
+    pub private: bool,
+}
+
+/// A torrent's files, for choosing which to download.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TorrentChoices {
+    pub info_hash: String,
+    pub name: String,
+    /// In the torrent's order; the index is what `ConfirmOptions::files`
+    /// refers to. Padding files are left out but keep their index free.
+    pub files: Vec<TorrentFileChoice>,
+    pub total: u64,
+    /// The files chosen so far; `None` for all.
+    pub selection: Option<Vec<usize>>,
+    /// The torrent gets a folder of its own inside the chosen folder.
+    pub folder: bool,
+    pub private: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TorrentFileChoice {
+    pub index: usize,
+    /// Inside the torrent, `/`-separated.
+    pub path: String,
+    pub size: u64,
+}
+
+/// Peers and uploads of a BitTorrent download.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Swarm {
+    /// Peers connected right now.
+    pub peers: u32,
+    /// Peers heard of, connected or not.
+    pub known_peers: u32,
+    pub upload_speed: u64,
+    /// Finished and still uploading to peers.
+    pub seeding: bool,
+    /// Asking peers for a magnet link's file list.
+    pub fetching_metadata: bool,
 }
 
 /// What a video page offers, for the quality chooser.
@@ -243,6 +309,9 @@ pub struct Live {
     /// Held because its link is already in the list (that download's id):
     /// the confirmation asks what to do, as IDM does.
     pub duplicate_of: Option<TaskId>,
+    /// BitTorrent downloads: peers and uploads, while it downloads or
+    /// seeds.
+    pub swarm: Option<Swarm>,
 }
 
 impl Live {
@@ -258,6 +327,13 @@ impl Live {
             awaiting_confirmation: false,
             from_app: false,
             duplicate_of: None,
+            swarm: p.torrent.as_ref().map(|t| Swarm {
+                peers: t.peers,
+                known_peers: t.known_peers,
+                upload_speed: t.upload_speed,
+                seeding: false,
+                fetching_metadata: t.fetching_metadata,
+            }),
             // Site downloads report whole formats, not fragments.
             fragments: p
                 .media
@@ -356,6 +432,9 @@ pub struct ConfirmOptions {
     pub start: bool,
     /// Stream downloads: the quality and audio to download.
     pub media: Option<MediaSelection>,
+    /// BitTorrent downloads: indices of the files to download (see
+    /// [`TorrentChoices`]); `None` keeps the choice made so far.
+    pub files: Option<Vec<usize>>,
 }
 
 /// Where selected downloads move inside their queue.

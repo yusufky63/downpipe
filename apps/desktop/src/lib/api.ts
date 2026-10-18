@@ -75,12 +75,79 @@ export interface Task {
   media: MediaInfo | null;
   /** Set when the link is a video page (YouTube) downloaded with yt-dlp. */
   site: SiteInfo | null;
+  /** Set for BitTorrent downloads (a magnet link or a .torrent file). */
+  torrent: TorrentInfo | null;
+  /** BitTorrent: peers and uploads while it downloads or seeds. */
+  swarm: Swarm | null;
   /** Stream downloads while they run: fragments done and in all. */
   fragments: { done: number; total: number } | null;
   eta_secs: number | null;
 }
 
 export type MediaKind = "hls" | "dash";
+
+/** What a torrent download keeps (downpipe_core::TorrentInfo). */
+export interface TorrentInfo {
+  /** BitTorrent v1 info hash, lower-case hex; empty for a .torrent link not fetched yet. */
+  info_hash: string;
+  /** The torrent's name: the magnet link's until the metadata is known. */
+  name?: string;
+  /** Files in the torrent; 0 while the metadata is not known. */
+  files: number;
+  /** Indices of the files to download; missing for all. */
+  only_files?: number[];
+  /** Bytes uploaded to peers in all. */
+  uploaded: number;
+  private: boolean;
+}
+
+export interface Swarm {
+  /** Peers connected right now. */
+  peers: number;
+  /** Peers heard of, connected or not. */
+  known_peers: number;
+  upload_speed: number;
+  /** Finished and still uploading. */
+  seeding: boolean;
+  /** Asking peers for a magnet link's file list. */
+  fetching_metadata: boolean;
+}
+
+export interface TorrentFileChoice {
+  index: number;
+  /** Inside the torrent, "/"-separated. */
+  path: string;
+  size: number;
+}
+
+/** A torrent's files, for choosing which to download. */
+export interface TorrentChoices {
+  info_hash: string;
+  name: string;
+  files: TorrentFileChoice[];
+  total: number;
+  /** Chosen so far; null for all. */
+  selection: number[] | null;
+  /** The files go into a folder named after the torrent. */
+  folder: boolean;
+  private: boolean;
+}
+
+export interface TorrentSettings {
+  /** Keep uploading finished torrents until a limit is reached. */
+  seed: boolean;
+  /** 100 = ratio 1.0; 0 for no ratio limit. */
+  seed_ratio_percent: number;
+  /** 0 for no time limit. */
+  seed_minutes: number;
+  /** Bytes per second; 0 means unlimited. */
+  upload_limit: number;
+  /** 0 picks a free port at every start. */
+  listen_port: number;
+  dht: boolean;
+  lsd: boolean;
+  upnp: boolean;
+}
 
 /** A track picked by the user, with enough detail to find it again. */
 export interface TrackRef {
@@ -227,6 +294,7 @@ export interface Settings {
   yt_dlp_path: string;
   /** Deno for yt-dlp. Empty: the tools folder, then PATH, then Node 22+. */
   deno_path: string;
+  torrent: TorrentSettings;
 }
 
 export const MAIN_QUEUE = "main";
@@ -313,6 +381,8 @@ export interface ConfirmOptions {
   start: boolean;
   /** Streams and video pages: the quality and audio to download. */
   media?: MediaSelection | null;
+  /** Torrents: indices of the files to download. */
+  files?: number[] | null;
 }
 
 export type QueueMove = "up" | "down" | "top" | "bottom";
@@ -354,6 +424,14 @@ export const api = {
   /** Asks yt-dlp what a video page offers; downloads no video. */
   inspectSite: (id: string) => invoke<SiteChoices>("inspect_site", { id }),
   siteTools: () => invoke<ToolsStatus>("site_tools"),
+  /** A torrent's files; a magnet link asks peers for them, which can take up to two minutes. */
+  inspectTorrent: (id: string) => invoke<TorrentChoices>("inspect_torrent", { id }),
+  stopSeeding: (id: string) => invoke<null>("stop_seeding", { id }),
+  /** A .torrent file dropped on the window, as its bytes. */
+  addTorrentFile: (bytes: Uint8Array, options: AddOptions) =>
+    invoke<Task>("add_torrent_file", { bytes: Array.from(bytes), options }),
+  /** Picks a .torrent file in the system dialog and adds it; null when the dialog was closed. */
+  openTorrentFile: (options: AddOptions) => invoke<Task | null>("open_torrent_file", { options }),
   /** Downloads yt-dlp and/or Deno from their official releases, checked by SHA-256. */
   installSiteTools: (tools: SiteTool[]) => invoke<ToolsStatus>("install_site_tools", { tools }),
   /** With `replace`, the old file is deleted first and the new one takes its name. */

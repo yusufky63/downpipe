@@ -1,6 +1,7 @@
 //! Clipboard watching: a copied download link brings up the Add dialog, as
-//! in IDM. Only http(s) links whose file type belongs to a category, or that
-//! are video pages the site provider takes (YouTube), are offered, and never
+//! in IDM. Only http(s) links whose file type belongs to a category, that
+//! are video pages the site provider takes (YouTube), or magnet links and
+//! `.torrent` links (BitTorrent) are offered, and never
 //! one that is already in the list, so "Copy link" in Downpipe's own menu
 //! does not offer the link back.
 
@@ -84,7 +85,14 @@ fn watch(app: &AppHandle, manager: &Manager) {
             continue;
         }
         let key = list_key(&url);
-        if manager.list().iter().any(|t| t.record.url == key) {
+        let lower = url.to_ascii_lowercase();
+        if manager.list().iter().any(|t| {
+            t.record.url == key
+                || t.record.torrent.as_ref().is_some_and(|torrent| {
+                    !torrent.info_hash.is_empty()
+                        && lower.contains(&format!("urn:btih:{}", torrent.info_hash))
+                })
+        }) {
             continue;
         }
         last_offer = Some((url.clone(), Instant::now()));
@@ -137,11 +145,23 @@ fn offer(text: &str, extensions: &[String]) -> Option<String> {
     if text.is_empty() || text.len() > 4096 || text.chars().any(char::is_whitespace) {
         return None;
     }
+    if downpipe_core::TORRENT_SUPPORT
+        && text
+            .get(..7)
+            .is_some_and(|s| s.eq_ignore_ascii_case("magnet:"))
+    {
+        return text
+            .to_ascii_lowercase()
+            .contains("xt=urn:btih:")
+            .then(|| text.to_string());
+    }
     let url = url::Url::parse(text).ok()?;
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
         return None;
     }
-    if pages::recognize(&url).is_some() {
+    if pages::recognize(&url).is_some()
+        || downpipe_core::TORRENT_SUPPORT && downpipe_core::is_torrent_link(text)
+    {
         return Some(text.to_string());
     }
     let name = url.path_segments()?.next_back()?;
@@ -217,6 +237,14 @@ mod tests {
         ] {
             assert_eq!(offer(text, &exts()), None, "{text:?}");
         }
+    }
+
+    #[test]
+    fn offers_torrents() {
+        let magnet = "magnet:?xt=urn:btih:c9e15763f722f23e98a29decdfae341b98d53056&dn=a";
+        assert_eq!(offer(&format!(" {magnet} "), &[]).as_deref(), Some(magnet));
+        assert_eq!(offer("magnet:?dn=no-hash", &[]), None);
+        assert!(offer("https://example.org/ubuntu.iso.torrent", &[]).is_some());
     }
 
     #[test]

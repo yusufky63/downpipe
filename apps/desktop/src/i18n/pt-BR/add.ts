@@ -15,7 +15,7 @@ export const add: Messages["add"] = {
   links: {
     label: "Links",
     // The pattern example stays as written: it is the syntax the field accepts.
-    hint: "Um link por linha ou um padrão como file[001-100].zip. Somente http e https são aceitos.",
+    hint: "Um link por linha ou um padrão como file[001-100].zip. Links http, https e magnet são aceitos.",
     found: {
       one: "{count} link encontrado. Um download para cada.",
       many: "{count} links encontrados. Um download para cada.",
@@ -69,7 +69,7 @@ export const add: Messages["add"] = {
   },
   errors: {
     listTooLarge: "Esse arquivo é grande demais para uma lista de links.",
-    noLinks: "Cole pelo menos um link http ou https.",
+    noLinks: "Cole pelo menos um link http, https ou magnet.",
     forLink: "{url}: {error}",
   },
 };

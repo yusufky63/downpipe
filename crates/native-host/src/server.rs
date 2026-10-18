@@ -13,7 +13,7 @@ use crate::frame::{self, FrameError};
 use crate::ipc::{AppAction, AppRequest, AppResponse, Endpoint};
 use crate::protocol::{
     self, DownloadRequest, FEATURES, MAX_TASK_ERROR_LEN, MediaRequest, PageRequest, TaskStatus,
-    code,
+    code, feature,
 };
 
 /// A client that connects and then says nothing is dropped after this long.
@@ -194,7 +194,12 @@ impl Bridge {
         match request.action {
             AppAction::Ping => AppResponse::Pong {
                 app_version: self.app_version.clone(),
-                features: FEATURES.iter().map(|f| f.to_string()).collect(),
+                features: FEATURES
+                    .iter()
+                    // Magnet links only when this app was built with BitTorrent.
+                    .filter(|f| **f != feature::TORRENT || downpipe_core::TORRENT_SUPPORT)
+                    .map(|f| f.to_string())
+                    .collect(),
             },
             AppAction::Download { request, origin } => {
                 // Anything running as this user can open the pipe, so the

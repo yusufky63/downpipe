@@ -60,8 +60,8 @@ export const list: Messages["list"] = {
 export const app: Messages["app"] = {
   noEngine: "此窗口是不含引擎的 Downpipe 界面。要下载，请使用 pnpm desktop 启动桌面应用。",
   loadFailed: "无法加载下载列表：{error}",
-  dropHere: "拖放链接或 .txt 列表以添加",
-  dropNothing: "请拖放链接，或每行一个链接的 .txt 文件。",
+  dropHere: "拖放链接、.txt 列表或 .torrent 文件以添加",
+  dropNothing: "请拖放链接、每行一个链接的 .txt 文件，或 .torrent 文件。",
   copied: {
     link: "已复制链接。",
     links: { other: "已复制 {count} 个链接。" },

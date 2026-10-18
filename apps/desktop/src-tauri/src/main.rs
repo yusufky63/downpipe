@@ -16,7 +16,7 @@ use downpipe_core::providers::ToolsStatus;
 use downpipe_core::providers::install::Tool;
 use downpipe_core::{
     AddOptions, ConfirmOptions, CoreError, Manager, MediaChoices, QueueMove, Settings, SiteChoices,
-    TaskSnapshot, TaskState,
+    TaskSnapshot, TaskState, TorrentChoices,
 };
 use downpipe_native_host::ipc::Endpoint;
 use downpipe_native_host::manifest::{self, Layout, Stale, Status};
@@ -160,6 +160,56 @@ fn ffmpeg_status(manager: State<'_, Manager>) -> Option<PathBuf> {
 #[tauri::command]
 async fn inspect_site(manager: State<'_, Manager>, id: String) -> CmdResult<SiteChoices> {
     Ok(manager.inspect_site(&id).await?)
+}
+
+/// A torrent's files, for choosing which to download. A magnet link asks
+/// peers for them, which can take a while.
+#[tauri::command]
+async fn inspect_torrent(manager: State<'_, Manager>, id: String) -> CmdResult<TorrentChoices> {
+    Ok(manager.inspect_torrent(&id).await?)
+}
+
+/// Stop uploading a finished torrent.
+#[tauri::command]
+fn stop_seeding(manager: State<'_, Manager>, id: String) -> CmdResult<()> {
+    Ok(manager.stop_seeding(&id)?)
+}
+
+/// A `.torrent` file dropped on the window: the web view has its bytes, not
+/// its path.
+#[tauri::command]
+fn add_torrent_file(
+    manager: State<'_, Manager>,
+    bytes: Vec<u8>,
+    options: AddOptions,
+) -> CmdResult<TaskSnapshot> {
+    Ok(manager.add_torrent_file(&bytes, options)?)
+}
+
+/// Pick a `.torrent` file and add it. The file is read here, so the web
+/// view never names a path to read. `None` when the picker was closed.
+#[tauri::command]
+async fn open_torrent_file(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    manager: State<'_, Manager>,
+    options: AddOptions,
+) -> CmdResult<Option<TaskSnapshot>> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_parent(&window)
+        .add_filter("BitTorrent", &["torrent"])
+        .pick_file(move |file| {
+            let _ = tx.send(file.and_then(|f| f.into_path().ok()));
+        });
+    let Some(path) = rx.await.ok().flatten() else {
+        return Ok(None);
+    };
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| CommandError::new("io", e.to_string()))?;
+    Ok(Some(manager.add_torrent_file(&bytes, options)?))
 }
 
 /// yt-dlp, Deno (or Node) and FFmpeg as the settings find them.
@@ -712,6 +762,10 @@ fn main() {
             inspect_media,
             ffmpeg_status,
             inspect_site,
+            inspect_torrent,
+            stop_seeding,
+            add_torrent_file,
+            open_torrent_file,
             site_tools,
             install_site_tools,
             redownload,

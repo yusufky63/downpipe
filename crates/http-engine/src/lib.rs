@@ -43,7 +43,7 @@ pub use http::{
     ContentRange, ResourceInfo, build_headers, display_url, parse_content_range, redact_url,
 };
 pub use meta::ResumeMeta;
-pub use progress::{MediaProgress, Phase, Progress, WaitReason};
+pub use progress::{MediaProgress, Phase, Progress, TorrentProgress, WaitReason};
 pub use ratelimit::{RateLimiter, parse_rate};
 pub use segments::{ByteRange, SegmentView};
 

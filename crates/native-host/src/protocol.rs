@@ -59,10 +59,13 @@ pub mod feature {
     pub const MEDIA: &str = "media";
     /// The `page` message: a video page (YouTube) for the site provider.
     pub const PAGE: &str = "page";
+    /// `download` accepts `magnet:` links (and `.torrent` files become
+    /// torrent downloads).
+    pub const TORRENT: &str = "torrent";
 }
 
 /// Every feature this build supports.
-pub const FEATURES: &[&str] = &[feature::MEDIA, feature::PAGE];
+pub const FEATURES: &[&str] = &[feature::MEDIA, feature::PAGE, feature::TORRENT];
 
 /// Stable error codes. The extension branches on these; `message` is for people.
 pub mod code {
@@ -174,9 +177,14 @@ impl DownloadRequest {
     /// without fragments, the referrer and page without credentials, the MIME
     /// type reduced to `type/subtype`, and empty optional fields dropped.
     pub fn validate(self) -> Result<Self, ProtocolError> {
-        let mut resource = web_url("resource_url", &self.resource_url)?;
-        // Never sent to the server; keeping it would only defeat duplicate detection.
-        resource.set_fragment(None);
+        let resource = if is_magnet(&self.resource_url) {
+            magnet_url(&self.resource_url)?
+        } else {
+            let mut resource = web_url("resource_url", &self.resource_url)?;
+            // Never sent to the server; keeping it would only defeat duplicate detection.
+            resource.set_fragment(None);
+            resource.to_string()
+        };
         let page_url = present(self.page_url)
             .map(|raw| web_url("page_url", &raw).map(without_secrets))
             .transpose()?;
@@ -186,7 +194,7 @@ impl DownloadRequest {
         let mime_type = present(self.mime_type).map(|m| mime(&m)).transpose()?;
         let file_name = present(self.file_name).map(|n| file_name(&n)).transpose()?;
         Ok(Self {
-            resource_url: resource.to_string(),
+            resource_url: resource,
             page_url: page_url.map(String::from),
             referrer: referrer.map(String::from),
             mime_type,
@@ -697,6 +705,32 @@ fn web_url(field: &'static str, raw: &str) -> Result<Url, ProtocolError> {
     Ok(url)
 }
 
+fn is_magnet(raw: &str) -> bool {
+    raw.trim()
+        .get(..7)
+        .is_some_and(|s| s.eq_ignore_ascii_case("magnet:"))
+}
+
+/// A `magnet:` link: short enough, no control characters, and naming a
+/// BitTorrent info hash. The app parses the rest.
+fn magnet_url(raw: &str) -> Result<String, ProtocolError> {
+    let invalid = |reason: &str| ProtocolError::InvalidUrl {
+        field: "resource_url",
+        reason: reason.into(),
+    };
+    if raw.len() > MAX_URL_LEN {
+        return Err(invalid(&format!("longer than {MAX_URL_LEN} bytes")));
+    }
+    if raw.chars().any(char::is_control) {
+        return Err(invalid("contains control characters"));
+    }
+    let raw = raw.trim();
+    if !raw.to_ascii_lowercase().contains("xt=urn:btih:") {
+        return Err(invalid("is a magnet link without a BitTorrent info hash"));
+    }
+    Ok(raw.to_string())
+}
+
 /// What the Fetch standard strips before using a URL as a referrer.
 fn without_secrets(mut url: Url) -> Url {
     let _ = url.set_username("");
@@ -846,6 +880,20 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(d, DownloadRequest::new("http://example.org/x"));
+    }
+
+    #[test]
+    fn magnet_links_are_accepted_as_they_are() {
+        let link = "magnet:?xt=urn:btih:c9e15763f722f23e98a29decdfae341b98d53056&dn=a%20b";
+        let d = download(json!({ "resource_url": format!(" {link} ") })).unwrap();
+        assert_eq!(d.resource_url, link);
+        for bad in ["magnet:?dn=no-hash", "magnet:?xt=urn:btih:abc\nx"] {
+            assert_eq!(
+                code_of(download(json!({ "resource_url": bad }))),
+                code::INVALID_URL,
+                "{bad}"
+            );
+        }
     }
 
     #[test]
@@ -1311,6 +1359,19 @@ mod tests {
             d.clone().validate().unwrap(),
             d,
             "fixture is already normalized"
+        );
+        let magnet = std::fs::read(dir.join("download-magnet.json")).unwrap();
+        let Request {
+            kind: RequestKind::Download(m),
+            ..
+        } = parse_request(&magnet).unwrap()
+        else {
+            panic!("not a download");
+        };
+        assert_eq!(
+            m.clone().validate().unwrap(),
+            m,
+            "a magnet link stays as sent"
         );
         let captured = std::fs::read(dir.join("download-captured.json")).unwrap();
         assert!(matches!(

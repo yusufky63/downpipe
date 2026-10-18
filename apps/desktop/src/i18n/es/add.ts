@@ -14,7 +14,7 @@ export const add: Messages["add"] = {
   },
   links: {
     label: "Enlaces",
-    hint: "Un enlace por línea, o un patrón como file[001-100].zip. Solo se admiten http y https.",
+    hint: "Un enlace por línea, o un patrón como file[001-100].zip. Se admiten enlaces http, https y magnet.",
     found: {
       one: "{count} enlace encontrado. Una descarga por enlace.",
       many: "{count} enlaces encontrados. Una descarga por enlace.",
@@ -67,7 +67,7 @@ export const add: Messages["add"] = {
   },
   errors: {
     listTooLarge: "Ese archivo es demasiado grande para una lista de enlaces.",
-    noLinks: "Pega al menos un enlace http o https.",
+    noLinks: "Pega al menos un enlace http, https o magnet.",
     forLink: "{url}: {error}",
   },
 };

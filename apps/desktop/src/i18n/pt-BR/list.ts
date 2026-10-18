@@ -61,8 +61,8 @@ export const app: Messages["app"] = {
   noEngine:
     "Esta janela é a interface do Downpipe sem o mecanismo de download. Inicie o aplicativo da área de trabalho com pnpm desktop para baixar.",
   loadFailed: "Não foi possível carregar os downloads: {error}",
-  dropHere: "Solte links ou uma lista .txt para adicioná-los",
-  dropNothing: "Solte links ou um arquivo .txt com um link por linha.",
+  dropHere: "Solte links, uma lista .txt ou um arquivo .torrent para adicioná-los",
+  dropNothing: "Solte links, um arquivo .txt com um link por linha ou um arquivo .torrent.",
   copied: {
     link: "Link copiado.",
     links: { one: "{count} link copiado.", many: "{count} links copiados.", other: "{count} links copiados." },

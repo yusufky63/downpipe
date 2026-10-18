@@ -8,6 +8,7 @@ import { canRelink } from "../lib/menu";
 import { formatBytes, formatDuration, formatSpeed, percent } from "../lib/format";
 import { engineQuality, kindName, sizeIsEstimate } from "../lib/media";
 import { canCancel, canPause, canResume, displayName, errorText, isRunning, needsNewLink, stateInfo, waitingText } from "../lib/tasks";
+import { formatRatio, ratio } from "../lib/torrent";
 import { Badge, Banner, Button, Dialog, IconButton, inputClass } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
 
@@ -173,6 +174,7 @@ export function DetailsDialog({
               </span>
             </Row>
           )}
+          {task.torrent && <TorrentRows task={task} />}
           {queueName && (
             <Row label={t("details.rows.queue")}>
               <span className="text-[13px] text-ink-secondary">{queueName}</span>
@@ -194,6 +196,42 @@ export function DetailsDialog({
         </dl>
       </div>
     </Dialog>
+  );
+}
+
+/** A torrent's hash, files, peers and uploads. */
+function TorrentRows({ task }: { task: Task }) {
+  const { t } = useI18n();
+  const torrent = task.torrent;
+  if (!torrent) return null;
+  const r = ratio(task);
+  return (
+    <>
+      {torrent.info_hash && (
+        <Row label={t("torrent.details.infoHash")}>
+          <CopyValue value={torrent.info_hash} />
+        </Row>
+      )}
+      {torrent.files > 0 && (
+        <Row label={t("torrent.details.files")}>
+          <span className="num font-mono text-[12px] text-ink-secondary">
+            {t("torrent.details.filesValue", { chosen: torrent.only_files?.length ?? torrent.files, total: torrent.files })}
+          </span>
+        </Row>
+      )}
+      {task.swarm && (
+        <Row label={t("torrent.details.peers")}>
+          <span className="num font-mono text-[12px] text-ink-secondary">
+            {t("torrent.details.peersValue", { connected: task.swarm.peers, known: task.swarm.known_peers })}
+          </span>
+        </Row>
+      )}
+      <Row label={t("torrent.details.uploaded")}>
+        <span className="num font-mono text-[12px] text-ink-secondary">
+          {t("torrent.details.uploadedValue", { size: formatBytes(torrent.uploaded), ratio: formatRatio(r ?? 0) })}
+        </span>
+      </Row>
+    </>
   );
 }
 

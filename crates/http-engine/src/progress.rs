@@ -57,6 +57,24 @@ pub struct Progress {
     pub notices: Vec<String>,
     /// Set for stream downloads once their manifest is read.
     pub media: Option<MediaProgress>,
+    /// Set for BitTorrent downloads.
+    pub torrent: Option<TorrentProgress>,
+}
+
+/// Where a BitTorrent download stands, beyond bytes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct TorrentProgress {
+    /// Peers connected right now.
+    pub peers: u32,
+    /// Peers heard of (trackers, DHT, PEX, local discovery), connected or
+    /// not.
+    pub known_peers: u32,
+    /// Bytes per second sent to peers.
+    pub upload_speed: u64,
+    /// Bytes sent to peers in all, earlier runs included.
+    pub uploaded: u64,
+    /// Still fetching the file list from peers (a magnet link).
+    pub fetching_metadata: bool,
 }
 
 /// Where a stream download stands, beyond bytes.
@@ -89,6 +107,7 @@ impl Progress {
             segments: Vec::new(),
             notices: Vec::new(),
             media: None,
+            torrent: None,
         }
     }
 

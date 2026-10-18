@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_URL_LENGTH, baseName, linkLabel, referrerFor, webUrl, withoutSecrets } from "./url";
+import { MAX_URL_LENGTH, baseName, linkLabel, magnetName, magnetUrl, referrerFor, webUrl, withoutSecrets } from "./url";
 
 describe("webUrl", () => {
   it("accepts http and https only", () => {
@@ -75,5 +75,27 @@ describe("baseName and linkLabel", () => {
     expect(linkLabel("https://example.org/files/r%C3%A9sum%C3%A9.pdf?x=1")).toBe("résumé.pdf");
     expect(linkLabel("https://example.org/")).toBe("example.org");
     expect(linkLabel("https://example.org/%E0%A4%A")).toBe("%E0%A4%A");
+  });
+});
+
+describe("magnetUrl", () => {
+  const hash = "c9e15763f722f23e98a29decdfae341b98d53056";
+  it("accepts magnet links with a v1 info hash", () => {
+    expect(magnetUrl(` magnet:?xt=urn:btih:${hash}&dn=a `)).toBe(`magnet:?xt=urn:btih:${hash}&dn=a`);
+    expect(magnetUrl("magnet:?dn=x&xt=urn:btih:ZHQVOY7XELZD5GFCTXWN7LRUDOMNKMCW")).not.toBeNull();
+  });
+
+  it("refuses everything else", () => {
+    for (const bad of ["magnet:?dn=x", `magnet:?xt=urn:btmh:1220${hash}`, `https://x.org/?xt=urn:btih:${hash}`, `magnet:?xt=urn:btih:${hash}
+`, "", null]) {
+      expect(magnetUrl(bad), String(bad)).toBeNull();
+    }
+    expect(magnetUrl(`magnet:?xt=urn:btih:${hash}&tr=${"a".repeat(MAX_URL_LENGTH)}`)).toBeNull();
+  });
+
+  it("names the torrent by its dn", () => {
+    expect(magnetName(`magnet:?xt=urn:btih:${hash}&dn=Big+Buck%20Bunny`)).toBe("Big Buck Bunny");
+    expect(magnetName(`magnet:?xt=urn:btih:${hash}`)).toBeNull();
+    expect(linkLabel(`magnet:?xt=urn:btih:${hash}&dn=Pack`)).toBe("Pack");
   });
 });

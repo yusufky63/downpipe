@@ -105,6 +105,11 @@ pub enum DownloadError {
     #[error("{0}")]
     Extractor(String),
 
+    /// A BitTorrent download failed: unreadable metadata, no peers to get
+    /// it from, a port in use, or a build without BitTorrent support.
+    #[error("{0}")]
+    Torrent(String),
+
     #[error("gave up after {attempts} attempts: {last}")]
     RetriesExhausted {
         attempts: u32,
@@ -183,6 +188,7 @@ impl DownloadError {
             Self::ToolMissing(_) => "tool_missing",
             Self::Unavailable(_) => "unavailable",
             Self::Extractor(_) => "extractor",
+            Self::Torrent(_) => "torrent",
             Self::RetriesExhausted { last, .. } => last.kind(),
         }
     }

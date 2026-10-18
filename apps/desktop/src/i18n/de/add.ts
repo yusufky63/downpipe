@@ -14,7 +14,7 @@ export const add: Messages["add"] = {
   },
   links: {
     label: "Links",
-    hint: "Ein Link pro Zeile oder ein Muster wie file[001-100].zip. Nur http und https werden unterstützt.",
+    hint: "Ein Link pro Zeile oder ein Muster wie file[001-100].zip. http-, https- und Magnet-Links werden unterstützt.",
     found: { one: "{count} Link gefunden. Ein Download pro Link.", other: "{count} Links gefunden. Ein Download pro Link." },
     fromPattern: { one: "{count} Link aus dem Muster. Ein Download pro Link.", other: "{count} Links aus dem Muster. Ein Download pro Link." },
     // German "one" is only ever 1, so that form can say "the first link" without the number.
@@ -55,7 +55,7 @@ export const add: Messages["add"] = {
   },
   errors: {
     listTooLarge: "Diese Datei ist zu groß für eine Liste von Links.",
-    noLinks: "Fügen Sie mindestens einen http- oder https-Link ein.",
+    noLinks: "Fügen Sie mindestens einen http-, https- oder Magnet-Link ein.",
     forLink: "{url}: {error}",
   },
 };
