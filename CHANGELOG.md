@@ -2,7 +2,7 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
-## Unreleased
+## 0.5.1 — 2026-10-18
 
 ### Fixed
 
