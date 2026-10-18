@@ -27,10 +27,6 @@ export const list: Messages["list"] = {
     more: "Plus",
     clear: "Effacer la sélection",
   },
-  failure: {
-    expiredLink: "Le lien a expiré : le serveur a envoyé une page web au lieu du fichier. Utilisez un nouveau lien ; la partie téléchargée est conservée.",
-    loginRequired: "Le serveur demande de vous connecter. Connectez-vous dans le navigateur, puis utilisez un nouveau lien ; la partie téléchargée est conservée.",
-  },
   menu: {
     label: "Actions du téléchargement",
     labelMany: "Actions pour {count} téléchargements",

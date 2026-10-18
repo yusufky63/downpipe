@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { t } from "../i18n/core";
+import { describeError } from "./errors";
 
 export type TaskState =
   | "queued"
@@ -422,11 +422,9 @@ export function isCommandError(err: unknown): err is CommandError {
   return typeof err === "object" && err !== null && "code" in err && "message" in err;
 }
 
+/** A rejected command in the user's language; lib/errors.ts has the details. */
 export function errorMessage(err: unknown): string {
-  if (isCommandError(err)) return err.message;
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  return t("confirm.unknownError");
+  return describeError(err).text;
 }
 
 /** False when the UI is opened in a plain browser instead of the app. */

@@ -5,7 +5,7 @@ import { EmptyState, FilterBar, Header, SelectionBar, StatusBar, Toasts, WhenDon
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ContextMenu } from "./components/ContextMenu";
 import { DetailsDialog } from "./components/DetailsDialog";
-import { DownloadList, rowSelector, type RowActions } from "./components/DownloadList";
+import { DownloadList, rowSelector, type DownloadListHandle, type RowActions } from "./components/DownloadList";
 import { DuplicateDialog, type DuplicateChoice } from "./components/DuplicateDialog";
 import { Banner } from "./components/primitives";
 import { RedownloadDialog } from "./components/RedownloadDialog";
@@ -66,12 +66,6 @@ function withLink(text: string | null, url: string): string {
   return text.split(/\s+/).includes(url) ? text : `${text.trim()}\n${url}`;
 }
 
-/** Move the keyboard focus to a row once it is drawn; focusing scrolls it into view. */
-function focusRow(id: string | null) {
-  if (id === null) return;
-  requestAnimationFrame(() => document.querySelector<HTMLElement>(rowSelector(id))?.focus());
-}
-
 let toastSeq = 0;
 
 export function App() {
@@ -100,6 +94,12 @@ export function App() {
   const [now, setNow] = useState(() => Date.now());
   const [dropping, setDropping] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<DownloadListHandle>(null);
+  /** Move the keyboard focus to a row, scrolling it into view; the list draws only the rows in view. */
+  const focusRow = (id: string | null) => {
+    if (id !== null) listRef.current?.focusRow(id);
+  };
   const native = inTauri();
   // Before any text below is made.
   const locale = useLocale(settings?.language ?? "");
@@ -552,6 +552,7 @@ export function App() {
           </div>
         )}
         <div
+          ref={scrollRef}
           className="min-h-0 flex-1 overflow-y-auto"
           // A click below the rows clears the selection, as in a file manager.
           onMouseDown={(e) => {
@@ -560,6 +561,8 @@ export function App() {
         >
           {visible.length > 0 ? (
             <DownloadList
+              ref={listRef}
+              scrollRef={scrollRef}
               tasks={visible}
               selected={selectedSet}
               actions={rowActions}

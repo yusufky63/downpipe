@@ -27,10 +27,6 @@ export const list: Messages["list"] = {
     more: "Altro",
     clear: "Cancella selezione",
   },
-  failure: {
-    expiredLink: "Il link è scaduto: il server ha inviato una pagina web invece del file. Usa un nuovo link; la parte scaricata viene conservata.",
-    loginRequired: "Il server chiede di accedere. Accedi nel browser, poi usa un nuovo link; la parte scaricata viene conservata.",
-  },
   menu: {
     label: "Azioni del download",
     labelMany: "Azioni per {count} download",

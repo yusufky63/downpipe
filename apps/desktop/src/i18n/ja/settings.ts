@@ -24,6 +24,7 @@ export const settings: Messages["settings"] = {
     connectionsHint: "上限です。Downpipe は 2 接続から始め、速くなる間だけ接続を増やします。1～32 の範囲で指定します。",
     speedLimit: "速度制限",
     speedLimitHint: "すべてのダウンロードで共有されます。空欄にすると制限なしになります。すぐに適用されます。",
+    speedLimitInvalid: "1.5 や 1,5 のように数値を入力してください。",
     noLimit: "制限なし",
     unit: "速度制限の単位",
   },

@@ -27,10 +27,6 @@ export const list = {
     clear: "Clear selection",
   },
   /** Failures a new link fixes, in place of the engine's English message. */
-  failure: {
-    expiredLink: "The link has expired: the server sent a web page instead of the file. Use a new link; the downloaded part is kept.",
-    loginRequired: "The server asks you to sign in. Sign in in your browser, then use a new link; the downloaded part is kept.",
-  },
   menu: {
     label: "Download actions",
     labelMany: "Actions for {count} downloads",

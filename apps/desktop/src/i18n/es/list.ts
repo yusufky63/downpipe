@@ -27,10 +27,6 @@ export const list: Messages["list"] = {
     more: "Más",
     clear: "Borrar selección",
   },
-  failure: {
-    expiredLink: "El enlace ha caducado: el servidor envió una página web en lugar del archivo. Usa un enlace nuevo; la parte descargada se conserva.",
-    loginRequired: "El servidor pide iniciar sesión. Inicia sesión en el navegador y luego usa un enlace nuevo; la parte descargada se conserva.",
-  },
   menu: {
     label: "Acciones de descarga",
     labelMany: "Acciones para {count} descargas",

@@ -24,6 +24,7 @@ export const settings: Messages["settings"] = {
     connectionsHint: "Límite máximo. Downpipe empieza con 2 y agrega más solo mientras ayuden. De 1 a 32.",
     speedLimit: "Límite de velocidad",
     speedLimitHint: "Compartido por todas las descargas. Déjalo vacío para no tener límite. Se aplica de inmediato.",
+    speedLimitInvalid: "Escribe un número, como 1,5 o 1.5.",
     noLimit: "Sin límite",
     unit: "Unidad del límite de velocidad",
   },

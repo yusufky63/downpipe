@@ -22,6 +22,7 @@ export const settings = {
     connectionsHint: "Upper limit. Downpipe starts with 2 and adds more only while they help. 1 to 32.",
     speedLimit: "Speed limit",
     speedLimitHint: "Shared by all downloads. Leave empty for no limit. Applies immediately.",
+    speedLimitInvalid: "Enter a number, such as 1.5 or 1,5.",
     noLimit: "No limit",
     unit: "Speed limit unit",
   },

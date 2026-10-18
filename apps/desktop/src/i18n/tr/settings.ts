@@ -24,6 +24,7 @@ export const settings: Messages["settings"] = {
     connectionsHint: "Üst sınır. Downpipe 2 ile başlar ve yalnızca yararlı oldukları sürece daha fazlasını ekler. 1 ile 32 arası.",
     speedLimit: "Hız sınırı",
     speedLimitHint: "Tüm indirmeler arasında paylaşılır. Sınır olmaması için boş bırakın. Hemen uygulanır.",
+    speedLimitInvalid: "Bir sayı girin, örneğin 1,5 ya da 1.5.",
     noLimit: "Sınır yok",
     unit: "Hız sınırı birimi",
   },

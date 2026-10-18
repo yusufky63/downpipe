@@ -5,9 +5,9 @@ import { useI18n } from "../i18n";
 import { longDate } from "../i18n/format";
 import { errorMessage, type Task } from "../lib/api";
 import { canRelink } from "../lib/menu";
-import { formatBytes, formatDuration, formatSpeed, percent } from "../lib/format";
+import { formatBytes, formatDuration, formatPercent, formatSpeed, percent } from "../lib/format";
 import { engineQuality, kindName, sizeIsEstimate } from "../lib/media";
-import { canCancel, canPause, canResume, displayName, errorText, isRunning, needsNewLink, stateInfo, waitingText } from "../lib/tasks";
+import { canCancel, canPause, canResume, displayName, errorDetail, errorText, isRunning, needsNewLink, stateInfo, waitingText } from "../lib/tasks";
 import { Badge, Banner, Button, Dialog, IconButton, inputClass } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
 
@@ -89,7 +89,7 @@ export function DetailsDialog({
                     total: formatBytes(task.total),
                   })
                 : formatBytes(task.downloaded)}
-              {pct !== null ? ` · ${pct.toFixed(1)}%` : ""}
+              {pct !== null ? ` · ${formatPercent(pct, 1)}` : ""}
             </span>
           </div>
           <SegmentBar segments={task.segments} total={task.total} downloaded={task.downloaded} height="h-3" tone={tone} />
@@ -110,7 +110,18 @@ export function DetailsDialog({
 
         {(task.state === "failed" && task.error) || waiting || task.notices.length > 0 ? (
           <div className="flex flex-col gap-2">
-            {task.state === "failed" && task.error && <Banner tone="danger">{errorText(task)}</Banner>}
+            {task.state === "failed" && task.error && (
+              <Banner tone="danger">
+                <span>{errorText(task)}</span>
+                {errorDetail(task) && (
+                  // The engine's English text, for searching the web or reporting a bug.
+                  <span className="mt-1.5 flex flex-col gap-0.5">
+                    <span className="label">{t("errors.technical")}</span>
+                    <span className="select-text break-words font-mono text-[12px] text-ink-secondary">{errorDetail(task)}</span>
+                  </span>
+                )}
+              </Banner>
+            )}
             {waiting && <Banner tone="warning">{waiting}</Banner>}
             {task.notices.map((n) => (
               <Banner key={n} tone="warning">

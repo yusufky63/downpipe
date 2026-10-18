@@ -27,10 +27,6 @@ export const list: Messages["list"] = {
     more: "Mehr",
     clear: "Auswahl aufheben",
   },
-  failure: {
-    expiredLink: "Der Link ist abgelaufen: Der Server hat statt der Datei eine Webseite geschickt. Verwenden Sie einen neuen Link; der heruntergeladene Teil bleibt erhalten.",
-    loginRequired: "Der Server verlangt eine Anmeldung. Melden Sie sich im Browser an und verwenden Sie dann einen neuen Link; der heruntergeladene Teil bleibt erhalten.",
-  },
   menu: {
     label: "Download-Aktionen",
     labelMany: "Aktionen für {count} Downloads",

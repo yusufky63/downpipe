@@ -27,10 +27,6 @@ export const list: Messages["list"] = {
     more: "Diğer",
     clear: "Seçimi temizle",
   },
-  failure: {
-    expiredLink: "Bağlantının süresi dolmuş: sunucu dosya yerine bir web sayfası gönderdi. Yeni bir bağlantı kullanın; indirilen kısım korunur.",
-    loginRequired: "Sunucu oturum açmanızı istiyor. Tarayıcıda oturum açın, ardından yeni bir bağlantı kullanın; indirilen kısım korunur.",
-  },
   menu: {
     label: "İndirme eylemleri",
     labelMany: "{count} indirme için eylemler",
