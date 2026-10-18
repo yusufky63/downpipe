@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -69,6 +70,27 @@ impl RateLimiter {
     }
 }
 
+/// The engine's limit plus, optionally, one of the download's own: every
+/// byte has to pass both.
+#[derive(Debug, Clone)]
+pub(crate) struct Limits {
+    global: Arc<RateLimiter>,
+    own: Option<Arc<RateLimiter>>,
+}
+
+impl Limits {
+    pub(crate) fn new(global: Arc<RateLimiter>, own: Option<Arc<RateLimiter>>) -> Self {
+        Self { global, own }
+    }
+
+    pub(crate) async fn acquire(&self, bytes: usize) {
+        self.global.acquire(bytes).await;
+        if let Some(own) = &self.own {
+            own.acquire(bytes).await;
+        }
+    }
+}
+
 /// Parse `500K`, `2M`, `1.5MB`, `800kb`, `1048576` into bytes per second.
 pub fn parse_rate(input: &str) -> Option<u64> {
     let s = input.trim().to_ascii_lowercase();
@@ -129,6 +151,20 @@ mod tests {
             limiter.acquire(20 * 1024).await;
         }
         // 200 KiB at 200 KiB/s: about a second.
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(850), "{elapsed:?}");
+    }
+
+    #[tokio::test]
+    async fn the_tighter_of_two_limits_wins() {
+        let limits = Limits::new(
+            Arc::new(RateLimiter::unlimited()),
+            Some(Arc::new(RateLimiter::new(200 * 1024))),
+        );
+        let start = Instant::now();
+        for _ in 0..10 {
+            limits.acquire(20 * 1024).await;
+        }
         let elapsed = start.elapsed();
         assert!(elapsed >= Duration::from_millis(850), "{elapsed:?}");
     }

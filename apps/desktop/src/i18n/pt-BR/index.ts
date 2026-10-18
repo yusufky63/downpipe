@@ -9,5 +9,6 @@ import { dialogs } from "./dialogs";
 import { app, list } from "./list";
 import { media } from "./media";
 import { settings } from "./settings";
+import { sites } from "./sites";
 
-export const ptBR: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, media, confirm };
+export const ptBR: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, sites, media, confirm };

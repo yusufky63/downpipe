@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "Colas",
     categories: "Categorías",
     network: "Red",
+    sites: "Sitios",
     media: "Multimedia",
     schedule: "Programación",
     app: "Aplicación",

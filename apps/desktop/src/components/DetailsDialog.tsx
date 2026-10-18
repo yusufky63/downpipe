@@ -178,6 +178,11 @@ export function DetailsDialog({
               <span className="text-[13px] text-ink-secondary">{queueName}</span>
             </Row>
           )}
+          {task.site_rule && (
+            <Row label={t("details.rows.siteRule")}>
+              <span className="font-mono text-[12px] break-all text-ink-secondary">{task.site_rule}</span>
+            </Row>
+          )}
           {task.checksum && (
             <Row label={t("details.rows.checksum")}>
               <CopyValue value={task.checksum} />

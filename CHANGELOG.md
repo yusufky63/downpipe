@@ -6,6 +6,12 @@ All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
 The download engine handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names.
 
+### New
+
+- **Site rules** (**Settings → Sites**). Host patterns, `example.com` for one host or `*.example.com` for a domain and everything under it, each with optional connections, retries, speed limit (shared by the site's downloads), user agent, referer, proxy or no proxy, folder and queue. The most specific matching rule applies, whatever the order: when a download is added (folder, queue) and every time it starts or resumes (everything else), so a rule edited while a download is paused applies to its resume. The details dialog shows which rule a download got. Video pages take the proxy and the speed limit.
+- **Test an address** on the Sites tab says which rule a link or host gets, from the same code downloads use, including rules not saved yet and matching rules that are switched off. Patterns that cannot match (a pasted link, a port, a `*` in the middle, `*.com`), duplicates, bad referers and proxies are explained under the field instead of being saved.
+- Hosts that refused extra connections this session are listed on the Sites tab with **Make it a rule**.
+
 ### Fixed
 
 - **Hosts that cap connections.** A server that refuses extra connections with `403`, `429` or `503` while the first one downloads no longer fails the download: Downpipe continues with the connections it accepts and remembers that number for the host until it quits, so the next download from it starts there.
@@ -18,6 +24,8 @@ The download engine handles what users of other download managers keep running i
 
 ### Engine
 
+- `DownloadRequest::max_retries` and `DownloadRequest::limiter` (a second speed limit), `EngineConfig::no_proxy`, `Engine::derive` (another proxy or user agent, sharing the limiter and host memory, also used when the settings change, so a proxy change no longer forgets which hosts refused connections) and `Engine::connection_limits`.
+- Catalog schema 6: `site_rule` on each download. yt-dlp gets `--proxy ""` for a rule without a proxy.
 - New error kinds `expired_link` and `login_required`; `Progress::waiting` and the snapshot's `waiting` give the reason while a download waits; `EngineConfig::offline_grace` (10 min) and `response_timeout` (60 s); `Engine::connection_limit` reports a host's remembered limit.
 - Test server: `max_conns` and `limit_status` (refuse connections beyond N), `stall_at`/`stall_times` and `hang_times` (silence mid-body or before the headers), `html`/`html_after` and `/login` (web pages instead of the file), `cd` (a raw `Content-Disposition`), `fail_from`, and `TestServer::stop`/`restart` to take the server off the network and back.
 

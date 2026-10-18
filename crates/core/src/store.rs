@@ -11,7 +11,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use crate::settings::Settings;
 use crate::task::{MediaInfo, SiteInfo, TaskRecord, TaskState};
 
-const SCHEMA_VERSION: i32 = 5;
+const SCHEMA_VERSION: i32 = 6;
 
 #[derive(Debug)]
 pub struct Store {
@@ -86,6 +86,11 @@ impl Store {
         if version < 5 {
             // Site downloads (YouTube): site, chosen formats and quality, as JSON.
             conn.execute_batch("ALTER TABLE downloads ADD COLUMN site TEXT;")?;
+            conn.pragma_update(None, "user_version", 5)?;
+        }
+        if version < 6 {
+            // The pattern of the site rule the download last started with.
+            conn.execute_batch("ALTER TABLE downloads ADD COLUMN site_rule TEXT;")?;
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         Ok(Self { conn })
@@ -96,9 +101,9 @@ impl Store {
             "INSERT INTO downloads (id, url, dir, file_name, path, state, total, downloaded,
                                     error, error_kind, checksum, max_connections,
                                     created_at, updated_at, completed_at, category, auto_dir,
-                                    queue, position, media, site)
+                                    queue, position, media, site, site_rule)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                     ?18, ?19, ?20, ?21)
+                     ?18, ?19, ?20, ?21, ?22)
              ON CONFLICT(id) DO UPDATE SET
                 url = excluded.url, dir = excluded.dir, file_name = excluded.file_name,
                 path = excluded.path, state = excluded.state, total = excluded.total,
@@ -108,7 +113,7 @@ impl Store {
                 updated_at = excluded.updated_at, completed_at = excluded.completed_at,
                 category = excluded.category, auto_dir = excluded.auto_dir,
                 queue = excluded.queue, position = excluded.position, media = excluded.media,
-                site = excluded.site",
+                site = excluded.site, site_rule = excluded.site_rule",
             params![
                 r.id,
                 r.url,
@@ -131,6 +136,7 @@ impl Store {
                 r.position,
                 media_json(r.media.as_ref()),
                 site_json(r.site.as_ref()),
+                r.site_rule,
             ],
         )?;
         Ok(())
@@ -146,7 +152,7 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT id, url, dir, file_name, path, state, total, downloaded, error, error_kind,
                     checksum, max_connections, created_at, updated_at, completed_at,
-                    category, auto_dir, queue, position, media, site
+                    category, auto_dir, queue, position, media, site, site_rule
              FROM downloads ORDER BY created_at, rowid",
         )?;
         let rows = stmt.query_map([], row_to_record)?;
@@ -209,6 +215,7 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<TaskRecord> {
         site: row
             .get::<_, Option<String>>(20)?
             .and_then(|json| serde_json::from_str(&json).ok()),
+        site_rule: row.get(21)?,
     })
 }
 
@@ -256,6 +263,7 @@ mod tests {
             position: created * 10,
             media: None,
             site: None,
+            site_rule: Some("*.example.org".into()),
             created_at: created,
             updated_at: created,
             completed_at: None,

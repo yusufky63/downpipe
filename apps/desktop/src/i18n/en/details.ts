@@ -41,6 +41,8 @@ export const details = {
     bestQuality: "Best quality",
     fragments: { one: "{done} of {count} fragments", other: "{done} of {count} fragments" },
     queue: "Queue",
+    /** The site rule a download got; its pattern follows. */
+    siteRule: "Site rule",
     checksum: "Checksum",
     added: "Added",
     finished: "Finished",

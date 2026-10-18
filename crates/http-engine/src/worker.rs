@@ -14,7 +14,7 @@ use url::Url;
 
 use crate::error::status_error;
 use crate::http::{self, header_str};
-use crate::ratelimit::RateLimiter;
+use crate::ratelimit::Limits;
 use crate::segments::{Assignment, SegmentId, SegmentMap};
 use crate::writer::PartFile;
 use crate::{DownloadError, blocking};
@@ -36,7 +36,7 @@ pub(crate) struct WorkerCtx {
     pub headers: HeaderMap,
     pub total: u64,
     pub etag: Option<String>,
-    pub limiter: Arc<RateLimiter>,
+    pub limiter: Limits,
     pub buffer_size: usize,
     pub stall_timeout: Duration,
     pub response_timeout: Duration,

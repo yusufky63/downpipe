@@ -41,6 +41,7 @@ export const details: Messages["details"] = {
       other: "{done} di {count} frammenti",
     },
     queue: "Coda",
+    siteRule: "Regola del sito",
     checksum: "Checksum",
     added: "Aggiunto",
     finished: "Completato",

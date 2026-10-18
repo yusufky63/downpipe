@@ -15,8 +15,8 @@ use background::{Background, WhenDone, WhenDoneView};
 use downpipe_core::providers::ToolsStatus;
 use downpipe_core::providers::install::Tool;
 use downpipe_core::{
-    AddOptions, ConfirmOptions, CoreError, Manager, MediaChoices, QueueMove, Settings, SiteChoices,
-    TaskSnapshot, TaskState,
+    AddOptions, ConfirmOptions, CoreError, Manager, MediaChoices, QueueMove, RefusedHost,
+    RuleProblem, RuleTest, Settings, SiteChoices, SiteRule, TaskSnapshot, TaskState, rules,
 };
 use downpipe_native_host::ipc::Endpoint;
 use downpipe_native_host::manifest::{self, Layout, Stale, Status};
@@ -130,6 +130,31 @@ async fn update_settings(
         let _ = tauri::async_runtime::spawn_blocking(register_browser_host).await;
     }
     Ok(saved)
+}
+
+#[derive(Debug, Serialize)]
+struct SiteRulesCheck {
+    problems: Vec<RuleProblem>,
+    /// Present when an address was given.
+    test: Option<RuleTest>,
+}
+
+/// The settings dialog's draft rules, before they are saved: what is wrong
+/// with them, and which one `address` would get. The same code decides at
+/// download time, so the answer cannot differ from what happens.
+#[tauri::command]
+fn check_site_rules(rules: Vec<SiteRule>, address: Option<String>) -> SiteRulesCheck {
+    SiteRulesCheck {
+        problems: rules::problems(&rules),
+        test: address
+            .filter(|a| !a.trim().is_empty())
+            .map(|a| rules::test_address(&rules, &a)),
+    }
+}
+
+#[tauri::command]
+fn refused_hosts(manager: State<'_, Manager>) -> Vec<RefusedHost> {
+    manager.refused_hosts()
 }
 
 /// Name, folder and queue for a download the browser sent, then start it
@@ -702,6 +727,8 @@ fn main() {
             clear_finished,
             get_settings,
             update_settings,
+            check_site_rules,
+            refused_hosts,
             browser_bridge_status,
             register_browser_bridge,
             pick_folder,

@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "Warteschlangen",
     categories: "Kategorien",
     network: "Netzwerk",
+    sites: "Websites",
     media: "Medien",
     schedule: "Zeitplan",
     app: "App",

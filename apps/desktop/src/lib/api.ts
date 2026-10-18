@@ -75,6 +75,8 @@ export interface Task {
   media: MediaInfo | null;
   /** Set when the link is a video page (YouTube) downloaded with yt-dlp. */
   site: SiteInfo | null;
+  /** Pattern of the site rule it was added or last started with. */
+  site_rule: string | null;
   /** Stream downloads while they run: fragments done and in all. */
   fragments: { done: number; total: number } | null;
   eta_secs: number | null;
@@ -227,6 +229,73 @@ export interface Settings {
   yt_dlp_path: string;
   /** Deno for yt-dlp. Empty: the tools folder, then PATH, then Node 22+. */
   deno_path: string;
+  /** Per-site overrides; the most specific matching pattern applies. */
+  site_rules: SiteRule[];
+}
+
+export type RuleProxy = "inherit" | "direct" | "custom";
+
+/** downpipe_core::SiteRule. Empty strings and nulls keep the global setting. */
+export interface SiteRule {
+  /** Empty for a new rule; the app makes one. */
+  id: string;
+  /** `example.com` (that host) or `*.example.com` (it and every host under it). */
+  pattern: string;
+  enabled: boolean;
+  max_connections: number | null;
+  user_agent: string;
+  referer: string;
+  proxy: RuleProxy;
+  /** The proxy when `proxy` is "custom". */
+  proxy_url: string;
+  /** Bytes per second, shared by the downloads the rule applies to. */
+  speed_limit: number | null;
+  max_retries: number | null;
+  /** New downloads; relative to the download folder unless absolute. */
+  download_dir: string;
+  /** Queue id for new downloads. */
+  queue: string;
+}
+
+/** Stable codes from downpipe_core::rules, translated in the settings dialog. */
+export type RuleProblemCode =
+  | "pattern_empty"
+  | "pattern_url"
+  | "pattern_wildcard"
+  | "pattern_too_broad"
+  | "pattern_port"
+  | "pattern_invalid"
+  | "pattern_duplicate"
+  | "user_agent_invalid"
+  | "referer_invalid"
+  | "proxy_missing"
+  | "proxy_invalid";
+
+export interface RuleProblem {
+  /** The rule's id. */
+  id: string;
+  field: "pattern" | "user_agent" | "referer" | "proxy_url";
+  code: RuleProblemCode;
+}
+
+export interface RuleTest {
+  /** Null when the text is not an address. */
+  host: string | null;
+  /** Id of the rule that applies. */
+  rule: string | null;
+  /** Ids of rules that match but are switched off. */
+  disabled: string[];
+}
+
+export interface SiteRulesCheck {
+  problems: RuleProblem[];
+  test: RuleTest | null;
+}
+
+/** A host that refused extra connections this session, not yet held by a rule. */
+export interface RefusedHost {
+  host: string;
+  connections: number;
 }
 
 export const MAIN_QUEUE = "main";
@@ -340,6 +409,10 @@ export const api = {
   clearFinished: () => invoke<null>("clear_finished"),
   settings: () => invoke<Settings>("get_settings"),
   updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),
+  /** Checks unsaved rules and tests an address against them, with the download code itself. */
+  checkSiteRules: (rules: SiteRule[], address: string | null) =>
+    invoke<SiteRulesCheck>("check_site_rules", { rules, address }),
+  refusedHosts: () => invoke<RefusedHost[]>("refused_hosts"),
   bridgeStatus: () => invoke<BridgeRegistration>("browser_bridge_status"),
   registerBridge: () => invoke<BridgeRegistration>("register_browser_bridge"),
   pickFolder: (initial: string | null) => invoke<string | null>("pick_folder", { initial }),

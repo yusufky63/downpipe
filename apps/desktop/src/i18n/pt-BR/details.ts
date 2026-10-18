@@ -38,6 +38,7 @@ export const details: Messages["details"] = {
     bestQuality: "Melhor qualidade",
     fragments: { one: "{done} de {count} fragmento", many: "{done} de {count} fragmentos", other: "{done} de {count} fragmentos" },
     queue: "Fila",
+    siteRule: "Regra do site",
     checksum: "Soma de verificação",
     added: "Adicionado",
     finished: "Concluído",

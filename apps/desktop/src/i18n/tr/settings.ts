@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "Kuyruklar",
     categories: "Kategoriler",
     network: "Ağ",
+    sites: "Siteler",
     media: "Medya",
     schedule: "Zamanlama",
     app: "Uygulama",

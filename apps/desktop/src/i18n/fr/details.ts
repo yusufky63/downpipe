@@ -41,6 +41,7 @@ export const details: Messages["details"] = {
       other: "{done} sur {count} fragments",
     },
     queue: "File d'attente",
+    siteRule: "Règle du site",
     checksum: "Somme de contrôle",
     added: "Ajouté",
     finished: "Terminé",

@@ -37,6 +37,7 @@ export const details: Messages["details"] = {
     bestQuality: "最佳画质",
     fragments: { other: "{done} / {count} 个分片" },
     queue: "队列",
+    siteRule: "站点规则",
     checksum: "校验和",
     added: "添加时间",
     finished: "完成时间",
