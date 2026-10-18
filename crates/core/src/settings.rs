@@ -65,6 +65,68 @@ pub struct Settings {
     /// time. The desktop app applies it; the core still holds a browser's
     /// duplicate for confirmation, so the answer is given in one place.
     pub duplicate_answer: String,
+    /// Remote control from a phone or another computer (off by default).
+    pub remote: RemoteSettings,
+}
+
+/// Port the remote control listens on unless the user picks another.
+pub const DEFAULT_REMOTE_PORT: u16 = 9420;
+
+/// The optional remote control: an HTTP API and a small web page served by
+/// the desktop app (`downpipe-remote`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemoteSettings {
+    pub enabled: bool,
+    /// IP address to listen on: `127.0.0.1` (this computer only) unless the
+    /// user explicitly picks a network address such as `0.0.0.0`.
+    pub bind: String,
+    pub port: u16,
+    /// SHA-256 of the access token, lower-case hex. The token itself is
+    /// shown once when it is made and never stored, so neither the catalog
+    /// nor the settings the UI reads can give it away.
+    pub token_hash: String,
+}
+
+impl Default for RemoteSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: "127.0.0.1".into(),
+            port: DEFAULT_REMOTE_PORT,
+            token_hash: String::new(),
+        }
+    }
+}
+
+impl RemoteSettings {
+    fn normalized(mut self) -> Self {
+        let bind = self.bind.trim();
+        self.bind = match bind.parse::<std::net::IpAddr>() {
+            Ok(ip) => ip.to_string(),
+            Err(_) => Self::default().bind,
+        };
+        // Ports below 1024 need administrator rights on some systems.
+        if self.port < 1024 {
+            self.port = DEFAULT_REMOTE_PORT;
+        }
+        self.token_hash = self.token_hash.trim().to_ascii_lowercase();
+        if self.token_hash.len() != 64 || !self.token_hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            self.token_hash.clear();
+        }
+        // Without a token nobody could sign in, so it cannot be on.
+        if self.token_hash.is_empty() {
+            self.enabled = false;
+        }
+        self
+    }
+
+    /// Listens on an address other machines can reach.
+    pub fn is_network(&self) -> bool {
+        self.bind
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| !ip.is_loopback())
+    }
 }
 
 /// The values of [`Settings::duplicate_answer`]: ask, a numbered copy, the
@@ -160,6 +222,7 @@ impl Default for Settings {
             deno_path: String::new(),
             site_rules: Vec::new(),
             duplicate_answer: "ask".into(),
+            remote: RemoteSettings::default(),
         }
     }
 }
@@ -193,6 +256,7 @@ impl Settings {
             self.duplicate_answer = "ask".into();
         }
 
+        self.remote = std::mem::take(&mut self.remote).normalized();
         self.categories = self
             .categories
             .into_iter()
@@ -606,6 +670,43 @@ mod tests {
             exts.windows(2).all(|w| w[0] < w[1]),
             "sorted, no duplicates"
         );
+    }
+
+    #[test]
+    fn remote_control_needs_a_token_and_a_valid_address() {
+        let pick = |remote: RemoteSettings| {
+            Settings {
+                remote,
+                ..Settings::default()
+            }
+            .normalized()
+            .remote
+        };
+        let off = Settings::default().remote;
+        assert!(!off.enabled && off.bind == "127.0.0.1" && !off.is_network());
+
+        let hash = "AB".repeat(32);
+        let on = pick(RemoteSettings {
+            enabled: true,
+            bind: " 0.0.0.0 ".into(),
+            port: 80,
+            token_hash: hash.clone(),
+        });
+        assert!(on.enabled && on.is_network());
+        assert_eq!(on.bind, "0.0.0.0");
+        assert_eq!(on.port, DEFAULT_REMOTE_PORT, "privileged ports fall back");
+        assert_eq!(on.token_hash, hash.to_ascii_lowercase());
+
+        let bad = pick(RemoteSettings {
+            enabled: true,
+            bind: "my-computer".into(),
+            port: 50000,
+            token_hash: "not a hash".into(),
+        });
+        assert_eq!(bad.bind, "127.0.0.1", "only IP addresses");
+        assert!(bad.token_hash.is_empty());
+        assert!(!bad.enabled, "no token, no remote control");
+        assert_eq!(bad.port, 50000);
     }
 
     #[test]

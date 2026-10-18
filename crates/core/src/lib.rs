@@ -11,8 +11,8 @@ mod task;
 pub use manager::{CoreError, Manager, ManagerEvent};
 pub use rules::{RefusedHost, RuleProblem, RuleProxy, RuleTest, SiteRule};
 pub use settings::{
-    Category, DUPLICATE_ANSWERS, MAIN_QUEUE, Queue, Schedule, Settings, default_categories,
-    default_download_dir, default_queues, extension_of,
+    Category, DEFAULT_REMOTE_PORT, DUPLICATE_ANSWERS, MAIN_QUEUE, Queue, RemoteSettings, Schedule,
+    Settings, default_categories, default_download_dir, default_queues, extension_of,
 };
 pub use store::Store;
 pub use task::{

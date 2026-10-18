@@ -16,6 +16,7 @@ tauri-build = { version = "2.7.3", features = [] }
 [dependencies]
 downpipe-core.workspace = true
 downpipe-native-host.workspace = true
+downpipe-remote.workspace = true
 parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -237,6 +237,38 @@ export interface Settings {
   site_rules: SiteRule[];
   /** The remembered answer to "this link is already in the list"; "ask" asks every time. */
   duplicate_answer: DuplicateAnswer;
+  /** The remote control; changed only with `api.setRemote` and `api.newRemoteToken`. */
+  remote: RemoteSettings;
+}
+
+export interface RemoteSettings {
+  enabled: boolean;
+  /** IP address it listens on: "127.0.0.1" unless the user picks a network address. */
+  bind: string;
+  port: number;
+  /** SHA-256 of the access token; the token itself is never stored. */
+  token_hash: string;
+}
+
+/** The remote control as it runs now (src-tauri/src/remote.rs). */
+export interface RemoteStatus {
+  enabled: boolean;
+  bind: string;
+  port: number;
+  has_token: boolean;
+  running: boolean;
+  /** Why it is not running although switched on. */
+  error: "port_in_use" | "bind_failed" | null;
+  /** The page's address, for the browser and the QR code. */
+  url: string | null;
+  /** This computer's address on the local network. */
+  lan_address: string | null;
+}
+
+export interface RemoteUpdate {
+  status: RemoteStatus;
+  /** A token just made: the only time it is ever shown. */
+  token: string | null;
 }
 
 export type RuleProxy = "inherit" | "direct" | "custom";
@@ -423,11 +455,17 @@ export const api = {
   resumeAll: () => invoke<null>("resume_all"),
   clearFinished: () => invoke<null>("clear_finished"),
   settings: () => invoke<Settings>("get_settings"),
-  updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),
+  /** The remote control part is ignored; it has commands of its own. */
+  updateSettings: (settings: Omit<Settings, "remote">) => invoke<Settings>("update_settings", { settings }),
   /** Checks unsaved rules and tests an address against them, with the download code itself. */
   checkSiteRules: (rules: SiteRule[], address: string | null) =>
     invoke<SiteRulesCheck>("check_site_rules", { rules, address }),
   refusedHosts: () => invoke<RefusedHost[]>("refused_hosts"),
+  remoteStatus: () => invoke<RemoteStatus>("remote_status"),
+  /** Switching it on the first time makes the token, returned once. */
+  setRemote: (enabled: boolean, bind: string, port: number) => invoke<RemoteUpdate>("set_remote", { enabled, bind, port }),
+  /** A new token; the old one stops working at once. */
+  newRemoteToken: () => invoke<RemoteUpdate>("new_remote_token"),
   bridgeStatus: () => invoke<BridgeRegistration>("browser_bridge_status"),
   registerBridge: () => invoke<BridgeRegistration>("register_browser_bridge"),
   pickFolder: (initial: string | null) => invoke<string | null>("pick_folder", { initial }),

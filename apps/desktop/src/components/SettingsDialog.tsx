@@ -21,11 +21,12 @@ import { categoryLabel, storedCategoryName } from "../lib/categories";
 import { installButtonLabel, toolRows, toolsToInstall } from "../lib/tools";
 import { FolderInput } from "./FolderInput";
 import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } from "./primitives";
+import { RemoteSettingsPanel } from "./RemoteSettings";
 import { SiteRules } from "./SiteRules";
 
-export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "sites" | "media" | "schedule" | "app";
+export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "sites" | "media" | "schedule" | "app" | "remote";
 
-const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "network", "sites", "media", "schedule", "app"];
+const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "network", "sites", "media", "schedule", "app", "remote"];
 
 /** Short day names, Monday first like `schedule.days`; 1 January 2024 was a Monday. */
 function weekdays(locale: string): string[] {
@@ -225,7 +226,7 @@ export function SettingsDialog({
               tab === id ? "border-primary text-ink" : "border-transparent text-ink-secondary hover:text-ink"
             }`}
           >
-            {t(`settings.tabs.${id}`)}
+            {id === "remote" ? t("remote.settings.tab") : t(`settings.tabs.${id}`)}
           </button>
         ))}
       </div>
@@ -571,6 +572,8 @@ export function SettingsDialog({
             <BrowserBridge registerHost={registerHost} onRegisterHostChange={setRegisterHost} />
           </>
         )}
+
+        {tab === "remote" && <RemoteSettingsPanel />}
       </div>
     </Dialog>
   );
