@@ -419,7 +419,8 @@ export function AddDialog({
                 setHeaders(e.target.value);
                 setHeadersError(null);
               }}
-              rows={2}
+              // Grows with what cURL filled in, up to a size that keeps the dialog usable.
+              rows={Math.min(6, Math.max(2, headers.split("\n").length))}
               spellCheck={false}
               autoComplete="off"
               placeholder="Referer: https://example.org/page"
