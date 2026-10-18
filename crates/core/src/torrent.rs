@@ -184,9 +184,12 @@ mod imp {
             };
             let out = meta.output_dir(dir);
             for (i, file) in meta.files.iter().enumerate() {
-                if only.is_none_or(|o| o.contains(&i)) || file.padding {
-                    let _ =
-                        std::fs::remove_file(out.join(downpipe_torrent::local_path(&file.path)));
+                let path = out.join(downpipe_torrent::local_path(&file.path));
+                // librqbit creates files it was not asked for, empty, when a
+                // piece it needs ends there; those go too, other ones stay.
+                let chosen = only.is_none_or(|o| o.contains(&i)) || file.padding;
+                if chosen || std::fs::metadata(&path).is_ok_and(|m| m.len() == 0) {
+                    let _ = std::fs::remove_file(path);
                 }
             }
             if out != dir {

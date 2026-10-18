@@ -18,6 +18,9 @@ export const torrent = {
   stopSeeding: "Stop seeding",
   add: {
     openFile: "Open a .torrent file",
+    nameHint: "A torrent keeps the names of its files.",
+    connectionsHint: "Not for torrents",
+    checksumHint: "A torrent checks every piece against the hashes it carries.",
     tooLarge: "That file is too large to be a torrent.",
     /** A single magnet link in the Links field. */
     magnet: "A torrent. You choose its files next.",

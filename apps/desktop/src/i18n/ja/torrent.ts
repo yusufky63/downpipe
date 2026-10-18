@@ -13,6 +13,9 @@ export const torrent: Messages["torrent"] = {
   stopSeeding: "シードを停止",
   add: {
     openFile: ".torrent ファイルを開く",
+    nameHint: "トレントは自身のファイル名をそのまま使います。",
+    connectionsHint: "トレントには不要",
+    checksumHint: "トレントは各ピースを自身のハッシュで検証します。",
     tooLarge: "このファイルはトレントにしては大きすぎます。",
     magnet: "トレントです。次の画面でファイルを選びます。",
     some: { other: "うち {count} 件はトレントです。次の画面でファイルを選びます。" },

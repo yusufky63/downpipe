@@ -13,6 +13,9 @@ export const torrent: Messages["torrent"] = {
   stopSeeding: "Paylaşmayı durdur",
   add: {
     openFile: "Bir .torrent dosyası aç",
+    nameHint: "Bir torrent dosyalarının adlarını korur.",
+    connectionsHint: "Torrentler için değil",
+    checksumHint: "Bir torrent her parçayı içindeki özetlerle denetler.",
     tooLarge: "Bu dosya bir torrent olamayacak kadar büyük.",
     magnet: "Bir torrent. Dosyalarını bir sonraki adımda seçersiniz.",
     some: {

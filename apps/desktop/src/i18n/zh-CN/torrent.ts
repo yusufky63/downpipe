@@ -13,6 +13,9 @@ export const torrent: Messages["torrent"] = {
   stopSeeding: "停止做种",
   add: {
     openFile: "打开 .torrent 文件",
+    nameHint: "种子会保留其文件的名称。",
+    connectionsHint: "不适用于种子",
+    checksumHint: "种子会用自带的哈希校验每个分块。",
     tooLarge: "这个文件太大，不可能是种子文件。",
     magnet: "一个种子。接下来选择它的文件。",
     some: { other: "其中 {count} 个是种子：接下来选择它们的文件。" },

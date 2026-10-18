@@ -13,6 +13,9 @@ export const torrent: Messages["torrent"] = {
   stopSeeding: "Остановить раздачу",
   add: {
     openFile: "Открыть файл .torrent",
+    nameHint: "Торрент сохраняет имена своих файлов.",
+    connectionsHint: "Не для торрентов",
+    checksumHint: "Торрент проверяет каждую часть по хешам, которые в нём есть.",
     tooLarge: "Этот файл слишком велик для торрента.",
     magnet: "Торрент. Его файлы вы выберете на следующем шаге.",
     some: {

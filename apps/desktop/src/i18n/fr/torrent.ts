@@ -13,6 +13,9 @@ export const torrent: Messages["torrent"] = {
   stopSeeding: "Arrêter le partage",
   add: {
     openFile: "Ouvrir un fichier .torrent",
+    nameHint: "Un torrent garde les noms de ses fichiers.",
+    connectionsHint: "Pas pour les torrents",
+    checksumHint: "Un torrent vérifie chaque morceau avec les empreintes qu'il contient.",
     tooLarge: "Ce fichier est trop volumineux pour être un torrent.",
     magnet: "Un torrent. Vous choisissez ses fichiers ensuite.",
     some: {

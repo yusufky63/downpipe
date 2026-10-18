@@ -143,7 +143,7 @@ export function ProgressWindow({ id }: { id: string }) {
             {task && canPause(task) && (
               <Button size="sm" disabled={busy} onClick={() => act(() => api.pause(task.id))}>
                 <Pause size={14} strokeWidth={1.75} />
-                {t("common.pause")}
+                {task.swarm?.seeding ? t("torrent.stopSeeding") : t("common.pause")}
               </Button>
             )}
             {task && canResume(task) && (

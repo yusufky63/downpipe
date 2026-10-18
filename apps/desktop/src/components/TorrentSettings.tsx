@@ -45,26 +45,31 @@ export function TorrentSettingsPanel({ draft, onChange }: { draft: TorrentDraft;
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <Field label={t("torrent.settings.uploadLimit")} hint={t("torrent.settings.uploadLimitHint")}>
           {(id) => (
+            // Widths on wrappers: the shared input class sets its own.
             <div className="flex gap-2">
-              <input
-                id={id}
-                type="number"
-                min={0}
-                step="any"
-                value={draft.upload}
-                placeholder={t("settings.downloads.noLimit")}
-                onChange={(e) => set({ upload: e.target.value })}
-                className={number}
-              />
-              <select
-                aria-label={t("settings.downloads.unit")}
-                value={draft.uploadUnit}
-                onChange={(e) => set({ uploadUnit: e.target.value as RateUnit })}
-                className={`${inputClass} h-9 w-28 shrink-0 font-mono`}
-              >
-                <option value="KiB">KiB/s</option>
-                <option value="MiB">MiB/s</option>
-              </select>
+              <div className="min-w-0 flex-1">
+                <input
+                  id={id}
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={draft.upload}
+                  placeholder={t("settings.downloads.noLimit")}
+                  onChange={(e) => set({ upload: e.target.value })}
+                  className={number}
+                />
+              </div>
+              <div className="w-28 shrink-0">
+                <select
+                  aria-label={t("settings.downloads.unit")}
+                  value={draft.uploadUnit}
+                  onChange={(e) => set({ uploadUnit: e.target.value as RateUnit })}
+                  className={`${inputClass} h-9 font-mono`}
+                >
+                  <option value="KiB">KiB/s</option>
+                  <option value="MiB">MiB/s</option>
+                </select>
+              </div>
             </div>
           )}
         </Field>

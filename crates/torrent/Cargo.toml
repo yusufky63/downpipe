@@ -31,9 +31,14 @@ url.workspace = true
 testing = ["dep:tempfile"]
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 downpipe-torrent = { path = ".", features = ["testing"] }
 reqwest.workspace = true
 tempfile.workspace = true
+
+[[example]]
+name = "seed"
+required-features = ["testing"]
 
 [lints]
 workspace = true

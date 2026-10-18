@@ -328,7 +328,7 @@ function PrimaryAction({ task, actions }: { task: Task; actions: DetailActions }
     return (
       <Button size="sm" onClick={() => actions.onPause(task.id)}>
         <Pause size={16} strokeWidth={1.75} />
-        {t("common.pause")}
+        {task.swarm?.seeding ? t("torrent.stopSeeding") : t("common.pause")}
       </Button>
     );
   }

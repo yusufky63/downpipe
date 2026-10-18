@@ -291,13 +291,21 @@ export function AddDialog({
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-[1fr_120px]">
           <Field
             label={t("add.fileName.label")}
-            hint={video ? t("add.fileName.videoHint") : single ? t("add.fileName.hint") : t("add.fileName.singleOnly")}
+            hint={
+              firstTorrent
+                ? t("torrent.add.nameHint")
+                : video
+                  ? t("add.fileName.videoHint")
+                  : single
+                    ? t("add.fileName.hint")
+                    : t("add.fileName.singleOnly")
+            }
           >
             {(id) => (
               <input
                 id={id}
                 value={fileName}
-                disabled={!single}
+                disabled={!single || firstTorrent}
                 onChange={(e) => setFileName(e.target.value)}
                 spellCheck={false}
                 placeholder={t("add.fileName.placeholder")}
@@ -305,7 +313,10 @@ export function AddDialog({
               />
             )}
           </Field>
-          <Field label={t("add.connections.label")} hint={video ? t("add.connections.videoHint") : t("add.connections.hint")}>
+          <Field
+            label={t("add.connections.label")}
+            hint={firstTorrent ? t("torrent.add.connectionsHint") : video ? t("add.connections.videoHint") : t("add.connections.hint")}
+          >
             {(id) => (
               <input
                 id={id}
@@ -337,7 +348,7 @@ export function AddDialog({
 
         <Field
           label={t("add.checksum.label")}
-          hint={video ? t("add.checksum.videoHint") : t("add.checksum.hint")}
+          hint={firstTorrent ? t("torrent.add.checksumHint") : video ? t("add.checksum.videoHint") : t("add.checksum.hint")}
         >
           {(id) => (
             <input
