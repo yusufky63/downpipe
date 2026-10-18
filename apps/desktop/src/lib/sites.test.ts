@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 // crates/providers/src/pages.rs reads the same cases, so the Add dialog asks
 // for a quality on exactly the links the app downloads with yt-dlp.
+import listCases from "../../../../crates/providers/tests/fixtures/lists.json";
 import cases from "../../../../crates/providers/tests/fixtures/pages.json";
-import { sitePage } from "./sites";
+import { siteList, sitePage } from "./sites";
+
+describe("siteList", () => {
+  it.each(listCases)("$url", ({ url, kind, canonical }) => {
+    const list = siteList(url);
+    expect(list?.kind ?? null).toBe(kind);
+    expect(list?.url ?? null).toBe(canonical);
+  });
+});
 
 describe("sitePage", () => {
   it.each(cases)("$url", ({ url, site, canonical }) => {

@@ -18,17 +18,23 @@ import { BROWSER_NAMES, bridgeStateInfo, canRegister } from "../lib/bridge";
 import { fromRuleDraft, toRuleDraft, type RuleDraft } from "../lib/siteRules";
 import { bytesToRate, decimalField, parseDecimal, rateToBytes, type RateUnit } from "../lib/format";
 import { categoryLabel, storedCategoryName } from "../lib/categories";
+import { DEFAULT_TEMPLATE, PLACEHOLDERS, namesAlike, renderTemplate, type NameFields } from "../lib/naming";
+import { hasArchiveTypes } from "../lib/post";
 import { installButtonLabel, toolRows, toolsToInstall } from "../lib/tools";
 import { fromTorrentDraft, torrentDraft } from "../lib/torrent";
+import { BackupSection, IdmImport } from "./BackupSection";
 import { FolderInput } from "./FolderInput";
 import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } from "./primitives";
 import { RemoteSettingsPanel } from "./RemoteSettings";
 import { SiteRules } from "./SiteRules";
 import { TorrentSettingsPanel } from "./TorrentSettings";
 
-export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "sites" | "media" | "torrent" | "schedule" | "app" | "remote";
+export type SettingsTab = "downloads" | "queues" | "categories" | "post" | "network" | "sites" | "media" | "torrent" | "schedule" | "app" | "remote";
 
-const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "network", "sites", "media", "torrent", "schedule", "app", "remote"];
+const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "post", "network", "sites", "media", "torrent", "schedule", "app", "remote"];
+
+/** Defender is the default scanner only there. */
+const WINDOWS = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
 
 /** Short day names, Monday first like `schedule.days`; 1 January 2024 was a Monday. */
 function weekdays(locale: string): string[] {
@@ -52,6 +58,7 @@ interface CategoryDraft {
   name: string;
   extensions: string;
   folder: string;
+  extract: boolean;
 }
 
 /** Queues as edited: the limit stays a string until saved. */
@@ -60,6 +67,7 @@ interface QueueDraft {
   id: string;
   name: string;
   max: string;
+  command: string;
 }
 
 let draftKey = 0;
@@ -69,20 +77,25 @@ const toDraft = (c: Category): CategoryDraft => ({
   name: categoryLabel(c.name),
   extensions: c.extensions.join(" "),
   folder: c.folder,
+  extract: c.extract,
 });
-const toQueueDraft = (q: Queue): QueueDraft => ({ key: ++draftKey, id: q.id, name: q.name, max: String(q.max_concurrent) });
+const toQueueDraft = (q: Queue): QueueDraft => ({ key: ++draftKey, id: q.id, name: q.name, max: String(q.max_concurrent), command: q.command });
 const fromQueueDraft = (d: QueueDraft): Queue => ({
   id: d.id,
   name: d.name.trim(),
   max_concurrent: Math.min(16, Math.max(1, Number.parseInt(d.max, 10) || 1)),
+  command: d.command.trim(),
 });
-const fromDraft = (d: CategoryDraft): Category => ({
-  name: storedCategoryName(d.stored, d.name),
-  extensions: d.extensions
+const splitExtensions = (text: string): string[] =>
+  text
     .split(/[\s,;]+/)
     .map((e) => e.trim().replace(/^\./, "").toLowerCase())
-    .filter(Boolean),
+    .filter(Boolean);
+const fromDraft = (d: CategoryDraft): Category => ({
+  name: storedCategoryName(d.stored, d.name),
+  extensions: splitExtensions(d.extensions),
   folder: d.folder.trim(),
+  extract: d.extract,
 });
 
 export function SettingsDialog({
@@ -90,11 +103,14 @@ export function SettingsDialog({
   initialTab = "downloads",
   onClose,
   onSaved,
+  onImported,
 }: {
   settings: Settings;
   initialTab?: SettingsTab;
   onClose: () => void;
   onSaved: (s: Settings) => void;
+  /** A backup's settings were imported; the dialog closes with this message. */
+  onImported: (message: string) => void;
 }) {
   const { t, locale } = useI18n();
   const initialRate = bytesToRate(settings.speed_limit);
@@ -120,7 +136,13 @@ export function SettingsDialog({
   const [ffmpegPath, setFfmpegPath] = useState(settings.ffmpeg_path);
   const [ytDlpPath, setYtDlpPath] = useState(settings.yt_dlp_path);
   const [denoPath, setDenoPath] = useState(settings.deno_path);
+  const [nameTemplate, setNameTemplate] = useState(settings.media_name_template);
   const [language, setLanguage] = useState(settings.language);
+  const [postCommand, setPostCommand] = useState(settings.post.command);
+  const [postTimeout, setPostTimeout] = useState(String(settings.post.timeout_secs));
+  const [scan, setScan] = useState(settings.post.scan);
+  const [scanner, setScanner] = useState(settings.post.scanner);
+  const [deleteArchive, setDeleteArchive] = useState(settings.post.delete_archive);
   const [ruleDrafts, setRuleDrafts] = useState<RuleDraft[]>(() => settings.site_rules.map(toRuleDraft));
   const [ruleAddress, setRuleAddress] = useState("");
   const [ruleCheck, setRuleCheck] = useState<SiteRulesCheck | null>(null);
@@ -181,6 +203,14 @@ export function SettingsDialog({
         ffmpeg_path: ffmpegPath.trim(),
         yt_dlp_path: ytDlpPath.trim(),
         deno_path: denoPath.trim(),
+        post: {
+          command: postCommand.trim(),
+          timeout_secs: Number.parseInt(postTimeout, 10) || settings.post.timeout_secs,
+          scan,
+          scanner: scanner.trim(),
+          delete_archive: deleteArchive,
+        },
+        media_name_template: nameTemplate.trim() || DEFAULT_TEMPLATE,
         site_rules: ruleDrafts.map(fromRuleDraft),
         duplicate_answer: duplicateAnswer,
         torrent: fromTorrentDraft(torrent, settings.torrent),
@@ -230,7 +260,13 @@ export function SettingsDialog({
               tab === id ? "border-primary text-ink" : "border-transparent text-ink-secondary hover:text-ink"
             }`}
           >
-            {id === "remote" ? t("remote.settings.tab") : id === "torrent" ? t("torrent.settings.tab") : t(`settings.tabs.${id}`)}
+            {id === "post"
+              ? t("post.settings.tab")
+              : id === "remote"
+                ? t("remote.settings.tab")
+                : id === "torrent"
+                  ? t("torrent.settings.tab")
+                  : t(`settings.tabs.${id}`)}
           </button>
         ))}
       </div>
@@ -339,6 +375,15 @@ export function SettingsDialog({
                         <Trash2 size={16} strokeWidth={1.75} />
                       </IconButton>
                     )}
+                    <input
+                      aria-label={q.name ? t("post.settings.queueCommand", { name: q.name }) : t("post.settings.queueCommandUnnamed")}
+                      title={t("post.fields.hint")}
+                      value={q.command}
+                      placeholder={t("post.settings.queueCommandPlaceholder")}
+                      spellCheck={false}
+                      onChange={(e) => updateQueue(q.key, { command: e.target.value })}
+                      className={`${inputClass} col-span-3 h-8 font-mono text-[12px]`}
+                    />
                   </li>
                 );
               })}
@@ -347,7 +392,7 @@ export function SettingsDialog({
               <Button
                 size="sm"
                 onClick={() =>
-                  setQueues((list) => [...list, { key: ++draftKey, id: "", name: t("settings.queues.newName", { number: list.length + 1 }), max: "1" }])
+                  setQueues((list) => [...list, { key: ++draftKey, id: "", name: t("settings.queues.newName", { number: list.length + 1 }), max: "1", command: "" }])
                 }
               >
                 <Plus size={16} strokeWidth={1.75} />
@@ -398,15 +443,88 @@ export function SettingsDialog({
                     onChange={(e) => updateCategory(c.key, { folder: e.target.value })}
                     className={`${inputClass} h-8 font-mono text-[12px] sm:col-span-2`}
                   />
+                  {hasArchiveTypes(splitExtensions(c.extensions)) && (
+                    <label
+                      className="flex items-center gap-1.5 text-[12px] text-ink-secondary sm:col-span-3"
+                      title={t("post.settings.categoryExtractTitle")}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={c.extract}
+                        onChange={(e) => updateCategory(c.key, { extract: e.target.checked })}
+                        className="size-3.5 accent-primary"
+                      />
+                      {t("post.settings.categoryExtract")}
+                    </label>
+                  )}
                 </li>
               ))}
             </ul>
             <div>
-              <Button size="sm" onClick={() => setCategories((list) => [...list, { key: ++draftKey, stored: "", name: "", extensions: "", folder: "" }])}>
+              <Button size="sm" onClick={() => setCategories((list) => [...list, { key: ++draftKey, stored: "", name: "", extensions: "", folder: "", extract: false }])}>
                 <Plus size={16} strokeWidth={1.75} />
                 {t("settings.categories.add")}
               </Button>
             </div>
+          </>
+        )}
+
+        {tab === "post" && (
+          <>
+            <Field label={t("post.settings.command")} hint={t("post.settings.commandHint")}>
+              {(id) => (
+                <input
+                  id={id}
+                  value={postCommand}
+                  placeholder={t("post.fields.nothing")}
+                  spellCheck={false}
+                  onChange={(e) => setPostCommand(e.target.value)}
+                  className={`${inputClass} h-9 font-mono text-[13px]`}
+                />
+              )}
+            </Field>
+            <Field label={t("post.settings.timeout")} hint={t("post.settings.timeoutHint")}>
+              {(id) => (
+                <div className="flex items-center gap-2">
+                  <div className="w-32">
+                    <NumberInput id={id} min={5} max={86400} value={postTimeout} onChange={setPostTimeout} />
+                  </div>
+                  <span className="text-[13px] text-ink-secondary">{t("post.settings.seconds")}</span>
+                </div>
+              )}
+            </Field>
+            <section className="flex flex-col gap-4 border-t border-line pt-5">
+              <Switch
+                label={t("post.settings.scan")}
+                hint={WINDOWS ? t("post.settings.scanHintWindows") : t("post.settings.scanHintOther")}
+                checked={scan}
+                onChange={setScan}
+              />
+              <div className={scan ? "" : "opacity-50"}>
+                <Field label={t("post.settings.scanner")} hint={t("post.settings.scannerHint")}>
+                  {(id) => (
+                    <input
+                      id={id}
+                      value={scanner}
+                      placeholder={WINDOWS ? t("post.settings.scannerPlaceholderWindows") : "clamscan --no-summary {path}"}
+                      spellCheck={false}
+                      onChange={(e) => setScanner(e.target.value)}
+                      className={`${inputClass} h-9 font-mono text-[13px]`}
+                    />
+                  )}
+                </Field>
+              </div>
+            </section>
+            <section className="flex flex-col gap-4 border-t border-line pt-5">
+              <h3 className="label">{t("post.settings.archives")}</h3>
+              <p className="text-[13px] text-ink-secondary">{t("post.settings.archivesHint")}</p>
+              <Switch
+                label={t("post.settings.deleteArchive")}
+                hint={t("post.settings.deleteArchiveHint")}
+                checked={deleteArchive}
+                onChange={setDeleteArchive}
+              />
+            </section>
           </>
         )}
 
@@ -473,6 +591,7 @@ export function SettingsDialog({
               onDenoPath={setDenoPath}
               denoConfigured={settings.deno_path !== ""}
             />
+            <NameTemplate value={nameTemplate} onChange={setNameTemplate} />
           </>
         )}
 
@@ -576,12 +695,74 @@ export function SettingsDialog({
               onChange={setConfirmBrowser}
             />
             <BrowserBridge registerHost={registerHost} onRegisterHostChange={setRegisterHost} />
+            <BackupSection
+              onSettingsImported={(imported, message) => {
+                // The drafts above show the old settings; saving them now
+                // would undo the import.
+                onSaved(imported);
+                onImported(message);
+                onClose();
+              }}
+            />
+            <IdmImport windows={navigator.userAgent.includes("Windows")} />
           </>
         )}
 
         {tab === "remote" && <RemoteSettingsPanel />}
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * An example for the preview: the first video on YouTube, as the seventh
+ * of a playlist of 42.
+ */
+const SAMPLE: NameFields = { title: "Me at the zoo", channel: "jawed", upload_date: "20050423", index: 7, count: 42, id: "jNQXAC9IVRw" };
+
+/** Settings, Media: how site downloads are named, with a preview. */
+function NameTemplate({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const { t } = useI18n();
+  const template = value.trim() || DEFAULT_TEMPLATE;
+  const preview = renderTemplate(template, SAMPLE) || (SAMPLE.title ?? "");
+  const insert = (name: string) => onChange(`${value}${value && !value.endsWith(" ") ? " " : ""}{${name}}`);
+  return (
+    <Field
+      label={t("settings.siteTools.template")}
+      hint={
+        <>
+          {t("settings.siteTools.templateHint")}{" "}
+          <span className="font-mono text-ink">{t("settings.siteTools.templatePreview", { name: `${preview}.mp4` })}</span>
+          {namesAlike(template) && <span className="block text-warning-fg">{t("settings.siteTools.templateSame")}</span>}
+        </>
+      }
+    >
+      {(id) => (
+        <div className="flex flex-col gap-2">
+          <input
+            id={id}
+            value={value}
+            placeholder={DEFAULT_TEMPLATE}
+            spellCheck={false}
+            onChange={(e) => onChange(e.target.value)}
+            className={`${inputClass} h-9 font-mono text-[13px]`}
+          />
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("settings.siteTools.templateInsert")}>
+            {PLACEHOLDERS.map((name) => (
+              <button
+                key={name}
+                type="button"
+                title={t(`settings.siteTools.placeholders.${name}`)}
+                onClick={() => insert(name)}
+                className="h-7 rounded-md border border-line-strong px-2 font-mono text-[12px] text-ink-secondary transition-colors duration-150 hover:bg-surface-muted hover:text-ink"
+              >
+                {`{${name}}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </Field>
   );
 }
 

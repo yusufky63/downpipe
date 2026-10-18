@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod background;
+mod backup;
 mod clipboard;
 mod confirm;
 mod grab;
@@ -18,9 +19,9 @@ use downpipe_core::feeds::Feeds;
 use downpipe_core::providers::ToolsStatus;
 use downpipe_core::providers::install::Tool;
 use downpipe_core::{
-    AddOptions, ConfirmOptions, CoreError, Manager, MediaChoices, QueueMove, RefusedHost,
-    RuleProblem, RuleTest, Settings, SiteChoices, SiteRule, TaskSnapshot, TaskState,
-    TorrentChoices, rules,
+    AddListOptions, AddListResult, AddOptions, ConfirmOptions, CoreError, ListChoices, Manager,
+    MediaChoices, PostActions, QueueMove, RefusedHost, RuleProblem, RuleTest, Settings,
+    SiteChoices, SiteRule, TaskSnapshot, TaskState, TorrentChoices, rules,
 };
 use downpipe_native_host::ipc::Endpoint;
 use downpipe_native_host::manifest::{self, Layout, Stale, Status};
@@ -268,6 +269,17 @@ fn confirm_download(
     Ok(manager.confirm(&id, options)?)
 }
 
+/// A download's own command and extraction choice, for the next time it
+/// completes.
+#[tauri::command]
+fn set_post_actions(
+    manager: State<'_, Manager>,
+    id: String,
+    actions: PostActions,
+) -> CmdResult<()> {
+    Ok(manager.set_post_actions(&id, actions)?)
+}
+
 /// The qualities and audio tracks of a stream download, read from its
 /// manifest, for the quality chooser. Downloads no media.
 #[tauri::command]
@@ -285,6 +297,19 @@ fn ffmpeg_status(manager: State<'_, Manager>) -> Option<PathBuf> {
 #[tauri::command]
 async fn inspect_site(manager: State<'_, Manager>, id: String) -> CmdResult<SiteChoices> {
     Ok(manager.inspect_site(&id).await?)
+}
+
+/// Asks yt-dlp for the videos of a playlist or channel; fetches the list
+/// pages, no video.
+#[tauri::command]
+async fn inspect_list(manager: State<'_, Manager>, url: String) -> CmdResult<ListChoices> {
+    Ok(manager.inspect_list(&url).await?)
+}
+
+/// Adds the videos chosen from a playlist or channel.
+#[tauri::command]
+fn add_list(manager: State<'_, Manager>, options: AddListOptions) -> CmdResult<AddListResult> {
+    Ok(manager.add_list(options)?)
 }
 
 /// A torrent's files, for choosing which to download. A magnet link asks
@@ -608,8 +633,16 @@ fn reveal_download(app: AppHandle, manager: State<'_, Manager>, id: String) -> C
         .get(&id)
         .ok_or_else(|| CommandError::new(GONE, "That download no longer exists"))?;
     let record = task.record;
+    // An archive deleted after it was extracted: its folder instead.
+    let extracted = record
+        .post
+        .as_ref()
+        .and_then(|p| p.extract.as_ref())
+        .and_then(|e| e.folder.clone())
+        .filter(|f| f.is_dir());
     let target = match (record.state, record.path) {
         (TaskState::Completed, Some(path)) if path.exists() => path,
+        (TaskState::Completed, Some(_)) if extracted.is_some() => extracted.unwrap_or_default(),
         (_, Some(path)) => {
             let part = downpipe_core::http::meta::part_path(&path);
             if part.exists() { part } else { record.dir }
@@ -623,6 +656,25 @@ fn reveal_download(app: AppHandle, manager: State<'_, Manager>, id: String) -> C
         app.opener().reveal_item_in_dir(&target)
     };
     result.map_err(|e| CommandError::new("open_failed", e.to_string()))
+}
+
+/// Open the folder a download's archive was extracted into. By id, like
+/// the other file actions: the folder comes from the catalog.
+#[tauri::command]
+fn open_extracted(app: AppHandle, manager: State<'_, Manager>, id: String) -> CmdResult<()> {
+    let task = manager
+        .get(&id)
+        .ok_or_else(|| CommandError::new("not_found", "That download no longer exists"))?;
+    let folder = task
+        .record
+        .post
+        .and_then(|p| p.extract)
+        .and_then(|e| e.folder)
+        .filter(|f| f.is_dir())
+        .ok_or_else(|| CommandError::new("not_found", "The extracted folder is gone"))?;
+    app.opener()
+        .open_path(folder.to_string_lossy(), None::<&str>)
+        .map_err(|e| CommandError::new("open_failed", e.to_string()))
 }
 
 /// Open a completed download with its default application.
@@ -797,8 +849,12 @@ fn main() {
     // Runs with their own DOWNPIPE_DATA_DIR (tests, portable copies, a
     // development build next to an installed one) stay separate on purpose.
     if std::env::var_os("DOWNPIPE_DATA_DIR").is_none() {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            tray::show_main(app);
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // The browser bridge starts Downpipe with `--hidden` for a
+            // download; two of them at once must not open the window.
+            if !args.iter().any(|a| a == HIDDEN_ARG) {
+                tray::show_main(app);
+            }
         }));
     }
 
@@ -821,24 +877,35 @@ fn main() {
             if manager.settings().register_browser_host {
                 tauri::async_runtime::spawn_blocking(register_browser_host);
             }
-            start_browser_bridge(manager.clone());
+            app.manage(manager.clone());
             let feeds = Feeds::open(&data_dir, manager.clone())?;
             grab::spawn_feeds(app.handle().clone(), feeds.clone());
             app.manage(feeds);
             app.manage(grab::Grabs::default());
             app.manage(Background::default());
+            app.manage(backup::PendingImports::default());
             app.manage(confirm::ConfirmWindow::default());
             background::spawn(app.handle().clone(), manager.clone());
             clipboard::spawn(app.handle().clone(), manager.clone());
             app.manage(remote::Remote::default());
             remote::spawn(app.handle().clone(), manager.clone());
+            // After the background loop listens, so a download the browser
+            // sends at once still gets its confirmation window.
+            start_browser_bridge(manager.clone());
             if let Err(err) = tray::create(app.handle()) {
                 tracing::warn!("no tray icon: {err}");
             }
             if let Err(err) = sync_autostart(app.handle(), manager.settings().start_with_system) {
                 tracing::warn!("could not update the login item: {err}");
             }
-            app.manage(manager);
+            // The main window is built here, after the bridge is up, rather
+            // than from the config before setup runs (`create: false`):
+            // creating a web view can take seconds, longer while a previous
+            // one is still closing, and the browser extension that just
+            // started Downpipe for a download must not wait for it.
+            if let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &config.clone())?.build()?;
+            }
             // The window starts hidden (tauri.conf.json) so a login start
             // stays in the tray without a flash; normal starts show it now.
             if !std::env::args().any(|a| a == HIDDEN_ARG) {
@@ -895,11 +962,15 @@ fn main() {
             pick_folder,
             reveal_download,
             open_download,
+            open_extracted,
+            set_post_actions,
             change_download_url,
             confirm_download,
             inspect_media,
             ffmpeg_status,
             inspect_site,
+            inspect_list,
+            add_list,
             inspect_torrent,
             stop_seeding,
             add_torrent_file,
@@ -912,6 +983,11 @@ fn main() {
             start_queue,
             stop_queue,
             export_downloads,
+            backup::export_backup,
+            backup::inspect_backup,
+            backup::import_backup,
+            backup::read_idm_list,
+            backup::import_idm,
             start_drag,
             get_when_done,
             set_when_done,

@@ -12,11 +12,13 @@ export interface Duplicate {
   existing: string;
 }
 import { looksLikeCurl, parseCurl, type CurlError } from "../lib/curl";
-import { parseUrls } from "../lib/format";
+import { nameFromUrl, parseUrls } from "../lib/format";
 import { headersText, parseHeaders, type HeaderProblem } from "../lib/headers";
 import { MAX_EXPANDED, expandPatterns, linksFromList } from "../lib/patterns";
-import { sitePage } from "../lib/sites";
+import { categoryExtracts, inheritedCommand, isArchive } from "../lib/post";
+import { siteList, sitePage } from "../lib/sites";
 import { MAX_TORRENT_FILE, isTorrentName, isTorrentUrl } from "../lib/torrent";
+import { PostFields } from "./PostFields";
 import { Button, Dialog, Field, inputClass } from "./primitives";
 
 function headerProblemText(t: Translate, p: HeaderProblem): string {
@@ -66,6 +68,7 @@ export function AddDialog({
   onClose,
   onAdded,
   onDuplicates,
+  onLists,
   onTorrentDuplicate,
 }: {
   /** Kept by the app, so a link copied while the dialog is open joins the list. */
@@ -76,6 +79,8 @@ export function AddDialog({
   onAdded: (tasks: Task[]) => void;
   /** Links already in the list, with what was asked, so the app can ask what to do. */
   onDuplicates: (items: Duplicate[]) => void;
+  /** Playlists and channels, whose videos are chosen next. */
+  onLists: (urls: string[]) => void;
   /** A .torrent file that is already in the list: that download's id. */
   onTorrentDuplicate: (existing: string) => void;
 }) {
@@ -87,6 +92,9 @@ export function AddDialog({
   const [checksum, setChecksum] = useState("");
   const [paused, setPaused] = useState(false);
   const [queue, setQueue] = useState(MAIN_QUEUE);
+  const [command, setCommand] = useState("");
+  // Null until the box is touched: the category then decides, also later.
+  const [extract, setExtract] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Headers (cookies among them) live in this dialog's state and the core's
@@ -102,9 +110,11 @@ export function AddDialog({
   // Video pages (YouTube) are not started from here: each goes on to the
   // confirmation dialog, where yt-dlp lists its qualities.
   const pages = urls.filter((url) => sitePage(url) !== null).length;
+  // Playlists and channels go on to the list of their videos.
+  const lists = urls.filter((url) => siteList(url) !== null).length;
   // Torrents too: their files are chosen in the next dialog.
   const torrents = urls.filter(isTorrentUrl).length;
-  const onlyPages = pages + torrents > 0 && pages + torrents === urls.length;
+  const onlyPages = pages + lists + torrents > 0 && pages + lists + torrents === urls.length;
   const fileInput = useRef<HTMLInputElement>(null);
 
   // A dropped or chosen list file is appended, so several lists can be combined.
@@ -154,9 +164,14 @@ export function AddDialog({
   const single = urls.length <= 1;
   // yt-dlp builds a video's file itself: no connections or checksum to set.
   const firstPage = single && urls[0] !== undefined ? sitePage(urls[0]) : null;
+  const firstList = single && urls[0] !== undefined ? siteList(urls[0]) : null;
   const firstTorrent = single && urls[0] !== undefined && isTorrentUrl(urls[0]);
-  // Neither has connections, a checksum or a name of its own to set.
-  const video = firstPage !== null || firstTorrent;
+  // None of them has connections, a checksum or a name of its own to set.
+  const video = firstPage !== null || firstList !== null || firstTorrent;
+  // The names known now; the server may still name the file differently.
+  const names = single && fileName.trim() ? [fileName.trim()] : urls.map(nameFromUrl);
+  const archives = names.filter(isArchive);
+  const extractShown = extract ?? archives.some((name) => categoryExtracts(settings, name));
 
   /** Fills the form from a cURL command; GET only, anything else is refused with the reason. */
   const fillFromCurl = (command: string) => {
@@ -208,7 +223,12 @@ export function AddDialog({
     const added: Task[] = [];
     const problems: string[] = [];
     const duplicates: Duplicate[] = [];
+    const listUrls: string[] = [];
     for (const url of urls) {
+      if (siteList(url)) {
+        listUrls.push(url);
+        continue;
+      }
       const page = sitePage(url) !== null || isTorrentUrl(url);
       const options: AddOptions = {
         url,
@@ -222,6 +242,7 @@ export function AddDialog({
         // A video page then asks for its quality here, not in the confirmation window.
         from_app: true,
         headers: sent.headers.length > 0 ? sent.headers : undefined,
+        post: { command: command.trim(), extract },
       };
       try {
         added.push(await api.add(options));
@@ -236,11 +257,12 @@ export function AddDialog({
     setBusy(false);
     if (added.length > 0) onAdded(added);
     if (duplicates.length > 0) onDuplicates(duplicates);
+    if (listUrls.length > 0) onLists(listUrls);
     if (problems.length > 0) setError(problems.join("\n"));
     else onClose();
   };
 
-  const files = urls.length - pages - torrents;
+  const files = urls.length - pages - lists - torrents;
   const linksHint =
     expansion.dropped > 0
       ? t("add.links.patternCapped", { count: MAX_EXPANDED })
@@ -250,7 +272,9 @@ export function AddDialog({
           ? t("add.links.found", { count: urls.length })
           : t("add.links.hint");
   // A sentence of its own, joined here so neither text has to carry the space.
-  const note = [pagesNote(t, pages, files + torrents), torrentsNote(t, torrents, files + pages)].filter(Boolean).join(" ");
+  const note = [pagesNote(t, pages + lists, files + torrents), torrentsNote(t, torrents, files + pages + lists)]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <Dialog
@@ -288,11 +312,13 @@ export function AddDialog({
           hint={
             firstPage
               ? t("add.links.video", { site: firstPage.site })
-              : firstTorrent
-                ? t("torrent.add.magnet")
-                : note
-                  ? `${linksHint} ${note}`
-                  : linksHint
+              : firstList
+                ? t(firstList.kind === "channel" ? "add.links.channel" : "add.links.playlist", { site: firstList.site })
+                : firstTorrent
+                  ? t("torrent.add.magnet")
+                  : note
+                    ? `${linksHint} ${note}`
+                    : linksHint
           }
         >
           {(id) => (
@@ -417,7 +443,7 @@ export function AddDialog({
               <input
                 id={id}
                 value={fileName}
-                disabled={!single || firstTorrent}
+                disabled={!single || firstTorrent || firstList !== null}
                 onChange={(e) => setFileName(e.target.value)}
                 spellCheck={false}
                 placeholder={t("add.fileName.placeholder")}
@@ -493,6 +519,14 @@ export function AddDialog({
             />
           )}
         </Field>
+        <PostFields
+          command={command}
+          onCommand={setCommand}
+          inherited={inheritedCommand(settings, queue)}
+          archive={archives.length > 0}
+          extract={extractShown}
+          onExtract={setExtract}
+        />
       </form>
     </Dialog>
   );

@@ -4,6 +4,11 @@
 import type { Messages } from "../core";
 
 export const media: Messages["media"] = {
+  sitePlaylist: "Lista de {site} · videos elegidos en Downpipe",
+  siteChannel: "Canal de {site} · videos elegidos en Downpipe",
+  thisSitePlaylist: "Esta lista de reproducción de {site}",
+  thisSiteChannel: "Este canal de {site}",
+  updateForLists: "Actualiza Downpipe para descargar listas de reproducción",
   hls: "Transmisión HLS",
   dash: "Transmisión DASH",
   hlsQualities: { one: "HLS · {count} calidad", many: "HLS · {count} calidades", other: "HLS · {count} calidades" },

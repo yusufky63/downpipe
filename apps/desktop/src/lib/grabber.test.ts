@@ -32,8 +32,8 @@ describe("grabber helpers", () => {
 
   it("joins category and custom types", () => {
     const categories = [
-      { name: "Music", extensions: ["mp3", "flac"], folder: "" },
-      { name: "Video", extensions: ["mp4"], folder: "" },
+      { name: "Music", extensions: ["mp3", "flac"], folder: "", extract: false },
+      { name: "Video", extensions: ["mp4"], folder: "", extract: false },
     ];
     expect(grabExtensions(categories, new Set(["Music"]), "MP3 iso")).toEqual(["mp3", "flac", "iso"]);
     expect(grabExtensions(categories, new Set(), "")).toEqual([]);

@@ -2,7 +2,7 @@
 // again (crates/native-host/src/protocol.rs); these builders make sure the
 // extension never even asks for something the host would refuse, and that
 // optional hints which do not fit are dropped instead of failing the request.
-import { sitePage } from "./sites";
+import { siteList, sitePage } from "./sites";
 import { MAX_URL_LENGTH, baseName, magnetUrl, webUrl, withoutSecrets } from "./url";
 
 export const HOST_NAME = "dev.downpipe.native_host";
@@ -28,6 +28,8 @@ export interface DownloadMessage {
   referrer?: string;
   mime_type?: string;
   file_name?: string;
+  /** Sent only to turn off starting a closed Downpipe (`withStartApp`). */
+  start_app?: false;
 }
 
 /** A stream the page played: its manifest, for Downpipe to read and download. */
@@ -43,6 +45,7 @@ export interface MediaMessage {
   title?: string;
   /** The `Origin` the page's player sent, if it sent one. */
   origin?: string;
+  start_app?: false;
 }
 
 /**
@@ -55,6 +58,19 @@ export interface PageMessage {
   id: string;
   page_url: string;
   title?: string;
+  start_app?: false;
+}
+
+/** Messages that add a download, which the host may start Downpipe for. */
+export type AddMessage = DownloadMessage | MediaMessage | PageMessage;
+
+/**
+ * The host starts a closed Downpipe for a download unless told not to. The
+ * field goes out only as `false`: hosts from before it refuse fields they do
+ * not know, and they never start the app anyway (see `callHost`).
+ */
+export function withStartApp<M extends AddMessage>(message: M, startApp: boolean): M {
+  return startApp ? message : { ...message, start_app: false };
 }
 
 /** Streams the `media` message carries. Single media files go as `download`. */
@@ -157,9 +173,13 @@ export function mediaMessage(fields: MediaFields, id: string): MediaMessage | nu
   return message;
 }
 
-/** Null unless the page is one the site provider takes (`sitePage`). */
+/**
+ * Null unless the page is one the site provider takes (`sitePage`) or a
+ * playlist or channel it lists (`siteList`), which the app opens for the
+ * user to choose its videos.
+ */
 export function pageMessage(fields: { pageUrl: string; title?: string }, id: string): PageMessage | null {
-  const page = sitePage(fields.pageUrl);
+  const page = sitePage(fields.pageUrl) ?? siteList(fields.pageUrl);
   if (!page) return null;
   const message: PageMessage = { protocol_version: PROTOCOL_VERSION, type: "page", id, page_url: page.url };
   const title = titleHint(fields.title);
@@ -248,7 +268,9 @@ export type HostResponse =
     }
   | { type: "accepted"; id?: string; taskId: string; fileName?: string; awaitingConfirmation?: boolean }
   | { type: "error"; id?: string; code: string; message: string; taskId?: string }
-  | { type: "tasks"; id?: string; tasks: TaskStatus[] };
+  | { type: "tasks"; id?: string; tasks: TaskStatus[] }
+  /** A playlist or channel is open in the app, to choose its videos there. */
+  | { type: "list_opened"; id?: string; pageUrl: string };
 
 function text(value: unknown, max = 300): string | undefined {
   return typeof value === "string" ? value.slice(0, max) : undefined;
@@ -319,6 +341,11 @@ export function parseResponse(value: unknown): HostResponse | null {
       const message = text(v.message);
       if (code === undefined || message === undefined) return null;
       return { type: "error", id, code, message, taskId: text(v.task_id, 64) };
+    }
+    case "list_opened": {
+      const pageUrl = text(v.page_url, MAX_URL_LENGTH);
+      if (pageUrl === undefined) return null;
+      return { type: "list_opened", id, pageUrl };
     }
     case "tasks": {
       if (!Array.isArray(v.tasks)) return null;

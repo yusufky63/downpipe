@@ -95,7 +95,11 @@ struct Host {
 
 impl Host {
     fn spawn(endpoint: &Endpoint) -> Self {
-        let child = Command::new(HOST)
+        Self::spawn_from(Path::new(HOST), endpoint)
+    }
+
+    fn spawn_from(exe: &Path, endpoint: &Endpoint) -> Self {
+        let child = Command::new(exe)
             .arg(ORIGIN)
             .arg("--parent-window=0")
             .env(ENDPOINT_ENV, endpoint.path())
@@ -293,6 +297,8 @@ async fn browser_downloads_wait_for_the_user() {
                 queue: None,
                 start: true,
                 media: None,
+                post: None,
+                subtitles: None,
                 files: None,
             },
         )
@@ -376,16 +382,40 @@ async fn app_not_running_is_reported_to_the_extension() {
     assert_eq!(pong["app_running"], false);
     assert!(pong.get("app_version").is_none());
 
+    // `start_app: false`: a development build of the app may sit next to
+    // the host in Cargo's target folder, and must not be started here.
     let answer = host.ask(&json!({
         "protocol_version": 1,
         "type": "download",
         "resource_url": "https://example.org/file.zip",
+        "start_app": false,
     }));
     assert_eq!(answer["type"], "error");
     assert_eq!(answer["code"], "app_not_running");
     assert!(
         answer["message"].as_str().unwrap().contains("not running"),
         "{answer}"
+    );
+    assert!(host.finish().success());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn without_an_app_beside_the_host_the_answer_stays_not_running() {
+    // A copy of the host in a folder of its own has no app to start.
+    let dir = tempfile::tempdir().unwrap();
+    let host_copy = dir.path().join(Path::new(HOST).file_name().unwrap());
+    std::fs::copy(HOST, &host_copy).unwrap();
+    let mut host = Host::spawn_from(&host_copy, &test_endpoint(dir.path()));
+    let started = Instant::now();
+    let answer = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "download",
+        "resource_url": "https://example.org/file.zip",
+    }));
+    assert_eq!(answer["code"], "app_not_running", "{answer}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "no wait without an app to start"
     );
     assert!(host.finish().success());
 }
@@ -482,9 +512,9 @@ async fn streams_from_the_browser_are_offered_with_their_qualities() {
 
     let pong = host.ask(&json!({"protocol_version": 1, "type": "ping"}));
     let features = if downpipe_core::TORRENT_SUPPORT {
-        json!(["media", "page", "torrent"])
+        json!(["media", "page", "list", "torrent"])
     } else {
-        json!(["media", "page"])
+        json!(["media", "page", "list"])
     };
     assert_eq!(pong["features"], features, "{pong}");
 
@@ -605,4 +635,51 @@ async fn video_pages_go_to_the_site_provider() {
     assert_eq!(task.record.site.unwrap().site, "YouTube");
     assert_eq!(task.record.state, TaskState::Paused);
     assert_eq!(app.manager.list().len(), 1);
+}
+
+/// A playlist or channel: the app opens it for the user to choose videos
+/// from and adds nothing yet.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lists_open_in_the_app() {
+    let app = App::start_with(true).await;
+    let mut events = app.manager.subscribe();
+    let mut host = Host::spawn(&app.endpoint);
+    let fixture: Value = serde_json::from_slice(
+        &std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/page-playlist.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let opened = host.ask(&fixture);
+    assert_eq!(opened["type"], "list_opened", "{opened}");
+    assert_eq!(opened["id"], "y2");
+    assert_eq!(
+        opened["page_url"],
+        "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb"
+    );
+    let channel = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "page",
+        "page_url": "https://www.youtube.com/@jawed",
+    }));
+    assert_eq!(
+        channel["page_url"], "https://www.youtube.com/@jawed/videos",
+        "{channel}"
+    );
+    let pong = host.ask(&json!({"protocol_version": 1, "type": "ping"}));
+    assert!(
+        pong["features"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("list")),
+        "{pong}"
+    );
+    assert!(host.finish().success());
+    assert!(app.manager.list().is_empty());
+    let first = events.recv().await.unwrap();
+    assert!(
+        matches!(&first, downpipe_core::ManagerEvent::ListOffered { url } if url.contains("playlist?list=")),
+        "{first:?}"
+    );
 }

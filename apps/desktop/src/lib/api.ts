@@ -88,6 +88,73 @@ export interface Task {
   /** Stream downloads while they run: fragments done and in all. */
   fragments: { done: number; total: number } | null;
   eta_secs: number | null;
+  /** Its own command and extraction choice; empty values follow the queue, category and settings. */
+  post_actions: PostActions;
+  /** What the virus scan, the extraction and the command found, once it completed. */
+  post: PostReport | null;
+  /** Completed, and a post-download step runs now. */
+  post_step: PostStep | null;
+}
+
+export interface PostActions {
+  /** Command line run when it completes. Empty: the queue's, else the one in Settings. */
+  command: string;
+  /** Extract it if it is an archive; null lets its category decide. */
+  extract: boolean | null;
+}
+
+export type PostStep = "scanning" | "extracting" | "running_command";
+
+export type ScanResult = "clean" | "threat" | "missing" | "failed";
+
+export interface ScanReport {
+  result: ScanResult;
+  /** "Microsoft Defender", or the scanner program's file name. */
+  scanner: string;
+  /** The threat's name, or why the scan failed. */
+  detail?: string;
+}
+
+export interface ExtractReport {
+  result: "done" | "failed";
+  folder?: string;
+  files: number;
+  bytes: number;
+  /** Entries left out: unsafe names, links, special files, duplicates. */
+  skipped: number;
+  archive_deleted: boolean;
+  error?: "encrypted" | "too_large" | "too_many_entries" | "corrupt" | "io";
+  detail?: string;
+}
+
+export interface CommandReport {
+  result: "ok" | "failed" | "timed_out" | "not_started" | "invalid";
+  program: string;
+  exit_code?: number;
+  /** The end of what it printed. */
+  output: string;
+  detail?: string;
+}
+
+export interface PostReport {
+  scan?: ScanReport;
+  extract?: ExtractReport;
+  command?: CommandReport;
+  /** A threat was found, so nothing was extracted and the command did not run. */
+  stopped_by_threat: boolean;
+}
+
+/** Settings for what happens after downloads complete. */
+export interface PostSettings {
+  /** Run after every completed download whose queue or own choice sets none. */
+  command: string;
+  /** Seconds a command or a scan may take, 5 to 86400. */
+  timeout_secs: number;
+  scan: boolean;
+  /** Scanner command line; empty is Microsoft Defender on Windows. */
+  scanner: string;
+  /** Delete an archive once everything in it was extracted. */
+  delete_archive: boolean;
 }
 
 export type MediaKind = "hls" | "dash";
@@ -179,10 +246,36 @@ export interface MediaInfo {
 export interface SiteInfo {
   /** "YouTube". */
   site: string;
-  /** Missing: the best quality is taken when it starts. */
+  /** Missing: the best quality (or the preset) is taken when it starts. */
   selection?: MediaSelection;
   /** "1080p", "Audio only" and the like, once known. */
   quality?: string;
+  /** A playlist's one quality for its videos, until their formats are known. */
+  preset?: Preset;
+  subtitles?: SubtitleRef[];
+  /** The title from the playlist, shown until the file is named. */
+  title?: string;
+  /** Position in the playlist it was added from, and that playlist's size. */
+  index?: number;
+  count?: number;
+}
+
+/** A quality for every video of a playlist. */
+export type Preset = "best" | "1080p" | "720p" | "audio";
+
+/** A subtitle to save: the uploader's, or the site's automatic captions (`auto`). */
+export interface SubtitleRef {
+  language: string;
+  auto: boolean;
+}
+
+/** A subtitle language a video page offers. */
+export interface SubtitleOption {
+  /** The site's code: "en", "pt-BR", "en-orig" (the original of automatic captions). */
+  language: string;
+  /** The site's name for it, in English. */
+  name?: string | null;
+  auto: boolean;
 }
 
 export interface VideoOption {
@@ -239,8 +332,62 @@ export interface MediaChoices extends Choices {
 /** What a video page offers, read by yt-dlp. */
 export interface SiteChoices extends Choices {
   site: string;
-  /** The page's title, offered as the file name. */
   title: string | null;
+  /** The file name the media name template makes, offered in the dialog. */
+  name: string | null;
+  /** The uploader's subtitles first, then automatic captions. */
+  subtitles: SubtitleOption[];
+  chosen_subtitles: SubtitleRef[];
+}
+
+/** One video of a playlist or channel. */
+export interface ListEntry {
+  id: string;
+  url: string;
+  title: string | null;
+  channel: string | null;
+  duration_ms: number | null;
+  /** Position in the list, 1 first. */
+  index: number;
+  /** False for private, deleted, members-only and live videos. */
+  available: boolean;
+}
+
+/** A playlist's or channel's videos, read by yt-dlp from the list pages. */
+export interface ListChoices {
+  site: string;
+  kind: "playlist" | "channel";
+  /** The list's own page. */
+  url: string;
+  title: string | null;
+  channel: string | null;
+  entries: ListEntry[];
+  /** The list has more videos than were read. */
+  truncated: boolean;
+  /** Where the list's folder goes unless another folder is chosen. */
+  dir: string;
+  ffmpeg: boolean;
+}
+
+export interface AddListOptions {
+  url: string;
+  /** Names the folder the videos go into. */
+  title: string | null;
+  entries: { id: string; title: string | null; index: number }[];
+  /** Videos in the whole list, for {index}'s zero padding. */
+  count: number;
+  preset: Preset;
+  subtitles: SubtitleRef[];
+  /** Null: the video category's folder. */
+  dir: string | null;
+  queue: string | null;
+  paused: boolean;
+}
+
+export interface AddListResult {
+  added: Task[];
+  /** Videos already in the list, left as they were. */
+  skipped: number;
 }
 
 export type ToolSource = "settings" | "managed" | "path";
@@ -300,12 +447,16 @@ export interface Settings {
   yt_dlp_path: string;
   /** Deno for yt-dlp. Empty: the tools folder, then PATH, then Node 22+. */
   deno_path: string;
+  /** Names site downloads: {title}, {channel}, {date}, {index}, {id}. */
+  media_name_template: string;
   /** Per-site overrides; the most specific matching pattern applies. */
   site_rules: SiteRule[];
   /** The remembered answer to "this link is already in the list"; "ask" asks every time. */
   duplicate_answer: DuplicateAnswer;
   /** The remote control; changed only with `api.setRemote` and `api.newRemoteToken`. */
   remote: RemoteSettings;
+  /** After a download completes: the default command, the virus scan, archives. */
+  post: PostSettings;
   torrent: TorrentSettings;
 }
 
@@ -415,6 +566,8 @@ export interface Queue {
   name: string;
   /** Downloads at once, 1 to 16. Ignored for the main queue. */
   max_concurrent: number;
+  /** Run after each of its downloads completes, instead of the one in Settings. */
+  command: string;
 }
 
 export interface Category {
@@ -423,6 +576,8 @@ export interface Category {
   extensions: string[];
   /** Empty: a folder named after the category inside the download folder. */
   folder: string;
+  /** Extract its archives (zip, tar, 7z) after they download. */
+  extract: boolean;
 }
 
 export interface Schedule {
@@ -479,6 +634,8 @@ export interface AddOptions {
   on_duplicate?: OnDuplicate;
   /** Sent with every request; kept in memory only, never written to disk. */
   headers?: [string, string][];
+  /** Its own command and extraction choice. */
+  post?: PostActions;
 }
 
 export type OnDuplicate = "refuse" | "add_copy" | "ask";
@@ -493,6 +650,10 @@ export interface ConfirmOptions {
   start: boolean;
   /** Streams and video pages: the quality and audio to download. */
   media?: MediaSelection | null;
+  /** Replaces its own command and extraction choice. */
+  post?: PostActions | null;
+  /** Video pages: the subtitles to save; null keeps the choice. */
+  subtitles?: SubtitleRef[] | null;
   /** Torrents: indices of the files to download. */
   files?: number[] | null;
 }
@@ -599,13 +760,76 @@ export interface FeedCheck {
 export type ManagerEvent =
   | { type: "updated"; task: Task }
   | { type: "removed"; id: string }
-  | { type: "settings"; settings: Settings };
+  | { type: "settings"; settings: Settings }
+  /** The browser sent a playlist or channel to choose videos from. */
+  | { type: "list_offered"; url: string };
 
 export interface CommandError {
   code: string;
   message: string;
   id: string | null;
 }
+
+/** What a backup file holds, read and checked by Rust for the import preview. */
+export interface BackupPreview {
+  /** The file's name, without its folder. */
+  file: string;
+  /** The Downpipe that wrote it; empty when unknown. */
+  app_version: string;
+  /** Seconds since the epoch; 0 when unknown. */
+  exported_at: number;
+  downloads: number;
+  /** Of `downloads`, the ones whose link is not in the list yet. */
+  new_downloads: number;
+  /** Damaged entries that will be left out. */
+  invalid: number;
+  /** Queues besides the main queue. */
+  queues: number;
+  categories: number;
+  site_rules: number;
+  /** Feed subscriptions in the file, and of those the ones not subscribed to yet. */
+  feeds: number;
+  new_feeds: number;
+}
+
+/** What to take from a backup. */
+export interface ImportChoice {
+  settings: boolean;
+  downloads: boolean;
+  feeds: boolean;
+}
+
+export interface ImportReport {
+  settings: boolean;
+  added: number;
+  /** Links already in the list (or twice in the file), left alone. */
+  duplicates: number;
+  invalid: number;
+  /** Feeds subscribed to, and feeds that could not be read now. */
+  feeds: number;
+  feeds_failed: number;
+}
+
+/** One download from IDM's list (downpipe_core::idm::IdmEntry). */
+export interface IdmRow {
+  url: string;
+  file_name: string | null;
+  /** The folder IDM saves to; exported lists have none. */
+  dir: string | null;
+  size: number | null;
+  /** IDM downloaded every byte. */
+  finished: boolean;
+  /** The link is in Downpipe's list already. */
+  listed: boolean;
+}
+
+export interface IdmList {
+  /** The exported file's name; null for the list on this computer. */
+  file: string | null;
+  rows: IdmRow[];
+}
+
+export type IdmSource = "computer" | "file";
 
 export const api = {
   list: () => invoke<Task[]>("list_downloads"),
@@ -638,6 +862,9 @@ export const api = {
   pickFolder: (initial: string | null) => invoke<string | null>("pick_folder", { initial }),
   reveal: (id: string) => invoke<null>("reveal_download", { id }),
   open: (id: string) => invoke<null>("open_download", { id }),
+  /** The folder its archive was extracted into. */
+  openExtracted: (id: string) => invoke<null>("open_extracted", { id }),
+  setPostActions: (id: string, actions: PostActions) => invoke<null>("set_post_actions", { id, actions }),
   changeUrl: (id: string, url: string) => invoke<null>("change_download_url", { id, url }),
   confirm: (id: string, options: ConfirmOptions) => invoke<null>("confirm_download", { id, options }),
   /** Reads the stream's manifest; downloads no media. */
@@ -646,6 +873,9 @@ export const api = {
   ffmpegStatus: () => invoke<string | null>("ffmpeg_status"),
   /** Asks yt-dlp what a video page offers; downloads no video. */
   inspectSite: (id: string) => invoke<SiteChoices>("inspect_site", { id }),
+  /** Asks yt-dlp for a playlist's or channel's videos; downloads no video. */
+  inspectList: (url: string) => invoke<ListChoices>("inspect_list", { url }),
+  addList: (options: AddListOptions) => invoke<AddListResult>("add_list", { options }),
   siteTools: () => invoke<ToolsStatus>("site_tools"),
   /** A torrent's files; a magnet link asks peers for them, which can take up to two minutes. */
   inspectTorrent: (id: string) => invoke<TorrentChoices>("inspect_torrent", { id }),
@@ -665,6 +895,15 @@ export const api = {
   stopQueue: (queue: string) => invoke<null>("stop_queue", { queue }),
   /** Number of links written, or null when the save dialog was closed. */
   exportLinks: () => invoke<number | null>("export_downloads"),
+  /** Settings and list to a JSON file; null when the save dialog was closed. */
+  exportBackup: () => invoke<{ file: string; downloads: number } | null>("export_backup"),
+  /** Pick and check a backup; null when the dialog was closed. Rust keeps it for `importBackup`. */
+  inspectBackup: () => invoke<BackupPreview | null>("inspect_backup"),
+  importBackup: (choice: ImportChoice) => invoke<ImportReport>("import_backup", { choice }),
+  /** IDM's list, read only; null when the file dialog was closed. Rust keeps it for `importIdm`. */
+  readIdmList: (source: IdmSource) => invoke<IdmList | null>("read_idm_list", { source }),
+  /** Adds the rows at these positions of the last list read, paused. */
+  importIdm: (rows: number[]) => invoke<ImportReport>("import_idm", { rows }),
   startDrag: (id: string) => invoke<null>("start_drag", { id }),
   whenDone: () => invoke<WhenDoneView>("get_when_done"),
   setWhenDone: (action: WhenDone) => invoke<WhenDoneView>("set_when_done", { action }),

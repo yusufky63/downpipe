@@ -2,7 +2,7 @@
 // how qualities are named, which audio goes with which quality, and what a
 // row says about such a download.
 import { currentLocale, t } from "../i18n/core";
-import type { AudioOption, ChoiceOptions, Choices, MediaKind, MediaSelection, Task, VideoOption } from "./api";
+import type { AudioOption, ChoiceOptions, Choices, MediaKind, MediaSelection, SubtitleOption, SubtitleRef, Task, VideoOption } from "./api";
 import { formatBytes, formatDecimal } from "./format";
 
 const KIND_NAMES: Record<MediaKind, string> = { hls: "HLS", dash: "DASH" };
@@ -101,7 +101,8 @@ export function qualityOption(v: VideoOption): string {
 // Made on first use in each language, so a switch in Settings applies.
 let languages: { locale: string; names: Intl.DisplayNames } | null = null;
 
-function languageName(code: string): string {
+/** A language code's name in the user's language, starting with a capital. */
+export function languageName(code: string): string {
   const locale = currentLocale();
   if (languages?.locale !== locale) {
     languages = { locale, names: new Intl.DisplayNames([locale], { type: "language", fallback: "none" }) };
@@ -117,6 +118,44 @@ function languageName(code: string): string {
   // within a sentence; standing alone as a track's name, they start with a
   // capital as menu entries do.
   return name.charAt(0).toLocaleUpperCase(locale) + name.slice(1);
+}
+
+/**
+ * A subtitle language in the user's language: "German"; the original of
+ * automatic captions (`en-orig`) as "English (original)".
+ */
+export function subtitleName(s: SubtitleOption): string {
+  const original = s.language.endsWith("-orig");
+  const code = original ? s.language.slice(0, -"-orig".length) : s.language;
+  const name = languageName(code);
+  // An unknown code: the site's own name says more.
+  const shown = name === code && s.name ? s.name : name;
+  return original ? t("media.subtitles.original", { language: shown }) : shown;
+}
+
+/** One value per subtitle choice, for a select. */
+export function subtitleKey(s: SubtitleRef): string {
+  return `${s.auto ? "auto" : "subs"}:${s.language}`;
+}
+
+export function subtitleFromKey(key: string): SubtitleRef | null {
+  const [kind, language] = key.split(":", 2);
+  if (!language || (kind !== "auto" && kind !== "subs")) return null;
+  return { language, auto: kind === "auto" };
+}
+
+/**
+ * The uploader's subtitles, then automatic captions with their original
+ * language first, each by name in the user's language.
+ */
+export function subtitleGroups(list: SubtitleOption[]): { uploaded: SubtitleOption[]; auto: SubtitleOption[] } {
+  const locale = currentLocale();
+  const byName = (a: SubtitleOption, b: SubtitleOption) => subtitleName(a).localeCompare(subtitleName(b), locale);
+  const auto = list.filter((s) => s.auto);
+  return {
+    uploaded: list.filter((s) => !s.auto).sort(byName),
+    auto: [...auto.filter((s) => s.language.endsWith("-orig")), ...auto.filter((s) => !s.language.endsWith("-orig")).sort(byName)],
+  };
 }
 
 export function audioName(a: AudioOption): string {
@@ -193,7 +232,7 @@ export function sizeIsEstimate(task: Task): boolean {
 
 /**
  * Error codes for streams and video pages that will not be downloaded
- * (protected, live, unavailable without an account). Other failures, such
- * as yt-dlp not being set up, can be fixed.
+ * (protected, live, unavailable or age-restricted without an account).
+ * Other failures, such as yt-dlp not being set up, can be fixed.
  */
-export const REFUSED_STREAM = new Set(["drm_protected", "live_stream", "unsupported_media", "invalid_manifest", "unavailable"]);
+export const REFUSED_STREAM = new Set(["drm_protected", "live_stream", "unsupported_media", "invalid_manifest", "unavailable", "site_age_restricted"]);

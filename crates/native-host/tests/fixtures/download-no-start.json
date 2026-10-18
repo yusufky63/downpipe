@@ -1,0 +1,8 @@
+{
+  "protocol_version": 1,
+  "type": "download",
+  "id": "m3",
+  "resource_url": "https://example.org/files/report.pdf",
+  "file_name": "report.pdf",
+  "start_app": false
+}

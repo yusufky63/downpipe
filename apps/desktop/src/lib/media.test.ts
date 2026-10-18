@@ -13,6 +13,10 @@ import {
   sizeIsEstimate,
   sourceName,
   streamLabel,
+  subtitleFromKey,
+  subtitleGroups,
+  subtitleKey,
+  subtitleName,
 } from "./media";
 import { makeTask } from "./testing";
 
@@ -112,6 +116,9 @@ const opus: AudioOption = { id: "251", codecs: "opus", bandwidth: 106_000, defau
 const page: SiteChoices = {
   site: "YouTube",
   title: "Me at the zoo",
+  name: "Me at the zoo.mp4",
+  subtitles: [],
+  chosen_subtitles: [],
   options: {
     videos: [hd, progressive, soundOnly],
     audios: [{ id: "140", codecs: "mp4a.40.2", bandwidth: 129_796, default: true }, opus],
@@ -163,5 +170,26 @@ describe("video pages", () => {
     expect(sourceName(yt)).toBe("YouTube");
     expect(sizeIsEstimate(yt)).toBe(true);
     expect(sizeIsEstimate({ ...yt, state: "completed" })).toBe(false);
+  });
+});
+
+describe("subtitles", () => {
+  it("names languages and the original captions", () => {
+    expect(subtitleName({ language: "de", auto: false })).toBe("German");
+    expect(subtitleName({ language: "en-orig", auto: true })).toBe("English (original)");
+    expect(subtitleName({ language: "qqq-x", name: "Klingon", auto: false })).toBe("Klingon");
+  });
+
+  it("keys round-trip and groups put the original first", () => {
+    expect(subtitleFromKey(subtitleKey({ language: "pt-BR", auto: true }))).toEqual({ language: "pt-BR", auto: true });
+    expect(subtitleFromKey("")).toBeNull();
+    const groups = subtitleGroups([
+      { language: "tr", auto: true },
+      { language: "en-orig", auto: true },
+      { language: "de", auto: true },
+      { language: "fr", auto: false },
+    ]);
+    expect(groups.uploaded.map((s) => s.language)).toEqual(["fr"]);
+    expect(groups.auto.map((s) => s.language)).toEqual(["en-orig", "de", "tr"]);
   });
 });

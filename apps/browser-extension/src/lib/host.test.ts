@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { callHost, classifyNativeError, type NativeSend } from "./host";
-import { HOST_NAME, pingMessage } from "./protocol";
+import { HOST_NAME, downloadMessage, pingMessage, withStartApp } from "./protocol";
 
 describe("callHost", () => {
   it("sends to the Downpipe host and parses the answer", async () => {
@@ -40,6 +40,37 @@ describe("callHost", () => {
       1000,
     );
     expect(otherId.ok === false && otherId.failure).toBe("bad_response");
+  });
+
+  it("sends start_app again without it to a host that predates it", async () => {
+    const download = downloadMessage({ resourceUrl: "https://example.org/a.zip" }, "d1");
+    if (!download) throw new Error("no message");
+    const message = withStartApp(download, false);
+    expect(message.start_app).toBe(false);
+    const send = vi
+      .fn<NativeSend>()
+      .mockResolvedValueOnce({
+        protocol_version: 1,
+        id: "d1",
+        type: "error",
+        code: "invalid_message",
+        message: "unknown field `start_app`",
+      })
+      .mockResolvedValueOnce({ protocol_version: 1, id: "d1", type: "error", code: "app_not_running", message: "closed" });
+    const result = await callHost(send, message, 1000);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1]?.[1]).not.toHaveProperty("start_app");
+    expect(result.ok && result.response.type === "error" && result.response.code).toBe("app_not_running");
+  });
+
+  it("does not send other refused messages twice", async () => {
+    const send = vi
+      .fn<NativeSend>()
+      .mockResolvedValue({ protocol_version: 1, id: "d1", type: "error", code: "invalid_message", message: "bad" });
+    const download = downloadMessage({ resourceUrl: "https://example.org/a.zip" }, "d1");
+    if (!download) throw new Error("no message");
+    await callHost(send, download, 1000);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it("maps browser errors to failure kinds", async () => {

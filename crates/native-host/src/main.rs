@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 use downpipe_native_host::host::{self, PipeLink};
 use downpipe_native_host::ipc::Endpoint;
+use downpipe_native_host::launch;
 use downpipe_native_host::manifest::{
     self, Browser, CHROMIUM_EXTENSION_ID, FIREFOX_EXTENSION_ID, Layout, Owner,
 };
@@ -122,9 +123,15 @@ fn serve_browser(args: &[String]) -> ExitCode {
         )
         .init();
     let origin = host::origin_from_args(args);
+    // Not canonicalized, like the manifest's path: the app is looked up in
+    // the folder the browser started the host from.
+    let app = std::env::current_exe()
+        .ok()
+        .and_then(|exe| launch::app_beside(&exe));
     let link = PipeLink {
         endpoint: Endpoint::from_env_or_default(),
         timeout: host::APP_TIMEOUT,
+        app,
     };
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();

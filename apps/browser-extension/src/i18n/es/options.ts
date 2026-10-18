@@ -46,6 +46,10 @@ export const options: Messages["options"] = {
   bypassHelp: "Con la captura activada, al pulsar un enlace con esta tecla, esa descarga se queda en el navegador. Los demás clics y los atajos del propio navegador no cambian.",
   bypassAccess: "Para notar el clic hace falta acceso a los sitios que visitas. No se lee ni se envía nada hasta que pulses un enlace de esta forma.",
   bypassAllow: "Permitir el acceso",
+  appHeading: "06 — Aplicación de escritorio",
+  startApp: "Iniciar Downpipe si está cerrado",
+  startAppDetail:
+    "Una descarga enviada desde el navegador inicia primero Downpipe en la bandeja del sistema, en lugar de fallar. Si esta opción está desactivada, Downpipe tiene que estar abierto.",
   save: "Guardar",
   moreErrors: { one: "Y {count} más.", many: "Y {count} más.", other: "Y {count} más." },
   unsaved: "Cambios sin guardar",

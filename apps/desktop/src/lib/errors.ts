@@ -4,6 +4,7 @@
 // and for reports.
 import { t, type MessageKey } from "../i18n/core";
 import { sentence } from "./format";
+import { siteFailureText } from "./siteErrors";
 
 /** `DownloadError::kind()` in crates/http-engine/src/error.rs. */
 export const FAILURE_KINDS = [
@@ -63,6 +64,9 @@ function statusIn(raw: string | null): string | null {
 
 /** A failure kind in words, or null for a kind this version does not know. */
 export function failureText(kind: string | null, raw: string | null): string | null {
+  // yt-dlp's common failures, with what to do about each.
+  const site = siteFailureText(kind);
+  if (site) return site;
   if (kind === null || !isFailureKind(kind)) return null;
   if (kind === "http_status") {
     const status = statusIn(raw);

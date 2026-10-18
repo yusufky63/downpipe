@@ -13,6 +13,8 @@ export const add = {
     downloadMany: { one: "Download {count} file", other: "Download {count} files" },
   },
   links: {
+    playlist: "A {site} playlist. You choose its videos next.",
+    channel: "A {site} channel. You choose its videos next.",
     label: "Links",
     /** The pattern example stays as written: it is the syntax the field accepts. */
     hint: "One link per line, or a pattern like file[001-100].zip. http, https and magnet links are supported.",

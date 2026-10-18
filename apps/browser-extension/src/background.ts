@@ -8,7 +8,7 @@ import { linkFields } from "./lib/capture";
 import { collectPageLinks } from "./lib/collect";
 import { hostOf, matchingSite, normalizeSitePattern, withSite } from "./lib/filters";
 import { captureHeld, captureStarted, claimIn, parseOffered, type HandoffDeps } from "./lib/handoff";
-import { callHost } from "./lib/host";
+import { callHost, type HostResult } from "./lib/host";
 import {
   MAX_PAGE_LINKS,
   collectionFromPage,
@@ -73,10 +73,12 @@ import {
   pageMessage,
   pingMessage,
   tasksMessage,
+  withStartApp,
+  type HostMessage,
   type TaskStatus,
 } from "./lib/protocol";
 import { isOwnContentScript, isTrustedSender } from "./lib/sender";
-import { isSiteMedia, pageTitle, sitePage } from "./lib/sites";
+import { isSiteMedia, pageTitle, siteList, sitePage } from "./lib/sites";
 import {
   bridgeDown,
   bridgeStatus,
@@ -86,12 +88,14 @@ import {
   type HandOver,
 } from "./lib/status";
 import { linkLabel, referrerFor } from "./lib/url";
+import { pageRowView } from "./lib/view";
 
 const MENU_ID = "downpipe-download-link";
 const PAGE_MENU_ID = "downpipe-page-links";
 const SELECTION_MENU_ID = "downpipe-selected-links";
 const VIDEO_MENU_ID = "downpipe-video-page";
 const TORRENT_MENU_ID = "downpipe-magnet-link";
+const LIST_MENU_ID = "downpipe-list-page";
 /** Pages `lib/sites.ts` recognizes, as match patterns for the page menu. */
 const VIDEO_PAGES = [
   "*://*.youtube.com/watch*",
@@ -101,10 +105,23 @@ const VIDEO_PAGES = [
   "*://*.youtube-nocookie.com/embed/*",
   "*://youtu.be/*",
 ];
+/** Playlists and channels `lib/sites.ts` recognizes (`siteList`). */
+const LIST_PAGES = [
+  "*://*.youtube.com/playlist*",
+  "*://*.youtube.com/@*",
+  "*://*.youtube.com/channel/*",
+  "*://*.youtube.com/c/*",
+  "*://*.youtube.com/user/*",
+];
 const WEB_PAGES = ["http://*/*", "https://*/*"];
 const LINK_TIMEOUT_MS = 10_000;
 /** A captured download waits for this answer, so it is kept short. */
 const CAPTURE_TIMEOUT_MS = 5_000;
+/**
+ * Added to the timeouts above while the host may start Downpipe: it waits
+ * up to 10 s for the app to come up (crates/native-host/src/launch.rs).
+ */
+const START_APP_MS = 12_000;
 /**
  * A later answer is still acted on: the host waits 10 seconds for the app,
  * so an acceptance can arrive after the browser went on with its copy.
@@ -128,6 +145,19 @@ const sendNative = (host: string, message: object): Promise<unknown> =>
 // Before anything is worded: menus, notifications, the toolbar tooltip and
 // the replies to the pages and the overlay.
 activateBrowserLanguage();
+
+/**
+ * Send a download, stream or video page to Downpipe. Unless the options
+ * page turned it off, the host starts a closed Downpipe first, which takes
+ * longer than an answer from a running one.
+ */
+async function addToApp(message: HostMessage, timeoutMs: number): Promise<HostResult> {
+  if (message.type !== "download" && message.type !== "media" && message.type !== "page") {
+    return callHost(sendNative, message, timeoutMs);
+  }
+  const { startApp } = await cachedSettings();
+  return callHost(sendNative, withStartApp(message, startApp), startApp ? timeoutMs + START_APP_MS : timeoutMs);
+}
 
 // ---------- Context menus ----------
 
@@ -169,6 +199,13 @@ function createMenu(): void {
       },
       () => void ext.runtime.lastError,
     );
+    // A playlist or channel opens in the app, where its videos are chosen.
+    ext.contextMenus.create({
+      id: LIST_MENU_ID,
+      title: t("menus.list"),
+      contexts: ["page", "frame"],
+      documentUrlPatterns: LIST_PAGES,
+    });
     ext.contextMenus.create({
       id: SELECTION_MENU_ID,
       title: t("menus.selection"),
@@ -193,6 +230,11 @@ ext.contextMenus.onClicked.addListener((info, tab) => {
     if (url) void sendVideoPage(url, title, "link");
     return;
   }
+  if (info.menuItemId === LIST_MENU_ID) {
+    const title = info.pageUrl === tab?.url ? pageTitle(cleanTitle(tab?.title)) : undefined;
+    if (info.pageUrl && siteList(info.pageUrl)) void sendVideoPage(info.pageUrl, title, "link");
+    return;
+  }
   // Choosing the item grants `activeTab` for this tab, which is what lets
   // the collector run there.
   if ((info.menuItemId === PAGE_MENU_ID || info.menuItemId === SELECTION_MENU_ID) && tab) {
@@ -201,8 +243,9 @@ ext.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 async function sendLink(info: chrome.contextMenus.OnClickData): Promise<void> {
-  // A link to a video page goes to the site provider, not as a file.
-  if (sitePage(info.linkUrl) && info.linkUrl) {
+  // A link to a video page goes to the site provider, not as a file; one
+  // to a playlist or channel opens it in the app.
+  if ((sitePage(info.linkUrl) || siteList(info.linkUrl)) && info.linkUrl) {
     await sendVideoPage(info.linkUrl, undefined, "link");
     return;
   }
@@ -218,7 +261,7 @@ async function sendLink(info: chrome.contextMenus.OnClickData): Promise<void> {
     });
     return;
   }
-  const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+  const result = await addToApp(message, LINK_TIMEOUT_MS);
   const { outcome, message: text, fileName, taskId, awaitingConfirmation } = downloadOutcome(result);
   await report({ source: "link", label: fileName ?? label, outcome, message: text, taskId, awaitingConfirmation });
 }
@@ -280,17 +323,22 @@ async function sendVideoPage(
   source: Activity["source"],
   options: { quiet?: boolean } = {},
 ): Promise<LinkResult> {
-  const page = sitePage(url);
+  const page = sitePage(url) ?? siteList(url);
   const message = page && pageMessage({ pageUrl: page.url, title }, newMessageId());
   if (!page || !message) {
     return { outcome: "failed", message: t("errors.notVideoPage"), stop: false };
   }
-  const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+  const result = await addToApp(message, LINK_TIMEOUT_MS);
   const outcome = pageOutcome(result);
   await report(
     {
       source,
-      label: outcome.fileName ?? title ?? t("media.siteVideo", { site: page.site }),
+      label:
+        outcome.fileName ??
+        title ??
+        ("kind" in page
+          ? t(page.kind === "channel" ? "media.thisSiteChannel" : "media.thisSitePlaylist", { site: page.site })
+          : t("media.siteVideo", { site: page.site })),
       outcome: outcome.outcome,
       message: outcome.message,
       taskId: outcome.taskId,
@@ -312,19 +360,23 @@ async function videoPageOf(tabId: number, frameUrl?: string): Promise<{ url: str
   if (fromTab && tab?.url) {
     return { url: tab.url, item: { site: fromTab.site, title: pageTitle(cleanTitle(tab.title)) } };
   }
+  const list = siteList(tab?.url);
+  if (list && tab?.url) {
+    return { url: tab.url, item: { site: list.site, list: list.kind, title: pageTitle(cleanTitle(tab.title)) } };
+  }
   const fromFrame = sitePage(frameUrl);
   return fromFrame && frameUrl ? { url: frameUrl, item: { site: fromFrame.site } } : null;
 }
 
 async function sendPageLink(url: string, pageUrl: string | undefined): Promise<LinkResult> {
-  if (sitePage(url)) return sendVideoPage(url, undefined, "link", { quiet: true });
+  if (sitePage(url) || siteList(url)) return sendVideoPage(url, undefined, "link", { quiet: true });
   const label = linkLabel(url);
   const fields = linkFields({ linkUrl: url, pageUrl });
   const message = fields && downloadMessage(fields, newMessageId());
   if (!message) {
     return { outcome: "failed", message: t("errors.code.invalid_url"), stop: false };
   }
-  const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+  const result = await addToApp(message, LINK_TIMEOUT_MS);
   const outcome = downloadOutcome(result);
   // Into the popup's list, but without a badge or notification per link:
   // the links page shows the results itself.
@@ -368,11 +420,12 @@ function handoffDeps(): HandoffDeps {
     filters: settings,
     // The race with the browser's patience is lib/handoff.ts's; this only
     // bounds a bridge that never answers at all.
-    send: (message) => callHost(sendNative, message, CAPTURE_TIMEOUT_MS + CAPTURE_LATE_MS),
+    send: (message) => addToApp(message, CAPTURE_TIMEOUT_MS + CAPTURE_LATE_MS),
     report: (entry) => report(entry),
     claim: claimDownload,
     answerMs: CAPTURE_TIMEOUT_MS,
-    lateMs: CAPTURE_LATE_MS,
+    // Starting a closed Downpipe first can make the answer later still.
+    lateMs: CAPTURE_LATE_MS + START_APP_MS,
   };
 }
 
@@ -731,7 +784,7 @@ async function sendMedia(tabId: number, mediaId: string): Promise<LinkResult> {
     const fileName = titleFileName(title, item);
     const message = downloadMessage({ resourceUrl: item.url, pageUrl, referrer, mimeType: item.mime, fileName }, id);
     if (!message) return { outcome: "failed", message: t("errors.mediaInvalid"), stop: false };
-    result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+    result = await addToApp(message, LINK_TIMEOUT_MS);
     outcome = downloadOutcome(result);
   } else {
     const message = mediaMessage(
@@ -739,7 +792,7 @@ async function sendMedia(tabId: number, mediaId: string): Promise<LinkResult> {
       id,
     );
     if (!message) return { outcome: "failed", message: t("errors.streamInvalid"), stop: false };
-    result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+    result = await addToApp(message, LINK_TIMEOUT_MS);
     outcome = streamOutcome(result);
   }
   await report({
@@ -759,10 +812,12 @@ function overlayItem(c: MediaCandidate, label: string): OverlayItem {
 }
 
 function pageOverlayItem(page: PageItem): OverlayItem {
+  // A channel's trailer plays on its page: the item then opens the channel.
+  const view = page.list ? pageRowView(page, true) : null;
   return {
     mediaId: PAGE_ITEM_ID,
-    label: page.title ?? t("media.thisSiteVideo", { site: page.site }),
-    detail: t("media.siteVideoQuality", { site: page.site }),
+    label: view?.label ?? page.title ?? t("media.thisSiteVideo", { site: page.site }),
+    detail: view?.detail ?? t("media.siteVideoQuality", { site: page.site }),
   };
 }
 
@@ -1007,6 +1062,7 @@ async function status(): Promise<StatusReply> {
     bridge: bridgeStatus(result),
     capture,
     notify: prefs.notify,
+    startApp: prefs.startApp,
     excludedSites: prefs.excludedSites,
     activity,
     tasks: tasks ?? [],
@@ -1034,6 +1090,8 @@ async function answer(request: PopupRequest): Promise<Reply> {
       return settings();
     case "set_notify":
       return changeSettings((s) => ({ ...s, notify: request.enabled }));
+    case "set_start_app":
+      return changeSettings((s) => ({ ...s, startApp: request.enabled }));
     case "save_filters":
       return changeSettings((s) => ({ ...s, ...request.filters }));
     case "set_site_paused":

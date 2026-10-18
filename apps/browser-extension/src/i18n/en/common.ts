@@ -17,6 +17,7 @@ export const common = {
 
 /** What happened to a download handed to the app, in the popup, badge and overlay. */
 export const results = {
+  listOpened: "Open in Downpipe: choose the videos there.",
   added: "Added to Downpipe",
   /** The app took it but asks for a name and folder before it starts. */
   waiting: "Waiting for your answer in Downpipe",

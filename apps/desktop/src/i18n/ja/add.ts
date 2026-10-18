@@ -13,6 +13,8 @@ export const add: Messages["add"] = {
     downloadMany: { other: "{count} 個のファイルをダウンロード" },
   },
   links: {
+    playlist: "{site} の再生リストです。次に動画を選びます。",
+    channel: "{site} のチャンネルです。次に動画を選びます。",
     label: "リンク",
     hint: "1 行に 1 つのリンク、または file[001-100].zip のようなパターンを入力します。http、https、magnet のリンクに対応しています。",
     found: { other: "{count} 件のリンクが見つかりました。リンクごとに 1 つのダウンロードになります。" },

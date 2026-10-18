@@ -14,7 +14,7 @@ use downpipe_http::media::{MediaSelection, TrackRef};
 use downpipe_http::{DownloadError, DownloadHandle, Outcome, Phase, Progress};
 use downpipe_providers::install::{self, Tool};
 use downpipe_providers::tools::{self, JsKind, JsRuntime, ToolConfig, Tools};
-use downpipe_providers::{SiteRequest, info, job};
+use downpipe_providers::{Preset, SiteRequest, SubtitleRef, info, job, playlist};
 use downpipe_test_server::TestServer;
 use downpipe_test_server::fake_tools::{self, FakePart, Scenario, calls, part_content};
 use serde_json::json;
@@ -47,6 +47,13 @@ fn main() {
         }),
         ("failures_are_classified", || {
             Box::pin(failures_are_classified())
+        }),
+        ("lists_a_playlist", || Box::pin(lists_a_playlist())),
+        ("playlist_videos_use_preset_template_and_subtitles", || {
+            Box::pin(playlist_videos_use_preset_template_and_subtitles())
+        }),
+        ("readable_errors_for_common_failures", || {
+            Box::pin(readable_errors_for_common_failures())
         }),
         ("missing_tools_fail_before_starting", || {
             Box::pin(missing_tools_fail_before_starting())
@@ -168,6 +175,10 @@ fn request(s: &Setup, file_name: Option<&str>, selection: Option<MediaSelection>
         dir: s.out.clone(),
         file_name: file_name.map(String::from),
         selection,
+        preset: None,
+        subtitles: Vec::new(),
+        name_template: downpipe_providers::naming::DEFAULT_TEMPLATE.into(),
+        index: None,
         tools: s.tools.clone(),
         proxy: None,
         rate_limit: 0,
@@ -412,6 +423,154 @@ async fn names_from_the_title_and_avoids_taken_names() {
         runs[1][runs[1].iter().position(|a| a == "-f").unwrap() + 1],
         "bv*+ba/b"
     );
+}
+
+fn playlist_fixture() -> serde_json::Value {
+    serde_json::from_slice(
+        &std::fs::read(info::fixture_dir().join("youtube-playlist.json")).unwrap(),
+    )
+    .unwrap()
+}
+
+const LIST: &str = "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb";
+
+async fn lists_a_playlist() {
+    let s = setup(&Scenario {
+        playlist: playlist_fixture(),
+        ..Scenario::default()
+    });
+    let list = playlist::list(&s.tools, LIST, None).await.unwrap();
+    assert_eq!(list.title.as_deref(), Some("Early YouTube"));
+    assert_eq!(list.entries.len(), 4);
+    assert_eq!(list.entries[1].id, "aqz-KE-bpKQ");
+    let args = &calls(&s.yt_dlp)[0];
+    assert!(args.contains(&"--flat-playlist".to_string()));
+    assert!(args.contains(&"--yes-playlist".to_string()));
+    assert!(!args.contains(&"--no-playlist".to_string()));
+    assert!(args.contains(&"--no-cookies".to_string()));
+    assert_eq!(&args[args.len() - 2..], ["--", LIST]);
+
+    // A list that is gone, explained like a video.
+    fake_tools::set_scenario(
+        &s.yt_dlp,
+        &Scenario {
+            error: Some("[youtube:tab] PLx: The playlist does not exist.".into()),
+            ..Scenario::default()
+        },
+    );
+    let err = playlist::list(&s.tools, LIST, None).await.unwrap_err();
+    assert_eq!(err.kind(), "unavailable");
+}
+
+async fn playlist_videos_use_preset_template_and_subtitles() {
+    let s = setup(&Scenario {
+        info: info_fixture(),
+        parts: vec![FakePart {
+            format_id: "18".into(),
+            ext: "mp4".into(),
+            size: 2000,
+            height: Some(360),
+            vcodec: Some("avc1.42001E".into()),
+            acodec: Some("mp4a.40.2".into()),
+        }],
+        step: 1000,
+        ..Scenario::default()
+    });
+    let subs = vec![
+        SubtitleRef {
+            language: "en".into(),
+            auto: false,
+        },
+        SubtitleRef {
+            language: "tr".into(),
+            auto: true,
+        },
+    ];
+    let mut req = request(&s, None, None);
+    req.preset = Some(Preset::P720);
+    req.subtitles = subs.clone();
+    req.name_template = "{index} - {channel} - {title} ({date})".into();
+    req.index = Some((3, 12));
+    // Without FFmpeg the subtitles are saved next to the video.
+    req.tools.ffmpeg = None;
+    let (outcome, _) = finish(job::start(req)).await;
+    let Ok(Outcome::Completed { path, .. }) = outcome else {
+        panic!("{outcome:?}");
+    };
+    let stem = "03 - jawed - Me at the zoo (2005-04-23)";
+    assert_eq!(path, s.out.join(format!("{stem}.mp4")));
+    assert!(s.out.join(format!("{stem}.en.vtt")).exists());
+    assert!(s.out.join(format!("{stem}.tr.vtt")).exists());
+    let runs = calls(&s.yt_dlp);
+    let args = runs.last().unwrap();
+    let at = |flag: &str| args[args.iter().position(|a| a == flag).unwrap() + 1].clone();
+    assert_eq!(at("-f"), "b[height<=720]/b");
+    assert_eq!(at("--sub-langs"), "en,tr");
+    assert!(args.contains(&"--write-subs".to_string()));
+    assert!(args.contains(&"--write-auto-subs".to_string()));
+
+    // With FFmpeg they go into the video, and nothing lands next to it.
+    let mut req = request(&s, Some("Embedded.mp4"), None);
+    req.preset = Some(Preset::Best);
+    req.subtitles = subs;
+    let (outcome, _) = finish(job::start(req)).await;
+    assert!(
+        matches!(outcome, Ok(Outcome::Completed { .. })),
+        "{outcome:?}"
+    );
+    let args = calls(&s.yt_dlp).last().unwrap().clone();
+    assert!(args.contains(&"--embed-subs".to_string()));
+    assert!(!s.out.join("Embedded.en.vtt").exists());
+    let f = args[args.iter().position(|a| a == "-f").unwrap() + 1].clone();
+    assert_eq!(f, "bv*+ba/b");
+}
+
+async fn readable_errors_for_common_failures() {
+    let cases: &[(&str, Option<&str>, &str)] = &[
+        (
+            "unable to download video data: HTTP Error 403: Forbidden",
+            None,
+            "site_forbidden",
+        ),
+        (
+            "[youtube] jNQXAC9IVRw: Sign in to confirm you're not a bot. Use --cookies-from-browser or --cookies for the authentication.",
+            None,
+            "site_sign_in",
+        ),
+        (
+            "[youtube] jNQXAC9IVRw: Sign in to confirm your age. This video may be inappropriate for some users.",
+            None,
+            "site_age_restricted",
+        ),
+        (
+            "[youtube] jNQXAC9IVRw: Video unavailable. This video has been removed by the uploader",
+            None,
+            "unavailable",
+        ),
+        (
+            "[youtube] jNQXAC9IVRw: Requested format is not available. Use --list-formats for a list of available formats",
+            Some(
+                "[youtube] No supported JavaScript runtime could be found. YouTube extraction without a JS runtime has been deprecated",
+            ),
+            "site_js_runtime",
+        ),
+        (
+            "unable to download video data: HTTP Error 403: Forbidden",
+            Some(
+                "[youtube] jNQXAC9IVRw: Some tv client https formats have been skipped as they are missing a url. YouTube may have enabled the SABR-only or Server-Side Ad Placement experiment for the current session. GVS PO Token required",
+            ),
+            "site_po_token",
+        ),
+    ];
+    for (error, warning, kind) in cases {
+        let s = setup(&Scenario {
+            error: Some((*error).into()),
+            warning: warning.map(String::from),
+            ..Scenario::default()
+        });
+        let err = info::inspect(&s.tools, URL, None).await.unwrap_err();
+        assert_eq!(err.kind(), *kind, "{error}");
+    }
 }
 
 async fn failures_are_classified() {

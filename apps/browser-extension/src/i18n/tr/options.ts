@@ -47,6 +47,10 @@ export const options: Messages["options"] = {
   bypassHelp: "Yakalama açıkken bu tuş basılıyken bir bağlantıya tıklarsanız o indirme tarayıcıda kalır. Diğer tıklamalar ve tarayıcının kendi kısayolları değişmez.",
   bypassAccess: "Tıklamayı fark etmek için ziyaret ettiğiniz sitelere erişim gerekir. Bir bağlantıya bu şekilde tıklayana kadar hiçbir şey okunmaz ve gönderilmez.",
   bypassAllow: "Erişime izin ver",
+  appHeading: "06 — Masaüstü uygulaması",
+  startApp: "Kapalıysa Downpipe'ı başlat",
+  startAppDetail:
+    "Tarayıcıdan gönderilen bir indirme başarısız olmak yerine önce Downpipe'ı sistem tepsisinde başlatır. Bu kapalıyken Downpipe'ın açık olması gerekir.",
   save: "Kaydet",
   moreErrors: { one: "Ve {count} tane daha.", other: "Ve {count} tane daha." },
   unsaved: "Kaydedilmemiş değişiklikler",

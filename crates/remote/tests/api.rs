@@ -63,6 +63,7 @@ async fn open(data: &Path, downloads: &Path) -> Manager {
                     id: "night".into(),
                     name: "Night".into(),
                     max_concurrent: 1,
+                    command: String::new(),
                 },
             ],
             ..settings

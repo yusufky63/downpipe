@@ -5,6 +5,8 @@ export const status = {
   connected: "Connected to Downpipe",
   connectedDetail: "App {app}, browser bridge {bridge}",
   appNotRunning: "Downpipe is not running",
+  /** Instead of appNotRunningDetail while the bridge may start Downpipe. */
+  appNotRunningStarts: "A download you send starts it in the tray.",
   appNotRunningDetail: "Open the Downpipe app. Links sent while it is closed are not queued.",
   hostMissing: "Browser bridge not installed",
   hostMissingDetail: "Open the Downpipe app once; it registers the bridge when it starts. For a build from source, run:",

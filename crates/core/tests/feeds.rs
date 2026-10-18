@@ -69,6 +69,7 @@ async fn manager(data: &Path, downloads: &Path) -> Manager {
         id: String::new(),
         name: "Podcasts".into(),
         max_concurrent: 1,
+        command: String::new(),
     });
     m.update_settings(Settings {
         download_dir: downloads.to_path_buf(),
@@ -268,4 +269,49 @@ async fn filters_backlog_and_errors() {
         Err(FeedsError::NotFound(_))
     ));
     m.shutdown().await;
+}
+
+#[tokio::test]
+async fn feeds_from_a_backup_are_subscribed_once_without_downloading_their_items() {
+    use downpipe_core::backup::BackupFeed;
+
+    let server = serve().await;
+    let base = server.base.lock().clone();
+    *server.feed.lock() = rss(&base, &[("e1", "Episode 1", "e1.mp3")]);
+    let tmp = tempfile::tempdir().unwrap();
+    let m = manager(&tmp.path().join("data"), &tmp.path().join("dl")).await;
+    let feeds = Feeds::in_memory(m.clone()).unwrap();
+    let from_backup = |url: String| BackupFeed {
+        url,
+        filter: FeedFilter::default(),
+        interval_minutes: 1,
+        queue: "no-such-queue".into(),
+        enabled: true,
+    };
+    let report = feeds
+        .import(vec![
+            from_backup(format!("{base}/feed.xml")),
+            // Twice in the file, and one that is no feed.
+            from_backup(format!("{base}/feed.xml/")),
+            from_backup(format!("{base}/page.html")),
+            from_backup("file:///etc/passwd".into()),
+        ])
+        .await;
+    assert_eq!((report.added, report.duplicates, report.failed), (1, 1, 2));
+    let list = feeds.list();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].queue, "main", "an unknown queue falls back to main");
+    assert_eq!(
+        list[0].interval_minutes,
+        downpipe_core::feeds::MIN_INTERVAL_MINUTES
+    );
+    assert!(
+        m.list().is_empty(),
+        "the feed's items are remembered, not downloaded"
+    );
+
+    let again = feeds
+        .import(vec![from_backup(format!("{base}/feed.xml"))])
+        .await;
+    assert_eq!((again.added, again.duplicates), (0, 1));
 }

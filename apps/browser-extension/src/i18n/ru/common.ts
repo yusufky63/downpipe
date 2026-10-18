@@ -17,6 +17,7 @@ export const common: Messages["common"] = {
 };
 
 export const results: Messages["results"] = {
+  listOpened: "Открыто в Downpipe: выберите видео там.",
   added: "Добавлено в Downpipe",
   waiting: "Ожидает вашего ответа в Downpipe",
   sent: "Отправлено в Downpipe",

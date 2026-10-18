@@ -97,9 +97,29 @@ describe("new requests", () => {
   });
 });
 
+describe("set_start_app", () => {
+  it("takes exactly one boolean", () => {
+    expect(parsePopupRequest({ kind: "set_start_app", enabled: false })).toEqual({ kind: "set_start_app", enabled: false });
+    expect(parsePopupRequest({ kind: "set_start_app", enabled: "no" })).toBeNull();
+    expect(parsePopupRequest({ kind: "set_start_app" })).toBeNull();
+    expect(parsePopupRequest({ kind: "set_start_app", enabled: true, path: "/usr/bin/x"})).toBeNull();
+  });
+
+  it("is on unless switched off", () => {
+    expect(parseSettings({ startApp: false }).startApp).toBe(false);
+    expect(parseSettings({ startApp: "off" }).startApp).toBe(true);
+  });
+});
+
 describe("parseSettings", () => {
   it("notifies unless switched off", () => {
-    expect(parseSettings(undefined)).toEqual({ notify: true, ...defaultFilters(), ...defaultMediaFilters(), bypassKey: "alt" });
+    expect(parseSettings(undefined)).toEqual({
+      notify: true,
+      startApp: true,
+      ...defaultFilters(),
+      ...defaultMediaFilters(),
+      bypassKey: "alt",
+    });
     expect(parseSettings({ notify: false }).notify).toBe(false);
     expect(parseSettings({ notify: "off" }).notify).toBe(true);
   });
@@ -108,6 +128,7 @@ describe("parseSettings", () => {
     const old = parseSettings({ notify: false });
     expect(old).toEqual({
       notify: false,
+      startApp: true,
       captureAll: false,
       captureTypes: [...DEFAULT_CAPTURE_TYPES],
       excludedSites: [],
@@ -121,6 +142,7 @@ describe("parseSettings", () => {
   it("keeps saved filters", () => {
     const saved = {
       notify: true,
+      startApp: false,
       captureAll: true,
       captureTypes: ["zip"],
       excludedSites: ["a.org"],
@@ -139,6 +161,7 @@ describe("parseSettings", () => {
   it("checks replies that claim to be settings", () => {
     expect(isSettings(parseSettings(undefined))).toBe(true);
     expect(isSettings({ ...parseSettings(undefined), notify: "yes" })).toBe(false);
+    expect(isSettings({ ...parseSettings(undefined), startApp: undefined })).toBe(false);
     expect(isSettings({ notify: true })).toBe(false);
     expect(isSettings({ ...parseSettings(undefined), mediaTypes: ["MP4"] })).toBe(false);
     expect(isSettings({ ...parseSettings(undefined), bypassKey: "ctrl" })).toBe(false);

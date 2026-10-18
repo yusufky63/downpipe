@@ -2,11 +2,27 @@ import { FolderOpen } from "lucide-react";
 import { useEffect, useEffectEvent, useId, useState, type FormEvent } from "react";
 
 import { useI18n } from "../i18n";
-import { api, errorMessage, isCommandError, onConfirmClose, type Choices, type ConfirmOptions, type Queue, type Task } from "../lib/api";
+import { api, errorMessage, isCommandError, onConfirmClose, type Choices, type ConfirmOptions, type SubtitleOption, type Queue, type Settings, type Task } from "../lib/api";
 import { describeError } from "../lib/errors";
 import { withStop } from "../lib/format";
-import { REFUSED_STREAM, audioName, audiosFor, initialChoice, kindName, needsMerge, qualityOption, selectionFor } from "../lib/media";
+import {
+  REFUSED_STREAM,
+  audioName,
+  audiosFor,
+  initialChoice,
+  kindName,
+  needsMerge,
+  qualityOption,
+  selectionFor,
+  subtitleFromKey,
+  subtitleGroups,
+  subtitleKey,
+  subtitleName,
+} from "../lib/media";
+import { categoryExtracts, inheritedCommand, isArchive } from "../lib/post";
+import { SITE_SETUP_KINDS, siteFailureText } from "../lib/siteErrors";
 import { displayName, knownSize } from "../lib/tasks";
+import { PostFields } from "./PostFields";
 import { Banner, Button, Dialog, inputClass } from "./primitives";
 import { TorrentDialog } from "./TorrentDialog";
 
@@ -19,22 +35,10 @@ type Inspection =
    * `setup`: yt-dlp is missing, which Settings can fix.
    * `detail`: yt-dlp's or the engine's own words (the site's reason, which
    * tool), kept beside the translated message.
+   * `explained`: the message is the app's own text for a known yt-dlp
+   * failure, which says what to do.
    */
-  | { state: "failed"; message: string; detail: string | null; refused: boolean; setup: boolean };
-
-const UNSAFE_IN_NAMES = '<>:"/\\|?*';
-
-/**
- * A page title as a file name, made safe the way the app does it (the app
- * checks it again); yt-dlp replaces the extension with the real one.
- */
-function titleName(title: string): string {
-  const safe = [...title]
-    .map((ch) => ((ch.codePointAt(0) ?? 0) < 0x20 || UNSAFE_IN_NAMES.includes(ch) ? "_" : ch))
-    .join("")
-    .trim();
-  return safe ? `${safe}.mp4` : "";
-}
+  | { state: "failed"; message: string; detail: string | null; refused: boolean; setup: boolean; explained: boolean };
 
 /**
  * IDM's "Download File Info": a download caught in the browser waits here
@@ -54,6 +58,8 @@ interface ConfirmDialogProps {
   /** More downloads waiting after this one. */
   waiting: number;
   queues: Queue[];
+  /** For what runs after the download: the default command and the categories. */
+  settings?: Settings;
   /** The whole confirmation window rather than a dialog in the main window. */
   inWindow?: boolean;
   /** In the window: the height it needs. */
@@ -71,6 +77,7 @@ function FileConfirmDialog({
   task,
   waiting,
   queues,
+  settings,
   inWindow = false,
   onFit,
   onConfirm,
@@ -85,6 +92,9 @@ function FileConfirmDialog({
   const [dir, setDir] = useState(task.dir);
   const [queue, setQueue] = useState(task.queue);
   const [stopAsking, setStopAsking] = useState(false);
+  const [command, setCommand] = useState(task.post_actions.command);
+  // Null until the box is touched: the category then decides.
+  const [extract, setExtract] = useState<boolean | null>(task.post_actions.extract);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // A video page (YouTube) is chosen like a stream, with yt-dlp's formats.
@@ -94,6 +104,9 @@ function FileConfirmDialog({
   const [inspection, setInspection] = useState<Inspection>({ state: "loading" });
   const [videoId, setVideoId] = useState("");
   const [audioId, setAudioId] = useState("");
+  // A subtitleKey, or empty for none.
+  const [subtitle, setSubtitle] = useState("");
+  const [subtitleOptions, setSubtitleOptions] = useState<SubtitleOption[]>([]);
   const ids = useId();
 
   useEffect(() => {
@@ -101,11 +114,14 @@ function FileConfirmDialog({
     let current = true;
     const read: Promise<Choices> = site
       ? api.inspectSite(task.id).then((choices) => {
-          // The page's real title names the file unless the user typed one;
-          // the tab's title the browser sent can be stale on a page that
-          // changes videos without loading.
-          const title = choices.title ? titleName(choices.title) : "";
-          if (current && title) setName((now) => (now === initialName ? title : now));
+          // The media name template, filled from the page, names the file
+          // unless the user typed a name; the tab's title the browser sent
+          // can be stale on a page that changes videos without loading.
+          const named = choices.name ?? "";
+          if (current && named) setName((now) => (now === initialName ? named : now));
+          if (current) setSubtitleOptions(choices.subtitles);
+          const chosen = choices.chosen_subtitles[0];
+          if (current && chosen) setSubtitle(subtitleKey(chosen));
           return choices;
         })
       : api.inspectMedia(task.id);
@@ -120,10 +136,13 @@ function FileConfirmDialog({
       })
       .catch((err: unknown) => {
         if (!current) return;
-        const refused = isCommandError(err) && REFUSED_STREAM.has(err.code);
-        const setup = isCommandError(err) && err.code === "tool_missing";
+        const code = isCommandError(err) ? err.code : null;
+        const refused = code !== null && REFUSED_STREAM.has(code);
+        const setup = code !== null && SITE_SETUP_KINDS.has(code);
+        // yt-dlp's common failures in the app's own words, with what to do.
+        const explained = siteFailureText(code);
         const { text, detail } = describeError(err);
-        setInspection({ state: "failed", message: withStop(text), detail, refused, setup });
+        setInspection({ state: "failed", message: explained ?? withStop(text), detail, refused, setup, explained: explained !== null });
       });
     return () => {
       current = false;
@@ -157,6 +176,11 @@ function FileConfirmDialog({
         start,
         // Without the stream's qualities the best one is taken when it starts.
         media: choices ? selectionFor(choices, videoId, audioId) : null,
+        post:
+          command.trim() !== task.post_actions.command || extract !== task.post_actions.extract
+            ? { command: command.trim(), extract }
+            : null,
+        subtitles: site && choices ? [subtitleFromKey(subtitle)].filter((s) => s !== null) : null,
       });
       if (stopAsking) onStopAsking?.();
     } catch (err) {
@@ -201,8 +225,12 @@ function FileConfirmDialog({
   const offerStop = !fromApp && onStopAsking !== undefined;
   const options = choices?.options;
   const size = knownSize(task.total, video?.estimated_size);
+  const subtitles = site && choices ? subtitleGroups(subtitleOptions) : null;
+  // Embedded in a video when FFmpeg is there; next to an audio file always.
+  const embedded = choices?.ffmpeg === true && !(video?.audio_only ?? false);
   const pickQueue = queues.length > 1;
   const small = `${inputClass} h-8 text-[13px]`;
+  const archive = !stream && isArchive(name.trim());
 
   return (
     <Dialog
@@ -354,7 +382,56 @@ function FileConfirmDialog({
               </select>
             </>
           )}
+          {subtitles && subtitles.uploaded.length + subtitles.auto.length > 0 && (
+            <>
+              <label htmlFor={`${ids}-subtitles`} className="label">
+                {t("media.subtitles.label")}
+              </label>
+              <select
+                id={`${ids}-subtitles`}
+                value={subtitle}
+                onChange={(e) => setSubtitle(e.target.value)}
+                title={subtitle ? t(embedded ? "media.subtitles.embedded" : "media.subtitles.separate") : undefined}
+                className={small}
+              >
+                <option value="">{t("media.subtitles.none")}</option>
+                {subtitles.uploaded.length > 0 && (
+                  <optgroup label={t("media.subtitles.uploaded")}>
+                    {subtitles.uploaded.map((s) => (
+                      <option key={subtitleKey(s)} value={subtitleKey(s)}>
+                        {subtitleName(s)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {subtitles.auto.length > 0 && (
+                  <optgroup label={t("media.subtitles.auto")}>
+                    {subtitles.auto.map((s) => (
+                      <option key={subtitleKey(s)} value={subtitleKey(s)}>
+                        {subtitleName(s)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </>
+          )}
+
+          {settings && (
+            <PostFields
+              compact
+              command={command}
+              onCommand={setCommand}
+              inherited={inheritedCommand(settings, queue)}
+              archive={archive}
+              extract={extract ?? categoryExtracts(settings, name.trim())}
+              onExtract={setExtract}
+            />
+          )}
         </div>
+        {subtitle && (
+          <p className="text-[12px] text-ink-secondary">{t(embedded ? "media.subtitles.embedded" : "media.subtitles.separate")}</p>
+        )}
         {stream && <StreamNotice inspection={inspection} site={site} videoId={videoId} onOpenSettings={onOpenSettings} />}
         {error && <p className="text-[12px] text-danger-fg">{error}</p>}
       </form>
@@ -396,6 +473,15 @@ function StreamNotice({
           <button type="button" className={linkClass} onClick={onOpenSettings}>
             {t("confirm.openMediaSettings")}
           </button>
+          {detail}
+        </Banner>
+      );
+    }
+    // A known failure says what to do itself.
+    if (inspection.explained) {
+      return (
+        <Banner tone="warning">
+          {inspection.message}
           {detail}
         </Banner>
       );

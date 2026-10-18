@@ -18,7 +18,8 @@ import {
   type LinkOutcome,
   type LinkView,
 } from "../lib/links";
-import { isLinkResult, type LinkResult, type PingReply } from "../lib/messages";
+import { isLinkResult, isSettings, type LinkResult, type PingReply } from "../lib/messages";
+import type { BridgeStatus } from "../lib/status";
 import { statusView, type StatusView, type Tone } from "../lib/view";
 import { byId, extensionInfo, paintStatus, span, startPage } from "../ui/dom";
 
@@ -232,22 +233,28 @@ function renderIntro(c: LinkCollection): void {
 
 // ---------- The bridge ----------
 
-async function checkBridge(): Promise<StatusView> {
+async function checkBridge(): Promise<{ view: StatusView; state: BridgeStatus["state"] }> {
   els.recheck.disabled = true;
   try {
     const reply: unknown = await ext.runtime.sendMessage({ kind: "ping" }).catch(() => null);
-    const bridge =
+    const bridge: BridgeStatus =
       typeof reply === "object" && reply !== null && typeof (reply as PingReply).bridge === "object"
         ? (reply as PingReply).bridge
-        : ({ state: "error", message: t("common.extensionNoAnswer") } as const);
-    const view = statusView(bridge, extensionInfo());
+        : { state: "error", message: t("common.extensionNoAnswer") };
+    const view = statusView(bridge, extensionInfo(), bridge.state === "app_not_running" && (await startsApp()));
     paintStatus(els.status, view);
     // Nothing to say while connected.
     els.bridge.hidden = view.tone === "positive";
-    return view;
+    return { view, state: bridge.state };
   } finally {
     els.recheck.disabled = false;
   }
+}
+
+/** The options page lets the bridge start a closed Downpipe (on unless switched off). */
+async function startsApp(): Promise<boolean> {
+  const reply: unknown = await ext.runtime.sendMessage({ kind: "get_settings" }).catch(() => null);
+  return isSettings(reply) && reply.startApp;
 }
 
 // ---------- Sending ----------
@@ -290,12 +297,13 @@ async function sendChosen(): Promise<void> {
   els.summary.textContent = "";
   els.download.textContent = t("links.checkingApp");
   // One check first: with the app closed nothing is sent, instead of the
-  // first few links failing.
+  // first few links failing, unless the bridge may start it.
   const bridge = await checkBridge();
-  if (bridge.tone !== "positive") {
+  const starting = bridge.state === "app_not_running" && (await startsApp());
+  if (bridge.view.tone !== "positive" && !starting) {
     setSending(false);
     els.summary.dataset.tone = "danger";
-    els.summary.textContent = t("links.nothingSentBecause", { reason: bridge.title });
+    els.summary.textContent = t("links.nothingSentBecause", { reason: bridge.view.title });
     els.bridge.scrollIntoView({ block: "nearest" });
     return;
   }
@@ -305,21 +313,21 @@ async function sendChosen(): Promise<void> {
     els.download.textContent = t("links.sendingProgress", { done: outcomes.length, total: chosen.length });
   };
   progress();
-  await runLimited(
-    chosen,
-    CONCURRENCY,
-    async (view) => {
-      setResult(view.url, { state: "sending" });
-      const result = await sendOne(view, pageUrl);
-      outcomes.push(result.outcome);
-      setResult(view.url, { state: result.outcome, message: result.message });
-      // Sent once is enough: a second press only sends what is left.
-      if (result.outcome !== "failed") selected.delete(view.url);
-      if (result.stop) bridgeProblem ??= result.message;
-      progress();
-    },
-    () => stopRequested || bridgeProblem !== null,
-  );
+  const send = async (view: LinkView) => {
+    setResult(view.url, { state: "sending" });
+    const result = await sendOne(view, pageUrl);
+    outcomes.push(result.outcome);
+    setResult(view.url, { state: result.outcome, message: result.message });
+    // Sent once is enough: a second press only sends what is left.
+    if (result.outcome !== "failed") selected.delete(view.url);
+    if (result.stop) bridgeProblem ??= result.message;
+    progress();
+  };
+  // A closed Downpipe is started by the first link alone, so the others do
+  // not each start a copy; they follow once it runs.
+  const [first] = chosen;
+  if (starting && first) await send(first);
+  await runLimited(starting ? chosen.slice(1) : chosen, CONCURRENCY, send, () => stopRequested || bridgeProblem !== null);
   setSending(false);
   for (const view of chosen) {
     const li = rowsByUrl.get(view.url);

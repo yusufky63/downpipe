@@ -10,6 +10,7 @@ import { DuplicateDialog } from "./components/DuplicateDialog";
 import { FeedsDialog } from "./components/FeedsDialog";
 import { GrabberDialog } from "./components/GrabberDialog";
 import { PauseUntilDialog } from "./components/PauseUntilDialog";
+import { PlaylistDialog } from "./components/PlaylistDialog";
 import { Banner } from "./components/primitives";
 import { RedownloadDialog } from "./components/RedownloadDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
@@ -93,6 +94,8 @@ export function App() {
   const [removingIds, setRemovingIds] = useState<string[]>([]);
   const [redownloadId, setRedownloadId] = useState<string | null>(null);
   const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
+  // Playlists and channels whose videos are to be chosen, one at a time.
+  const [lists, setLists] = useState<string[]>([]);
   const [speedLimitIds, setSpeedLimitIds] = useState<string[]>([]);
   const [pauseUntilIds, setPauseUntilIds] = useState<string[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -148,6 +151,8 @@ export function App() {
     // Subscribe before the first load so no update falls between the two.
     void onManagerEvent((event) => {
       if (event.type === "settings") setSettings(event.settings);
+      // The browser sent a playlist: its videos are chosen here.
+      else if (event.type === "list_offered") setLists((now) => (now.includes(event.url) ? now : [...now, event.url]));
       else setTasks((list) => applyEvent(list, event));
     }).then(keep);
     void onResync(reload).then(keep);
@@ -321,6 +326,7 @@ export function App() {
   // What the browser sent is asked in the confirmation window, over the browser.
   const awaiting = useMemo(() => awaitingIn(tasks, "main"), [tasks]);
   const asking = !busyDialog && !showAdd ? awaiting[0] : undefined;
+  const listUrl = !busyDialog && !showAdd && asking === undefined && settings !== null ? lists[0] : undefined;
   const menuEntries = useMemo(() => buildMenu(selectedTasks, queues), [selectedTasks, queues]);
   const showMenu = menu !== null && menuEntries.length > 0;
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -681,6 +687,7 @@ export function App() {
           task={detailsTask}
           queueName={detailsTask.queue === "main" ? null : (queueNames.get(detailsTask.queue) ?? null)}
           startRelink={details?.relink ?? false}
+          settings={settings}
           actions={{
             onClose: () => setDetails(null),
             onPause: (id) => run(() => api.pause(id)),
@@ -700,6 +707,10 @@ export function App() {
             onRedownload: (id) => {
               setDetails(null);
               setRedownloadId(id);
+            },
+            onOpenExtracted: (id) => run(() => api.openExtracted(id)),
+            onSetPost: async (id, post) => {
+              await api.setPostActions(id, post);
             },
           }}
         />
@@ -729,6 +740,29 @@ export function App() {
             else setDuplicates(items);
           }}
           onTorrentDuplicate={showExisting}
+          onLists={(urls) => setLists((now) => [...now, ...urls.filter((u) => !now.includes(u))])}
+        />
+      )}
+      {listUrl && settings && (
+        <PlaylistDialog
+          key={listUrl}
+          url={listUrl}
+          settings={settings}
+          onClose={() => setLists((now) => now.filter((u) => u !== listUrl))}
+          onOpenSettings={() => setSettingsTab("media")}
+          onAdded={({ added, skipped }) => {
+            setFilter("all");
+            setQuery("");
+            setCategory("");
+            setQueue("");
+            const first = added[0];
+            if (first) {
+              setSelection({ ids: added.map((t) => t.id), anchor: first.id });
+              focusRow(first.id);
+            }
+            const text = t("playlist.added", { count: added.length });
+            toast(skipped > 0 ? `${text} ${t("playlist.skipped", { count: skipped })}` : text, "neutral");
+          }}
         />
       )}
       {asking && settings && (
@@ -737,6 +771,7 @@ export function App() {
           task={asking}
           waiting={awaiting.length - 1}
           queues={queues}
+          settings={settings}
           onConfirm={async (options) => {
             await api.confirm(asking.id, options);
           }}
@@ -754,6 +789,7 @@ export function App() {
             api.settingsClosed().catch(() => undefined);
           }}
           onSaved={setSettings}
+          onImported={(message) => toast(message, "neutral")}
         />
       )}
       {webDialog === "grabber" && settings && (

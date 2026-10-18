@@ -13,6 +13,8 @@ export const add: Messages["add"] = {
     downloadMany: { one: "Descargar {count} archivo", many: "Descargar {count} archivos", other: "Descargar {count} archivos" },
   },
   links: {
+    playlist: "Una lista de reproducción de {site}. A continuación eliges sus videos.",
+    channel: "Un canal de {site}. A continuación eliges sus videos.",
     label: "Enlaces",
     hint: "Un enlace por línea, o un patrón como file[001-100].zip. Se admiten enlaces http, https y magnet.",
     found: {

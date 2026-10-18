@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use downpipe_http::media::{self, MediaKind, MediaRequest};
@@ -12,19 +13,24 @@ use downpipe_http::{
     EngineConfig, Outcome, RateLimiter, filename, meta,
 };
 use downpipe_providers::install::{self, Tool};
+use downpipe_providers::naming::{self, NameFields};
 use downpipe_providers::{SiteRequest, ToolConfig, Tools, ToolsStatus, files as site_files, pages};
 use parking_lot::Mutex;
 use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
+use crate::backup::{
+    Backup, BackupDownload, BackupSummary, ImportChoice, ImportReport, merge_settings,
+};
+use crate::post::{self, Plan, PostActions, PostReport, Update};
 use crate::rules::{self, RefusedHost, RuleProxy, SiteRule};
 use crate::settings::{MAIN_QUEUE, Settings};
 use crate::store::Store;
 use crate::task::{
-    AddOptions, ConfirmOptions, Live, MediaChoices, MediaInfo, OnDuplicate, QueueMove, SiteChoices,
-    SiteInfo, SiteOptions, Swarm, TaskId, TaskRecord, TaskSnapshot, TaskState, TorrentChoices,
-    TorrentInfo,
+    AddListOptions, AddListResult, AddOptions, ConfirmOptions, ListChoices, Live, MediaChoices,
+    MediaInfo, OnDuplicate, QueueMove, SiteChoices, SiteInfo, SiteOptions, Swarm, TaskId,
+    TaskRecord, TaskSnapshot, TaskState, TorrentChoices, TorrentInfo,
 };
 use crate::torrent::{self, MAX_TORRENT_FILE, Parsed, SeedState};
 
@@ -62,6 +68,10 @@ pub enum CoreError {
     InvalidUrl(String),
     #[error("invalid setting: {0}")]
     InvalidSetting(String),
+    /// A playlist or channel, whose videos are chosen first
+    /// ([`Manager::inspect_list`], [`Manager::add_list`]).
+    #[error("this is a playlist or channel; choose its videos first")]
+    ListPage,
 }
 
 impl CoreError {
@@ -73,6 +83,7 @@ impl CoreError {
             Self::InvalidState { .. } => "invalid_state",
             Self::InvalidUrl(_) => "invalid_url",
             Self::InvalidSetting(_) => "invalid_setting",
+            Self::ListPage => "list_page",
             Self::Download(e) => e.kind(),
             Self::Store(_) | Self::Io(_) => "internal",
         }
@@ -84,9 +95,20 @@ impl CoreError {
 pub enum ManagerEvent {
     // Boxed: snapshots and settings are large and events are moved
     // through a channel.
-    Updated { task: Box<TaskSnapshot> },
-    Removed { id: TaskId },
-    Settings { settings: Box<Settings> },
+    Updated {
+        task: Box<TaskSnapshot>,
+    },
+    Removed {
+        id: TaskId,
+    },
+    Settings {
+        settings: Box<Settings>,
+    },
+    /// The browser sent a playlist or channel: a window should open it for
+    /// the user to choose its videos ([`Manager::offer_list`]).
+    ListOffered {
+        url: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +167,24 @@ struct Entry {
     /// This download's own speed limit, shared with its running job so a
     /// change applies at once.
     limiter: Arc<RateLimiter>,
+    /// Post-download steps running for it now.
+    post_job: Option<PostJob>,
+}
+
+/// Running post-download steps. Aborting the task ends a command or scanner
+/// (its process is killed when dropped); the flag stops an extraction,
+/// which runs on a blocking thread.
+#[derive(Debug)]
+struct PostJob {
+    cancel: Arc<AtomicBool>,
+    task: JoinHandle<()>,
+}
+
+impl PostJob {
+    fn stop(self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        self.task.abort();
+    }
 }
 
 /// What a stop request should turn into once the engine has stopped.
@@ -207,6 +247,7 @@ impl Manager {
                 after_stop: AfterStop::Pause,
                 last_persist: Instant::now(),
                 relink: false,
+                post_job: None,
             });
         }
 
@@ -286,6 +327,9 @@ impl Manager {
             return self.add_torrent(opts, None);
         }
         let url = parse_web_url(&opts.url)?;
+        if pages::recognize_list(&url).is_some() {
+            return Err(CoreError::ListPage);
+        }
         let checksum = match opts
             .checksum
             .as_deref()
@@ -296,6 +340,7 @@ impl Manager {
             None => None,
         };
         downpipe_http::build_headers(&opts.headers)?;
+        let post_actions = checked_actions(opts.post)?;
         // A video page (YouTube) goes to the site provider under one link
         // per video, whatever tracking or timestamp the link carried.
         let page = pages::recognize(&url);
@@ -405,6 +450,8 @@ impl Manager {
                 speed_limit: None,
                 resume_at: None,
                 site_rule: rule.map(|r| r.pattern),
+                post_actions,
+                post: None,
                 torrent: None,
             };
             st.store.upsert(&record)?;
@@ -419,6 +466,7 @@ impl Manager {
                 after_stop: AfterStop::Pause,
                 last_persist: Instant::now(),
                 relink: false,
+                post_job: None,
             };
             let mut entry = entry;
             entry.live.awaiting_confirmation = confirm;
@@ -651,6 +699,9 @@ impl Manager {
                 .position(|e| e.record.id == id)
                 .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
             let entry = &mut st.tasks[idx];
+            if let Some(job) = entry.post_job.take() {
+                job.stop();
+            }
             if let Some(control) = &entry.control {
                 entry.after_stop = AfterStop::Remove;
                 if delete_files {
@@ -724,6 +775,7 @@ impl Manager {
     /// Apply what the user chose for a download held for confirmation.
     pub fn confirm(&self, id: &str, choice: ConfirmOptions) -> Result<(), CoreError> {
         let start = choice.start;
+        let post = choice.post.map(checked_actions).transpose()?;
         self.inner.with_entry(id, |st, entry| {
             if !entry.live.awaiting_confirmation {
                 return Err(invalid("confirm", entry.record.state));
@@ -766,6 +818,12 @@ impl Manager {
                     site.quality = None;
                 }
             }
+            if let Some(post) = post {
+                entry.record.post_actions = post;
+            }
+            if let (Some(subtitles), Some(site)) = (choice.subtitles, entry.record.site.as_mut()) {
+                site.subtitles = valid_subtitles(subtitles);
+            }
             entry.live.awaiting_confirmation = false;
             entry.set_state(if start {
                 TaskState::Queued
@@ -786,6 +844,9 @@ impl Manager {
         self.inner.with_entry(id, |st, entry| {
             if entry.control.is_some() || entry.record.state != TaskState::Completed {
                 return Err(invalid("download again", entry.record.state));
+            }
+            if let Some(job) = entry.post_job.take() {
+                job.stop();
             }
             if let Some(t) = entry.record.torrent.as_ref() {
                 // A torrent is downloaded into the same place again: the
@@ -808,6 +869,7 @@ impl Manager {
             r.completed_at = None;
             r.error = None;
             r.error_kind = None;
+            r.post = None;
             entry.live = Live::default();
             entry.set_state(TaskState::Queued);
             st.store.upsert(&entry.record)?;
@@ -815,6 +877,21 @@ impl Manager {
         })?;
         self.inner.schedule();
         Ok(())
+    }
+
+    /// Change what happens once a download completes: its own command and
+    /// whether to extract it. Takes effect the next time it completes.
+    pub fn set_post_actions(&self, id: &str, actions: PostActions) -> Result<(), CoreError> {
+        let actions = checked_actions(actions)?;
+        self.inner.with_entry(id, |st, entry| {
+            if entry.record.post_actions == actions {
+                return Ok(None);
+            }
+            entry.record.post_actions = actions;
+            entry.record.updated_at = unix_now();
+            st.store.upsert(&entry.record)?;
+            Ok(Some(entry.snapshot()))
+        })
     }
 
     /// What a stream download can be: its qualities and audio tracks, read
@@ -878,8 +955,23 @@ impl Manager {
         };
         let tools = downpipe_providers::tools::find(&self.inner.tool_config(&settings));
         let info = downpipe_providers::info::inspect(&tools, &url, proxy.as_deref()).await?;
+        let stem = naming::stem(
+            &settings.media_name_template,
+            &NameFields {
+                title: info.title.as_deref(),
+                channel: info.channel.as_deref(),
+                upload_date: info.upload_date.as_deref(),
+                index: site.index,
+                count: site.count,
+                id: info.id.as_deref(),
+            },
+        );
         Ok(SiteChoices {
             site: site.site,
+            // yt-dlp sets the real extension; the dialog shows the usual one.
+            name: Some(format!("{stem}.mp4")),
+            subtitles: info.subtitles,
+            chosen_subtitles: site.subtitles,
             title: info.title,
             options: SiteOptions {
                 videos: info.videos,
@@ -889,6 +981,204 @@ impl Manager {
             selection: site.selection,
             ffmpeg: tools.ffmpeg.is_some(),
         })
+    }
+
+    /// The videos of a playlist or channel page, read by yt-dlp from the
+    /// list pages only. Nothing is added; [`Manager::add_list`] adds the
+    /// ones the user picks.
+    pub async fn inspect_list(&self, url: &str) -> Result<ListChoices, CoreError> {
+        let list = list_page(url)?;
+        let settings = self.settings();
+        let tools = downpipe_providers::tools::find(&self.inner.tool_config(&settings));
+        let proxy = (!settings.proxy.is_empty()).then_some(settings.proxy.as_str());
+        let info = downpipe_providers::playlist::list(&tools, list.url.as_str(), proxy).await?;
+        Ok(ListChoices {
+            site: list.site.to_string(),
+            kind: list.kind.as_str().to_string(),
+            url: list.url.to_string(),
+            title: info.title,
+            channel: info.channel,
+            entries: info.entries,
+            truncated: info.truncated,
+            // A site rule's folder, as `add_list` uses it.
+            dir: settings
+                .site_rule_for(&list.url)
+                .filter(|r| !r.download_dir.is_empty())
+                .map_or_else(
+                    || video_dir(&settings),
+                    |r| settings.resolve_dir(&r.download_dir),
+                ),
+            ffmpeg: tools.ffmpeg.is_some(),
+        })
+    }
+
+    /// Add the chosen videos of a playlist or channel, each as a video page
+    /// of its own with the list's quality and subtitles, in the list's
+    /// order, in a folder named after the list. Videos already in the list
+    /// are skipped. All are written in one transaction.
+    pub fn add_list(&self, opts: AddListOptions) -> Result<AddListResult, CoreError> {
+        let list = list_page(&opts.url)?;
+        let subtitles = valid_subtitles(opts.subtitles);
+        let (added, skipped) = {
+            let mut st = self.inner.state.lock();
+            // Every video of a list is on the same site, under the same rule,
+            // whose folder and queue apply as they do to a single video.
+            let rule = st.settings.site_rule_for(&list.url).cloned();
+            let rule_dir = rule
+                .as_ref()
+                .filter(|r| !r.download_dir.is_empty())
+                .map(|r| st.settings.resolve_dir(&r.download_dir));
+            let auto_dir = opts.dir.is_none() && rule_dir.is_none();
+            let base = opts
+                .dir
+                .or(rule_dir)
+                .unwrap_or_else(|| video_dir(&st.settings));
+            // Slashes in a title would be read as folders.
+            let folder = opts
+                .title
+                .as_deref()
+                .map(|t| t.replace(['/', '\\'], "-"))
+                .filter(|t| !t.trim().is_empty())
+                .map(|t| site_files::stem_from_title(&t));
+            let dir = match folder {
+                Some(folder) => base.join(folder),
+                None => base,
+            };
+            let category = st
+                .settings
+                .category_for("video.mp4")
+                .map(|c| c.name.clone());
+            let queue = opts
+                .queue
+                .filter(|q| st.settings.queue(q).is_some())
+                .or_else(|| {
+                    rule.as_ref()
+                        .map(|r| r.queue.clone())
+                        .filter(|q| st.settings.queue(q).is_some())
+                })
+                .unwrap_or_else(|| MAIN_QUEUE.into());
+            let rule = rule.map(|r| r.pattern);
+            let count = opts
+                .count
+                .max(u32::try_from(opts.entries.len()).unwrap_or(u32::MAX));
+            let now = unix_now();
+            let mut position = next_position(&st.tasks);
+            let mut pages_added: Vec<(String, TaskRecord)> = Vec::new();
+            let mut skipped = 0;
+            for pick in opts
+                .entries
+                .into_iter()
+                .take(downpipe_providers::MAX_LIST_ENTRIES)
+            {
+                // The link is made from the id alone.
+                let Some(page) =
+                    pages::recognize_link(&format!("https://www.youtube.com/watch?v={}", pick.id))
+                else {
+                    continue;
+                };
+                let key = downpipe_http::redact_url(&page.url);
+                if st.tasks.iter().any(|e| e.record.url == key)
+                    || pages_added.iter().any(|(_, r)| r.url == key)
+                {
+                    skipped += 1;
+                    continue;
+                }
+                let mut site = SiteInfo::new(page.site);
+                site.preset = opts.preset;
+                site.subtitles.clone_from(&subtitles);
+                site.title = pick
+                    .title
+                    .as_deref()
+                    .map(|t| {
+                        t.chars()
+                            .filter(|c| !c.is_control())
+                            .take(200)
+                            .collect::<String>()
+                    })
+                    .filter(|t| !t.trim().is_empty());
+                site.index = Some(pick.index.max(1));
+                site.count = Some(count);
+                let record = TaskRecord {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    url: key,
+                    dir: dir.clone(),
+                    file_name: None,
+                    path: None,
+                    state: if opts.paused {
+                        TaskState::Paused
+                    } else {
+                        TaskState::Queued
+                    },
+                    total: None,
+                    downloaded: 0,
+                    error: None,
+                    error_kind: None,
+                    checksum: None,
+                    max_connections: None,
+                    category: category.clone(),
+                    auto_dir,
+                    queue: queue.clone(),
+                    position,
+                    created_at: now,
+                    updated_at: now,
+                    completed_at: None,
+                    media: None,
+                    site: Some(site),
+                    speed_limit: None,
+                    resume_at: None,
+                    site_rule: rule.clone(),
+                    post_actions: PostActions::default(),
+                    post: None,
+                    torrent: None,
+                };
+                position += 1;
+                pages_added.push((page.url.to_string(), record));
+            }
+            let records: Vec<TaskRecord> = pages_added.iter().map(|(_, r)| r.clone()).collect();
+            st.store.upsert_many(&records)?;
+            let mut added = Vec::with_capacity(pages_added.len());
+            for (url, record) in pages_added {
+                let entry = Entry {
+                    url,
+                    record,
+                    live: Live::default(),
+                    headers: Vec::new(),
+                    control: None,
+                    supervisor: None,
+                    after_stop: AfterStop::Pause,
+                    last_persist: Instant::now(),
+                    relink: false,
+                    limiter: Arc::new(RateLimiter::unlimited()),
+                    post_job: None,
+                };
+                added.push(entry.snapshot());
+                st.tasks.push(entry);
+            }
+            (added, skipped)
+        };
+        tracing::info!(
+            list = %list.url,
+            added = added.len(),
+            skipped,
+            "videos added from a list"
+        );
+        for task in &added {
+            self.inner.emit(ManagerEvent::Updated {
+                task: Box::new(task.clone()),
+            });
+        }
+        self.inner.schedule();
+        Ok(AddListResult { added, skipped })
+    }
+
+    /// Ask a window to open a playlist or channel the browser sent, for the
+    /// user to choose its videos. Nothing is added until then. Returns the
+    /// list's own page.
+    pub fn offer_list(&self, url: &str) -> Result<String, CoreError> {
+        let url = list_page(url)?.url.to_string();
+        self.inner
+            .emit(ManagerEvent::ListOffered { url: url.clone() });
+        Ok(url)
     }
 
     /// The site provider's tools as the settings find them, with versions.
@@ -1057,6 +1347,7 @@ impl Manager {
                 rules::describe(problem.code)
             )));
         }
+        post::validate_settings(&settings).map_err(CoreError::InvalidSetting)?;
         if settings.user_agent.chars().any(char::is_control) {
             return Err(CoreError::InvalidSetting(
                 "the user agent cannot contain control characters".into(),
@@ -1121,11 +1412,238 @@ impl Manager {
         Ok(settings)
     }
 
+    /// The settings and the list, in list order, as a backup file keeps
+    /// them (see [`crate::backup`]).
+    pub fn backup(&self, app_version: &str) -> Backup {
+        let st = self.inner.state.lock();
+        let mut records: Vec<TaskRecord> = st.tasks.iter().map(|e| e.record.clone()).collect();
+        records.sort_by_key(|r| r.position);
+        Backup::new(app_version, unix_now(), &st.settings, &records)
+    }
+
+    /// What importing `backup` would bring, for the preview.
+    pub fn backup_summary(&self, backup: &Backup) -> BackupSummary {
+        let listed = self.listed(backup.downloads.iter().map(|d| d.url.as_str()));
+        let mut seen: Vec<&str> = Vec::new();
+        let mut new_downloads = 0;
+        for (download, in_list) in backup.downloads.iter().zip(listed) {
+            if !in_list && !seen.contains(&download.url.as_str()) {
+                new_downloads += 1;
+            }
+            seen.push(&download.url);
+        }
+        BackupSummary {
+            app_version: backup.app_version.clone(),
+            exported_at: backup.exported_at,
+            downloads: backup.downloads.len(),
+            new_downloads,
+            invalid: backup.invalid,
+            queues: backup
+                .settings
+                .queues
+                .iter()
+                .filter(|q| q.id != MAIN_QUEUE)
+                .count(),
+            categories: backup.settings.categories.len(),
+            site_rules: backup.settings.site_rules.len(),
+            feeds: backup.feeds.len(),
+        }
+    }
+
+    /// Take the settings and/or the downloads of a backup. Settings merge
+    /// as [`merge_settings`] describes (a proxy or user agent this version
+    /// refuses keeps the current one); downloads are added by
+    /// [`Manager::import_downloads`].
+    pub fn import_backup(
+        &self,
+        backup: &Backup,
+        choice: ImportChoice,
+    ) -> Result<ImportReport, CoreError> {
+        let mut report = ImportReport {
+            invalid: backup.invalid,
+            ..ImportReport::default()
+        };
+        if choice.settings {
+            let current = self.settings();
+            let merged = merge_settings(&current, &backup.settings);
+            if let Err(err) = self.update_settings(merged.clone()) {
+                match err {
+                    CoreError::InvalidSetting(why) => {
+                        tracing::warn!("backup: kept the current proxy and user agent: {why}");
+                        self.update_settings(Settings {
+                            proxy: current.proxy,
+                            user_agent: current.user_agent,
+                            ..merged
+                        })?;
+                    }
+                    other => return Err(other),
+                }
+            }
+            report.settings = true;
+        }
+        if choice.downloads {
+            let added = self.import_downloads(backup.downloads.clone())?;
+            report.added = added.added;
+            report.duplicates = added.duplicates;
+            report.invalid += added.invalid;
+        }
+        Ok(report)
+    }
+
+    /// Add downloads from a backup or another download manager. Each is
+    /// checked again ([`BackupDownload::validated`]); unfinished ones are
+    /// added paused, finished and canceled ones as they were. A link that
+    /// is already in the list, or comes twice, is skipped. Nothing in the
+    /// downloads' folders is written (only a resume file's progress is
+    /// read), so no file is ever overwritten.
+    pub fn import_downloads(&self, items: Vec<BackupDownload>) -> Result<ImportReport, CoreError> {
+        let mut report = ImportReport::default();
+        let mut snapshots = Vec::new();
+        {
+            let mut st = self.inner.state.lock();
+            let now = unix_now();
+            for item in items {
+                let item = match item.validated() {
+                    Ok(item) => item,
+                    Err(why) => {
+                        tracing::debug!("import: skipped a download: {why}");
+                        report.invalid += 1;
+                        continue;
+                    }
+                };
+                let hash = item
+                    .torrent
+                    .as_ref()
+                    .map(|t| t.info_hash.as_str())
+                    .filter(|h| !h.is_empty());
+                if st.tasks.iter().any(|e| {
+                    e.record.url == item.url
+                        || hash.is_some_and(|h| {
+                            e.record.torrent.as_ref().is_some_and(|t| t.info_hash == h)
+                        })
+                }) {
+                    report.duplicates += 1;
+                    continue;
+                }
+                let url = url::Url::parse(&item.url).ok();
+                let hint = item
+                    .file_name
+                    .clone()
+                    .or_else(|| url.as_ref().and_then(filename::from_url));
+                let sorted = hint
+                    .as_deref()
+                    .and_then(|name| st.settings.category_for(name))
+                    .cloned();
+                let dir = if item.dir.as_os_str().is_empty() {
+                    sorted
+                        .as_ref()
+                        .map(|c| st.settings.category_dir(c))
+                        .unwrap_or_else(|| st.settings.download_dir.clone())
+                } else {
+                    item.dir.clone()
+                };
+                let path = match (item.state, &item.file_name) {
+                    (TaskState::Completed, Some(name)) => Some(dir.join(name)),
+                    _ => None,
+                };
+                let queue = Some(item.queue)
+                    .filter(|q| st.settings.queue(q).is_some())
+                    .unwrap_or_else(|| MAIN_QUEUE.into());
+                let mut record = TaskRecord {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    url: item.url,
+                    dir,
+                    file_name: item.file_name,
+                    path,
+                    state: item.state,
+                    total: item.total,
+                    downloaded: item.downloaded,
+                    error: None,
+                    error_kind: None,
+                    checksum: item.checksum,
+                    max_connections: None,
+                    category: item.category.or_else(|| sorted.map(|c| c.name)),
+                    auto_dir: item.auto_dir,
+                    queue,
+                    position: next_position(&st.tasks),
+                    media: item.media,
+                    site: item.site,
+                    created_at: if item.created_at > 0 {
+                        item.created_at
+                    } else {
+                        now
+                    },
+                    updated_at: now,
+                    completed_at: item.completed_at,
+                    speed_limit: item.speed_limit,
+                    // Looked up again when it starts, like any download's.
+                    site_rule: None,
+                    // Nothing waits for a time after an import.
+                    resume_at: None,
+                    // Backups carry no commands; nothing ran here yet.
+                    post_actions: PostActions::default(),
+                    post: None,
+                    torrent: item.torrent,
+                };
+                refresh_from_meta(&mut record);
+                st.store.upsert(&record)?;
+                let record_limit = record.speed_limit.unwrap_or(0);
+                let entry = Entry {
+                    url: record.url.clone(),
+                    record,
+                    live: Live::default(),
+                    headers: Vec::new(),
+                    control: None,
+                    supervisor: None,
+                    after_stop: AfterStop::Pause,
+                    last_persist: Instant::now(),
+                    relink: false,
+                    limiter: Arc::new(RateLimiter::new(record_limit)),
+                    post_job: None,
+                };
+                snapshots.push(entry.snapshot());
+                st.tasks.push(entry);
+                report.added += 1;
+            }
+        }
+        for snapshot in snapshots {
+            self.inner.emit(ManagerEvent::Updated {
+                task: Box::new(snapshot),
+            });
+        }
+        Ok(report)
+    }
+
+    /// For each link, whether the list has it already, compared the way
+    /// [`Manager::add`] compares links (video pages by their canonical link).
+    pub fn listed<'a>(&self, urls: impl IntoIterator<Item = &'a str>) -> Vec<bool> {
+        let keys: Vec<Option<String>> = urls
+            .into_iter()
+            .map(|raw| {
+                let url = url::Url::parse(raw.trim()).ok()?;
+                let url = pages::recognize(&url).map_or(url, |p| p.url);
+                Some(downpipe_http::redact_url(&url))
+            })
+            .collect();
+        let st = self.inner.state.lock();
+        keys.into_iter()
+            .map(|key| key.is_some_and(|key| st.tasks.iter().any(|e| e.record.url == key)))
+            .collect()
+    }
+
     /// Stop everything cleanly so it resumes on the next start.
     pub async fn shutdown(&self) {
         let supervisors: Vec<JoinHandle<()>> = {
             let mut st = self.inner.state.lock();
             st.shutting_down = true;
+            // Post-download steps do not continue after a restart; a command
+            // or scanner still running is stopped with the app.
+            for e in &mut st.tasks {
+                if let Some(job) = e.post_job.take() {
+                    job.stop();
+                    e.live.post_step = None;
+                }
+            }
             st.tasks
                 .iter_mut()
                 .filter_map(|e| {
@@ -1337,11 +1855,102 @@ impl Inner {
         };
         let ((), result) = tokio::join!(forward, handle.wait());
         let completed = matches!(result, Ok(Outcome::Completed { .. }));
-        self.on_finished(&id, result);
+        if let Some(plan) = self.on_finished(&id, result) {
+            self.start_post(&id, plan);
+        }
         if completed {
             self.follow_seeding(&id);
         }
         self.schedule();
+    }
+
+    /// Run the post-download steps of a download that just completed.
+    fn start_post(self: &Arc<Self>, id: &str, plan: Plan) {
+        let _runtime = self.runtime.enter();
+        let mut st = self.state.lock();
+        if st.shutting_down {
+            return;
+        }
+        let Some(entry) = st.tasks.iter_mut().find(|e| e.record.id == id) else {
+            return;
+        };
+        if entry.record.state != TaskState::Completed || entry.post_job.is_some() {
+            return;
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        let inner = self.clone();
+        let task_id = id.to_string();
+        let flag = cancel.clone();
+        let task = tokio::spawn(async move {
+            let apply = |update| inner.apply_post(&task_id, &flag, update);
+            post::run(&task_id, plan, flag.clone(), apply).await;
+        });
+        entry.post_job = Some(PostJob { cancel, task });
+    }
+
+    /// Record one post-download update; `false` when the download is gone
+    /// or its steps were stopped.
+    fn apply_post(&self, id: &str, cancel: &AtomicBool, update: Update) -> bool {
+        if cancel.load(Ordering::Relaxed) {
+            return false;
+        }
+        let snapshot = {
+            let mut st = self.state.lock();
+            let State { store, tasks, .. } = &mut *st;
+            let Some(entry) = tasks.iter_mut().find(|e| e.record.id == id) else {
+                return false;
+            };
+            if entry.record.state != TaskState::Completed {
+                return false;
+            }
+            let mut persist = true;
+            let report = || PostReport::default();
+            match update {
+                Update::Step(step) => {
+                    entry.live.post_step = Some(step);
+                    persist = false;
+                }
+                Update::Scan(scan) => {
+                    entry.record.post.get_or_insert_with(report).scan = Some(scan);
+                }
+                Update::Extract(extract) => {
+                    entry.record.post.get_or_insert_with(report).extract = Some(extract);
+                }
+                Update::Command(command) => {
+                    entry.record.post.get_or_insert_with(report).command = Some(command);
+                }
+                Update::StoppedByThreat => {
+                    entry
+                        .record
+                        .post
+                        .get_or_insert_with(report)
+                        .stopped_by_threat = true;
+                }
+                Update::ArchiveDeleted => {
+                    if let Some(extract) =
+                        entry.record.post.as_mut().and_then(|p| p.extract.as_mut())
+                    {
+                        extract.archive_deleted = true;
+                    }
+                }
+                Update::Done => {
+                    entry.live.post_step = None;
+                    entry.post_job = None;
+                    persist = false;
+                }
+            }
+            if persist {
+                entry.record.updated_at = unix_now();
+                if let Err(e) = store.upsert(&entry.record) {
+                    tracing::warn!("could not persist the post-download report: {e}");
+                }
+            }
+            entry.snapshot()
+        };
+        self.emit(ManagerEvent::Updated {
+            task: Box::new(snapshot),
+        });
+        true
     }
 
     fn on_progress(&self, id: &str, p: &downpipe_http::Progress) {
@@ -1403,7 +2012,10 @@ impl Inner {
         });
     }
 
-    fn on_finished(&self, id: &str, result: Result<Outcome, DownloadError>) {
+    /// Record how a download ended; returns the post-download steps to run
+    /// when it completed and has some.
+    fn on_finished(&self, id: &str, result: Result<Outcome, DownloadError>) -> Option<Plan> {
+        let mut plan = None;
         let event = {
             let mut st = self.state.lock();
             let State {
@@ -1412,9 +2024,7 @@ impl Inner {
                 settings,
                 ..
             } = &mut *st;
-            let Some(idx) = tasks.iter().position(|e| e.record.id == id) else {
-                return;
-            };
+            let idx = tasks.iter().position(|e| e.record.id == id)?;
             let entry = &mut tasks[idx];
             entry.control = None;
             entry.supervisor = None;
@@ -1437,7 +2047,7 @@ impl Inner {
                 tasks.remove(idx);
                 drop(st);
                 self.emit(ManagerEvent::Removed { id: id.to_string() });
-                return;
+                return None;
             }
 
             let r = &mut entry.record;
@@ -1462,8 +2072,14 @@ impl Inner {
                     r.error = None;
                     r.error_kind = None;
                     r.resume_at = None;
+                    r.post = None;
                     entry.live.segments.clear();
                     entry.set_state(TaskState::Completed);
+                    // A download removed while it finished gets no steps.
+                    if after != AfterStop::Remove {
+                        plan = Plan::new(settings, &entry.record);
+                        entry.live.post_step = plan.as_ref().map(Plan::first_step);
+                    }
                 }
                 Ok(Outcome::Paused {
                     downloaded, total, ..
@@ -1498,6 +2114,7 @@ impl Inner {
             }
         };
         self.emit(event);
+        plan
     }
 }
 
@@ -1579,6 +2196,19 @@ impl Entry {
             dir: self.record.dir.clone(),
             file_name: self.record.file_name.clone(),
             selection: self.record.site.as_ref().and_then(|s| s.selection.clone()),
+            preset: self.record.site.as_ref().and_then(|s| s.preset),
+            subtitles: self
+                .record
+                .site
+                .as_ref()
+                .map(|s| s.subtitles.clone())
+                .unwrap_or_default(),
+            name_template: settings.media_name_template.clone(),
+            index: self
+                .record
+                .site
+                .as_ref()
+                .and_then(|s| Some((s.index?, s.count.unwrap_or(0)))),
             tools,
             proxy: site_proxy(settings, rule),
             rate_limit,
@@ -1756,6 +2386,15 @@ fn move_into(path: &Path, dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     Ok(dest)
 }
 
+/// Post-download choices from a dialog, trimmed and checked: a command line
+/// that cannot run is refused before it is stored.
+fn checked_actions(actions: PostActions) -> Result<PostActions, CoreError> {
+    let actions = actions.normalized();
+    post::validate_actions(&actions)
+        .map_err(|e| CoreError::InvalidSetting(format!("command after download: {e}")))?;
+    Ok(actions)
+}
+
 fn invalid(action: &'static str, state: TaskState) -> CoreError {
     CoreError::InvalidState {
         action,
@@ -1801,6 +2440,31 @@ fn find_ffmpeg(configured: &str) -> Option<PathBuf> {
 
 /// A name for a stream before its container is known: the hint without a
 /// manifest's extension, as a video. The engine sets the real extension.
+/// Where videos go unless a folder is chosen: the Video category's folder,
+/// else the download folder.
+fn video_dir(settings: &Settings) -> PathBuf {
+    match settings.category_for("video.mp4") {
+        Some(c) => settings.category_dir(c),
+        None => settings.download_dir.clone(),
+    }
+}
+
+fn list_page(raw: &str) -> Result<pages::ListPage, CoreError> {
+    pages::recognize_list(&parse_web_url(raw)?)
+        .ok_or_else(|| CoreError::InvalidUrl("not a playlist or channel".into()))
+}
+
+/// Subtitle languages that may go to yt-dlp.
+fn valid_subtitles(
+    subtitles: Vec<downpipe_providers::SubtitleRef>,
+) -> Vec<downpipe_providers::SubtitleRef> {
+    subtitles
+        .into_iter()
+        .filter(|s| downpipe_providers::valid_sub_lang(&s.language))
+        .take(16)
+        .collect()
+}
+
 fn video_name(hint: &str) -> String {
     let stem = match hint.rsplit_once('.') {
         Some((stem, ext))
@@ -1869,6 +2533,7 @@ impl Manager {
         opts: AddOptions,
         file: Option<&[u8]>,
     ) -> Result<TaskSnapshot, CoreError> {
+        let post_actions = checked_actions(opts.post.clone())?;
         let (parsed, memory_url) = match file {
             Some(bytes) => {
                 let parsed = torrent::parse_file(bytes)?;
@@ -1987,6 +2652,8 @@ impl Manager {
                 resume_at: None,
                 // Site rules are about web hosts; a torrent has none.
                 site_rule: None,
+                post_actions,
+                post: None,
                 torrent: Some(TorrentInfo {
                     info_hash: parsed.info_hash.clone(),
                     name: parsed.name.clone(),
@@ -2014,6 +2681,7 @@ impl Manager {
                 after_stop: AfterStop::Pause,
                 last_persist: Instant::now(),
                 relink: false,
+                post_job: None,
             };
             entry.live.awaiting_confirmation = confirm;
             entry.live.duplicate_of = duplicate_of;

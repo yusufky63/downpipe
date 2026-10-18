@@ -116,6 +116,8 @@ export interface StatusView {
 export function statusView(
   status: BridgeStatus | null,
   extension: { id: string; firefox: boolean },
+  /** The bridge starts a closed Downpipe when a download is sent (an option, on by default). */
+  startApp = false,
 ): StatusView {
   if (!status) {
     return { tone: "muted", title: t("status.checking"), detail: "", guide: false };
@@ -129,10 +131,11 @@ export function statusView(
         guide: false,
       };
     case "app_not_running":
+      // Closed is no problem when sending starts it.
       return {
-        tone: "warning",
+        tone: startApp ? "muted" : "warning",
         title: t("status.appNotRunning"),
-        detail: t("status.appNotRunningDetail"),
+        detail: t(startApp ? "status.appNotRunningStarts" : "status.appNotRunningDetail"),
         guide: false,
       };
     case "host_missing":
@@ -188,10 +191,18 @@ export function mediaRowView(c: MediaCandidate, streams: boolean, label = mediaN
 }
 
 /**
- * The row for a video page (YouTube) in the media list. `pages`: whether
- * the connected Downpipe has the site provider.
+ * The row for a video page (YouTube), or a playlist or channel, in the media
+ * list. `pages` and `lists`: whether the connected Downpipe takes them.
  */
-export function pageRowView(page: PageItem, pages: boolean): MediaRowView {
+export function pageRowView(page: PageItem, pages: boolean, lists = pages): MediaRowView {
+  if (page.list) {
+    return {
+      label: page.title ?? t(page.list === "channel" ? "media.thisSiteChannel" : "media.thisSitePlaylist", { site: page.site }),
+      // The videos are chosen in the app.
+      detail: lists ? t(page.list === "channel" ? "media.siteChannel" : "media.sitePlaylist", { site: page.site }) : t("media.updateForLists"),
+      sendable: lists,
+    };
+  }
   return {
     label: page.title ?? t("media.thisSiteVideo", { site: page.site }),
     // Short: the row leaves the detail little room. The quality is chosen in the app.

@@ -85,6 +85,18 @@ export const settings = {
   },
   /** yt-dlp and Deno, on the Media tab. */
   siteTools: {
+    template: "Media file name template",
+    templateHint: "Names videos from pages such as YouTube; the extension is added. Click a placeholder to add it.",
+    templatePreview: "Example: {name}",
+    templateSame: "Without the title or the id, every video gets the same name, and Downpipe adds (1), (2) to the next ones.",
+    templateInsert: "Placeholders",
+    placeholders: {
+      title: "The video's title",
+      channel: "The channel's name",
+      date: "The upload date, like 2005-04-23",
+      index: "The position in the playlist, like 07 of 42",
+      id: "The video's id on the site",
+    },
     heading: "Videos on pages",
     intro:
       "On a YouTube page, Download with Downpipe hands the page to yt-dlp, which picks the video out. yt-dlp needs Deno for YouTube and FFmpeg to join video and sound above 360p.",
@@ -155,5 +167,76 @@ export const settings = {
       extensionNotAllowed: "Other extension",
       failed: "Error",
     },
+  },
+  backup: {
+    heading: "Backup and import",
+    intro:
+      "Save the settings, queues, categories and the download list to one file, to bring them back here or on another computer. Headers and cookies are never saved.",
+    export: "Export settings and list…",
+    import: "Import…",
+    reading: "Reading…",
+    /** {file} is the backup's file name. */
+    exported: {
+      one: "Saved the settings and {count} download to {file}.",
+      other: "Saved the settings and {count} downloads to {file}.",
+    },
+    /** Heading of the import preview; {file} is the backup's file name. */
+    previewHeading: "Import {file}",
+    madeBy: "Made by Downpipe {version} on {date}.",
+    madeOn: "Made on {date}.",
+    madeUnknown: "The file does not say when it was made.",
+    settings: "Settings",
+    /** {queues} and {categories} are numbers. */
+    settingsHint:
+      "Takes the file's settings, its queues ({queues}), categories ({categories}) and site rules ({rules}). Ones with the same name or site are updated; the ones only this computer has stay. The paths to FFmpeg, yt-dlp and Deno and the remote control stay as they are.",
+    feeds: "Feeds",
+    feedsHint: { one: "{count} of {total} feeds is new. Each one is read once and what it holds now is remembered, not downloaded.", other: "{count} of {total} feeds are new. Each one is read once and what it holds now is remembered, not downloaded." },
+    downloads: "Downloads",
+    /** {count} new of {total} in the file. */
+    downloadsHint: {
+      one: "{count} of {total} is new. Unfinished downloads are added paused, links already in the list are skipped, and no file is replaced.",
+      other: "{count} of {total} are new. Unfinished downloads are added paused, links already in the list are skipped, and no file is replaced.",
+    },
+    invalid: {
+      one: "{count} entry in the file is damaged and will be left out.",
+      other: "{count} entries in the file are damaged and will be left out.",
+    },
+    importNow: "Import",
+    result: {
+      settings: "The settings were imported.",
+      added: { one: "Added {count} download.", other: "Added {count} downloads." },
+      feeds: { one: "Subscribed to {count} feed.", other: "Subscribed to {count} feeds." },
+      feedsFailed: { one: "{count} feed could not be read and was left out.", other: "{count} feeds could not be read and were left out." },
+      duplicates: { one: "{count} was already in the list.", other: "{count} were already in the list." },
+      invalid: { one: "{count} damaged entry was left out.", other: "{count} damaged entries were left out." },
+    },
+    errors: {
+      notABackup: "This file is not a Downpipe backup.",
+      tooNew: "This backup was made by a newer Downpipe. Update Downpipe to import it.",
+      damaged: "This backup is damaged and cannot be imported.",
+      tooLarge: "This file is too large to import.",
+    },
+  },
+  idm: {
+    heading: "Import from Internet Download Manager",
+    intro: "Brings IDM's downloads into the list, paused. IDM's own list and files are only read, never changed.",
+    fromComputer: "Read IDM's list on this computer",
+    fromFile: "Open an exported list…",
+    fileHint:
+      "In IDM: Tasks, Export, To text file or To IDM export file (.ef2). Only links and file names are read; cookies and headers in the file are skipped.",
+    sourceComputer: "IDM's list on this computer",
+    /** {file} is the exported list's file name. */
+    sourceFile: "From {file}",
+    empty: "No downloads found.",
+    listLabel: "Downloads in IDM's list",
+    selectAll: "Select all",
+    selectNone: "Select none",
+    finished: "Finished in IDM",
+    listed: "In Downpipe",
+    /** In place of a folder for links from an exported list. */
+    defaultFolder: "Folder by category",
+    sizeUnknown: "Size unknown",
+    add: { one: "Add {count} paused", other: "Add {count} paused" },
+    unreadable: "IDM's list could not be read.",
   },
 };

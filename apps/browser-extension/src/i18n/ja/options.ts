@@ -46,6 +46,10 @@ export const options: Messages["options"] = {
   bypassHelp: "キャプチャーがオンのとき、このキーを押しながらリンクをクリックすると、そのダウンロードだけブラウザーに任せます。ほかのクリックやブラウザー自身のショートカットは変わりません。",
   bypassAccess: "クリックを検知するには、閲覧するサイトへのアクセスが必要です。この方法でリンクをクリックするまで、何も読み取りや送信はしません。",
   bypassAllow: "アクセスを許可",
+  appHeading: "06 — デスクトップアプリ",
+  startApp: "Downpipe が閉じているときは起動する",
+  startAppDetail:
+    "ブラウザーから送ったダウンロードは、失敗する代わりにまず Downpipe を通知領域で起動します。オフにすると、Downpipe を開いておく必要があります。",
   save: "保存",
   moreErrors: { other: "ほかに {count} 件あります。" },
   unsaved: "未保存の変更があります",

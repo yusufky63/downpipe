@@ -15,6 +15,7 @@ export const common: Messages["common"] = {
 };
 
 export const results: Messages["results"] = {
+  listOpened: "已在 Downpipe 中打开：请在那里选择视频。",
   added: "已添加到 Downpipe",
   waiting: "正在 Downpipe 中等待你的确认",
   sent: "已发送到 Downpipe",

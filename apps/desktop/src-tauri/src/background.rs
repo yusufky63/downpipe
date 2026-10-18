@@ -65,6 +65,8 @@ struct Seen {
     downloaded: u64,
     total: Option<u64>,
     asks_in_window: bool,
+    /// The virus scan found a threat in it.
+    threat: bool,
 }
 
 /// Waits for its answer in the confirmation window: a download the browser
@@ -82,6 +84,7 @@ impl Seen {
             downloaded: task.record.downloaded,
             total: task.record.total,
             asks_in_window: asks_in_window(&task.live),
+            threat: task.record.post.as_ref().is_some_and(|p| p.threat_found()),
         }
     }
 }
@@ -358,6 +361,11 @@ fn on_event(app: &AppHandle, manager: &Manager, event: &ManagerEvent) {
             if finished_now && manager.settings().notify_on_finish && !window_in_front(app) {
                 notify_finished(app, task, i18n::texts(&manager.settings().language));
             }
+            // Always, whatever the finish notifications are set to: the user
+            // has to decide what happens to the file.
+            if seen.threat && prev.is_some_and(|p| !p.threat) {
+                notify_threat(app, task, i18n::texts(&manager.settings().language));
+            }
             // A download waits for its name and folder; the question must
             // be visible to be answered. One from the browser is asked in
             // the confirmation window, over the browser, and the main window
@@ -373,6 +381,9 @@ fn on_event(app: &AppHandle, manager: &Manager, event: &ManagerEvent) {
             bg.tasks.lock().remove(id);
         }
         ManagerEvent::Settings { .. } => {}
+        // A playlist from the browser: its videos are chosen in the main
+        // window, which has to be in front for that.
+        ManagerEvent::ListOffered { .. } => tray::show_main(app),
     }
     if !bg.asking_in_window() {
         confirm::settled(app);
@@ -414,6 +425,32 @@ fn notify_finished(app: &AppHandle, task: &TaskSnapshot, texts: &Texts) {
         (texts.failed.to_string(), format!("{name}: {why}"))
     };
     let _ = app.notification().builder().title(title).body(body).show();
+}
+
+fn notify_threat(app: &AppHandle, task: &TaskSnapshot, texts: &Texts) {
+    let r = &task.record;
+    let Some(scan) = r.post.as_ref().and_then(|p| p.scan.as_ref()) else {
+        return;
+    };
+    let name = r.file_name.clone().unwrap_or_else(|| r.url.clone());
+    let body = threat_body(texts, &scan.scanner, scan.detail.as_deref(), &name);
+    let _ = app
+        .notification()
+        .builder()
+        .title(texts.threat_title)
+        .body(body)
+        .show();
+}
+
+fn threat_body(texts: &Texts, scanner: &str, threat: Option<&str>, name: &str) -> String {
+    i18n::fill(
+        texts.threat_body,
+        &[
+            ("scanner", scanner),
+            ("threat", threat.unwrap_or(texts.threat_unnamed)),
+            ("name", name),
+        ],
+    )
 }
 
 fn set_taskbar(app: &AppHandle, taskbar: Taskbar) {
@@ -531,6 +568,7 @@ mod tests {
             downloaded,
             total,
             asks_in_window: false,
+            threat: false,
         }
     }
 
@@ -612,6 +650,21 @@ mod tests {
             },
         );
         assert!(bg.asking_in_window());
+    }
+
+    #[test]
+    fn threat_notifications_name_the_scanner_and_the_file() {
+        let en = i18n::texts("en");
+        assert_eq!(
+            threat_body(
+                en,
+                "Microsoft Defender",
+                Some("Virus:DOS/EICAR_Test_File"),
+                "a.zip"
+            ),
+            "Microsoft Defender found Virus:DOS/EICAR_Test_File in a.zip. Nothing was extracted or run, and the file was not deleted."
+        );
+        assert!(threat_body(en, "clamscan", None, "a.zip").contains("found a threat in a.zip"));
     }
 
     #[test]

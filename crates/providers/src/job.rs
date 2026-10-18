@@ -15,10 +15,11 @@ use downpipe_http::{
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc;
 
-use crate::args::{self, DownloadArgs};
+use crate::args::{self, DownloadArgs, Preset, SubtitleRef};
 use crate::errors;
 use crate::files;
 use crate::info;
+use crate::naming::{self, NameFields};
 use crate::process::{self, Tree};
 use crate::progress::{Tracker, parse_line};
 use crate::tools::Tools;
@@ -36,8 +37,16 @@ pub struct SiteRequest {
     /// The name kept so far (`Clip.mp4`); `None` before the first start,
     /// when the page title names it.
     pub file_name: Option<String>,
-    /// From the quality chooser; `None` takes the best.
+    /// From the quality chooser; `None` takes the best, or the preset.
     pub selection: Option<MediaSelection>,
+    /// A playlist's one quality for all its videos.
+    pub preset: Option<Preset>,
+    pub subtitles: Vec<SubtitleRef>,
+    /// Names the file when there is no name yet (see [`crate::naming`]).
+    pub name_template: String,
+    /// Position and size of the playlist the video was added from, for
+    /// `{index}`.
+    pub index: Option<(u32, u32)>,
     pub tools: Tools,
     /// `None`: yt-dlp's own choice (the system proxy). An empty string
     /// connects directly.
@@ -67,7 +76,17 @@ async fn run(req: SiteRequest, ctx: JobContext) -> Result<Outcome, DownloadError
                 info = info::inspect(&req.tools, &req.url, req.proxy.as_deref()) => info?,
                 () = ctx.stopped() => return Ok(stopped(&ctx, None, &Tracker::default())),
             };
-            files::stem_from_title(info.title.as_deref().unwrap_or("video"))
+            naming::stem(
+                &req.name_template,
+                &NameFields {
+                    title: info.title.as_deref(),
+                    channel: info.channel.as_deref(),
+                    upload_date: info.upload_date.as_deref(),
+                    index: req.index.map(|(i, _)| i),
+                    count: req.index.map(|(_, n)| n),
+                    id: info.id.as_deref(),
+                },
+            )
         }
     };
     tokio::fs::create_dir_all(&req.dir).await?;
@@ -78,7 +97,7 @@ async fn run(req: SiteRequest, ctx: JobContext) -> Result<Outcome, DownloadError
             .await
             .map_err(|e| DownloadError::Io(std::io::Error::other(e)))?
     };
-    let guess = if is_audio_only(req.selection.as_ref()) {
+    let guess = if args::is_audio_only(req.selection.as_ref(), req.preset) {
         "m4a"
     } else {
         "mp4"
@@ -98,6 +117,8 @@ async fn run(req: SiteRequest, ctx: JobContext) -> Result<Outcome, DownloadError
                 dir: &dir,
                 stem: &stem,
                 selection: req.selection.as_ref(),
+                preset: req.preset,
+                subtitles: &req.subtitles,
                 proxy: req.proxy.as_deref(),
                 rate_limit: req.rate_limit,
             },
@@ -210,13 +231,6 @@ async fn run(req: SiteRequest, ctx: JobContext) -> Result<Outcome, DownloadError
 enum Line {
     Out(String),
     Err(String),
-}
-
-fn is_audio_only(selection: Option<&MediaSelection>) -> bool {
-    selection
-        .and_then(|s| s.video.as_ref())
-        .is_some_and(|v| v.height.is_none())
-        && selection.is_some_and(|s| s.audio.is_none())
 }
 
 fn publish(ctx: &JobContext, progress: &mut Progress, tracker: &Tracker) {

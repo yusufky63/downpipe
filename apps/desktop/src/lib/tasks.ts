@@ -2,6 +2,7 @@ import { t, type MessageKey } from "../i18n/core";
 import type { ManagerEvent, Task, TaskState, WaitReason } from "./api";
 import { describeFailure } from "./errors";
 import { formatBytes, nameFromUrl } from "./format";
+import { postBadge } from "./post";
 
 export type Filter = "all" | "active" | "queued" | "completed" | "failed";
 
@@ -29,6 +30,7 @@ export function applyEvent(tasks: Task[], event: ManagerEvent): Task[] {
     case "removed":
       return tasks.filter((t) => t.id !== event.id);
     case "settings":
+    case "list_offered":
       return tasks;
   }
 }
@@ -80,7 +82,9 @@ export function sortForDisplay(tasks: Task[]): Task[] {
 
 export function displayName(task: Task): string {
   if (task.file_name) return task.file_name;
-  // A page's address names nothing ("watch"); its title arrives later.
+  // A page's address names nothing ("watch"); its title arrives later, or
+  // came with the playlist it was chosen from.
+  if (task.site?.title) return task.site.title;
   if (task.site) return t("common.siteVideo", { site: task.site.site });
   // A magnet link's address names nothing a person reads.
   if (task.torrent) return task.torrent.name || t("torrent.kind");
@@ -161,6 +165,9 @@ export type Tone = "primary" | "positive" | "danger" | "warning" | "neutral";
 export function stateInfo(task: Task): { label: string; tone: Tone } {
   if (task.awaiting_confirmation) return { label: t("states.confirm"), tone: "warning" };
   if (task.state === "completed" && task.swarm?.seeding) return { label: t("torrent.seeding"), tone: "positive" };
+  // Completed, but still being scanned or extracted, or flagged by the scan.
+  const post = task.state === "completed" ? postBadge(task) : null;
+  if (post) return post;
   return { label: t(`states.${task.state}`), tone: STATE_TONES[task.state] };
 }
 

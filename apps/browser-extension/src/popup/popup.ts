@@ -67,6 +67,7 @@ let excludedSites: string[] = [];
 let streams = true;
 /** The connected Downpipe takes video pages (YouTube); assumed likewise. */
 let pages = true;
+let lists = true;
 let mediaItems: MediaCandidate[] = [];
 /** The tab's title, which names the media rows. */
 let mediaTitle: string | undefined;
@@ -87,6 +88,7 @@ function isStatusReply(value: unknown): value is StatusReply {
     typeof v.bridge === "object" &&
     typeof v.capture === "boolean" &&
     typeof v.notify === "boolean" &&
+    typeof v.startApp === "boolean" &&
     Array.isArray(v.excludedSites) &&
     v.excludedSites.every((s) => typeof s === "string") &&
     Array.isArray(v.activity) &&
@@ -101,7 +103,7 @@ function isTasksReply(value: unknown): value is TasksReply {
 }
 
 function renderStatus(reply: StatusReply | null): void {
-  const view = statusView(reply?.bridge ?? null, extension);
+  const view = statusView(reply?.bridge ?? null, extension, reply?.startApp ?? false);
   paintStatus(els.status, view);
   // Connected needs no box and no actions, only a word in the header: the
   // room goes to the media and download lists. The popup checks again each
@@ -190,7 +192,7 @@ const PAGE_RESULT = "page";
 
 /** The video page itself (YouTube), first in the list. */
 function pageRow(page: PageItem): HTMLLIElement {
-  const view = pageRowView(page, pages);
+  const view = pageRowView(page, pages, lists);
   const result = mediaResults.get(PAGE_RESULT);
   const li = document.createElement("li");
   li.className = "item media-item";
@@ -216,6 +218,7 @@ function renderMedia(): void {
     mediaExcludedBy,
     streams,
     pages,
+    lists,
     mediaPage,
     mediaTitle,
     mediaItems.map((c) => [c.id, c.qualities]),
@@ -296,6 +299,7 @@ async function refresh(): Promise<void> {
     if (status) {
       streams = status.bridge.state !== "connected" || status.bridge.media;
       pages = status.bridge.state !== "connected" || status.bridge.pages;
+      lists = status.bridge.state !== "connected" || status.bridge.lists;
       renderMedia();
     }
     renderStatus(
@@ -303,6 +307,7 @@ async function refresh(): Promise<void> {
         bridge: { state: "error", message: t("common.extensionNoAnswer") },
         capture: false,
         notify: true,
+        startApp: false,
         excludedSites: [],
         activity: [],
         tasks: [],

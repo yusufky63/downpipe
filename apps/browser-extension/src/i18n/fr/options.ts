@@ -48,6 +48,10 @@ export const options: Messages["options"] = {
   bypassHelp: "Tant que la capture est active, un clic sur un lien avec cette touche enfoncée laisse ce téléchargement au navigateur. Les autres clics et les raccourcis du navigateur ne changent pas.",
   bypassAccess: "Il faut pour cela l'accès aux sites que vous visitez, afin de remarquer le clic. Rien n'est lu ni envoyé tant que vous ne cliquez pas un lien de cette façon.",
   bypassAllow: "Autoriser l'accès",
+  appHeading: "06 — Application de bureau",
+  startApp: "Lancer Downpipe s'il est fermé",
+  startAppDetail:
+    "Un téléchargement envoyé depuis le navigateur lance d'abord Downpipe dans la zone de notification, au lieu d'échouer. Si cette option est désactivée, Downpipe doit être ouvert.",
   save: "Enregistrer",
   moreErrors: { one: "Et {count} autre.", many: "Et {count} autres.", other: "Et {count} autres." },
   unsaved: "Modifications non enregistrées",

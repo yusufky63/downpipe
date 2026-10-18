@@ -25,6 +25,14 @@ describe("failure kinds", () => {
     expect(describeFailure(null, null)).toBeNull();
   });
 
+  it("words yt-dlp's common failures with what to do", () => {
+    const signIn = describeFailure("site_sign_in", "YouTube wants a signed-in browser (yt-dlp: Sign in to confirm you're not a bot)");
+    expect(signIn?.text).toMatch(/^YouTube wants a signed-in browser/);
+    expect(signIn?.detail).toMatch(/not a bot/);
+    activate("tr", CATALOGS.tr);
+    expect(failureText("site_js_runtime", null)).toMatch(/^yt-dlp, YouTube'un JavaScript/);
+  });
+
   it("speaks the active language", () => {
     activate("tr", CATALOGS.tr);
     expect(failureText("network", "network error: timed out")).toBe("Sunucuyla bağlantı kurulamadı. Ağınızı denetleyip yeniden deneyin.");

@@ -13,6 +13,8 @@ export const add: Messages["add"] = {
     downloadMany: { one: "Загрузить {count} файл", few: "Загрузить {count} файла", many: "Загрузить {count} файлов", other: "Загрузить {count} файла" },
   },
   links: {
+    playlist: "Плейлист {site}. Дальше вы выберете его видео.",
+    channel: "Канал {site}. Дальше вы выберете его видео.",
     label: "Ссылки",
     hint: "По одной ссылке в строке или шаблон вида file[001-100].zip. Поддерживаются ссылки http, https и magnet.",
     found: {
