@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "Code",
     categories: "Categorie",
     network: "Rete",
+    sites: "Siti",
     media: "Media",
     schedule: "Pianificazione",
     app: "App",
@@ -24,8 +25,12 @@ export const settings: Messages["settings"] = {
     connectionsHint: "Limite massimo. Downpipe parte con 2 e ne aggiunge altre solo finché aiutano. Da 1 a 32.",
     speedLimit: "Limite di velocità",
     speedLimitHint: "Condiviso da tutti i download. Lascia vuoto per nessun limite. Si applica subito.",
+    speedLimitInvalid: "Inserisci un numero, ad esempio 1,5 o 1.5.",
     noLimit: "Nessun limite",
     unit: "Unità del limite di velocità",
+    duplicate: "Quando un link è già nell'elenco",
+    duplicateHint: "Anche \"Non chiedere più\" nella domanda imposta questa scelta.",
+    duplicateAsk: "Chiedi ogni volta",
   },
   queues: {
     intro:

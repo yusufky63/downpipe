@@ -35,5 +35,30 @@ export const dialogs: Messages["dialogs"] = {
     overwrite: "もう一度追加して既存のファイルを置き換える",
     existing: "既存のダウンロードを表示する（未完了の場合は再開する）",
     ok: "OK",
+    remember: "今後は確認せず、常にこうする",
+    rememberHint: "「設定」の「ダウンロード」で元に戻せます。",
+  },
+  /** A download's own speed limit, under the global one. {limit} is like "2 MiB/s". */
+  speedLimit: {
+    eyebrow: "速度制限",
+    body: "このダウンロードだけに適用され、全体の制限 {limit} の範囲内で動作します。",
+    bodyNoGlobal: "このダウンロードだけに適用されます。全体の制限はありません。",
+    bodyMany: "それぞれに個別に適用され、全体の制限 {limit} の範囲内で動作します。",
+    bodyManyNoGlobal: "それぞれに個別に適用されます。全体の制限はありません。",
+    label: "制限",
+    unit: "速度制限の単位",
+    placeholder: "制限なし",
+    video: "動画は次に開始したときに新しい制限を使います。",
+    remove: "制限を解除",
+    save: "制限を設定",
+  },
+  /** "Pause until…" with a time of the user's choice. */
+  pauseUntil: {
+    eyebrow: "指定時刻まで一時停止",
+    label: "再開時刻",
+    hint: "今すぐ一時停止し、Downpipe の実行中ならこの時刻に、そうでなければ次に起動したときに自動で再開します。",
+    past: "これから先の時刻を選んでください。",
+    invalid: "日付と時刻を入力してください。",
+    submit: "一時停止",
   },
 };

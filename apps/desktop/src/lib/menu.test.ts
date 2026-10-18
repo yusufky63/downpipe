@@ -23,6 +23,19 @@ function items(entries: MenuEntry[]) {
 }
 
 describe("buildMenu", () => {
+  it("offers a speed limit and pausing until a time", () => {
+    const menu = items(buildMenu([task("a", { state: "downloading" }), task("b", { state: "completed" })], queues));
+    expect(menu.get("speed_limit")).toMatchObject({ label: "Speed limit…", disabled: false });
+    expect([...menu.keys()]).toEqual(expect.arrayContaining(["pause_until:30m", "pause_until:1h", "pause_until:tonight", "pause_until_custom"]));
+    expect(menu.get("pause_until:tonight")?.label).toMatch(/^Tonight at /);
+    const until = buildMenu([task("a", { state: "downloading" })], queues).find((e) => e.kind === "submenu" && e.label === "Pause until");
+    expect(until).toMatchObject({ disabled: false });
+
+    const done = buildMenu([task("c", { state: "completed" })], queues);
+    expect(items(done).get("speed_limit")?.disabled).toBe(true);
+    expect(done.find((e) => e.kind === "submenu" && e.label === "Pause until")).toMatchObject({ disabled: true });
+  });
+
   it("offers file actions for one finished download", () => {
     const menu = items(buildMenu([task("a", { state: "completed", path: "C:/D/a.bin" })], queues));
     expect([...menu.keys()]).toEqual(expect.arrayContaining(["open", "reveal", "redownload", "copy_path", "properties", "remove"]));

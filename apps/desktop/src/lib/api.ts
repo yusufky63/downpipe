@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { t } from "../i18n/core";
+import { describeError } from "./errors";
 
 export type TaskState =
   | "queued"
@@ -75,6 +75,12 @@ export interface Task {
   media: MediaInfo | null;
   /** Set when the link is a video page (YouTube) downloaded with yt-dlp. */
   site: SiteInfo | null;
+  /** Pattern of the site rule it was added or last started with. */
+  site_rule: string | null;
+  /** Bytes per second of its own, under the global limit; null: only the global one. */
+  speed_limit: number | null;
+  /** "Pause until": Unix seconds when the core queues it again. */
+  resume_at: number | null;
   /** Stream downloads while they run: fragments done and in all. */
   fragments: { done: number; total: number } | null;
   eta_secs: number | null;
@@ -294,9 +300,113 @@ export interface Settings {
   yt_dlp_path: string;
   /** Deno for yt-dlp. Empty: the tools folder, then PATH, then Node 22+. */
   deno_path: string;
+  /** Per-site overrides; the most specific matching pattern applies. */
+  site_rules: SiteRule[];
+  /** The remembered answer to "this link is already in the list"; "ask" asks every time. */
+  duplicate_answer: DuplicateAnswer;
+  /** The remote control; changed only with `api.setRemote` and `api.newRemoteToken`. */
+  remote: RemoteSettings;
   /** After a download completes: the default command, the virus scan, archives. */
   post: PostSettings;
 }
+
+export interface RemoteSettings {
+  enabled: boolean;
+  /** IP address it listens on: "127.0.0.1" unless the user picks a network address. */
+  bind: string;
+  port: number;
+  /** SHA-256 of the access token; the token itself is never stored. */
+  token_hash: string;
+}
+
+/** The remote control as it runs now (src-tauri/src/remote.rs). */
+export interface RemoteStatus {
+  enabled: boolean;
+  bind: string;
+  port: number;
+  has_token: boolean;
+  running: boolean;
+  /** Why it is not running although switched on. */
+  error: "port_in_use" | "bind_failed" | null;
+  /** The page's address, for the browser and the QR code. */
+  url: string | null;
+  /** This computer's address on the local network. */
+  lan_address: string | null;
+}
+
+export interface RemoteUpdate {
+  status: RemoteStatus;
+  /** A token just made: the only time it is ever shown. */
+  token: string | null;
+}
+
+export type RuleProxy = "inherit" | "direct" | "custom";
+
+/** downpipe_core::SiteRule. Empty strings and nulls keep the global setting. */
+export interface SiteRule {
+  /** Empty for a new rule; the app makes one. */
+  id: string;
+  /** `example.com` (that host) or `*.example.com` (it and every host under it). */
+  pattern: string;
+  enabled: boolean;
+  max_connections: number | null;
+  user_agent: string;
+  referer: string;
+  proxy: RuleProxy;
+  /** The proxy when `proxy` is "custom". */
+  proxy_url: string;
+  /** Bytes per second, shared by the downloads the rule applies to. */
+  speed_limit: number | null;
+  max_retries: number | null;
+  /** New downloads; relative to the download folder unless absolute. */
+  download_dir: string;
+  /** Queue id for new downloads. */
+  queue: string;
+}
+
+/** Stable codes from downpipe_core::rules, translated in the settings dialog. */
+export type RuleProblemCode =
+  | "pattern_empty"
+  | "pattern_url"
+  | "pattern_wildcard"
+  | "pattern_too_broad"
+  | "pattern_port"
+  | "pattern_invalid"
+  | "pattern_duplicate"
+  | "user_agent_invalid"
+  | "referer_invalid"
+  | "proxy_missing"
+  | "proxy_invalid";
+
+export interface RuleProblem {
+  /** The rule's id. */
+  id: string;
+  field: "pattern" | "user_agent" | "referer" | "proxy_url";
+  code: RuleProblemCode;
+}
+
+export interface RuleTest {
+  /** Null when the text is not an address. */
+  host: string | null;
+  /** Id of the rule that applies. */
+  rule: string | null;
+  /** Ids of rules that match but are switched off. */
+  disabled: string[];
+}
+
+export interface SiteRulesCheck {
+  problems: RuleProblem[];
+  test: RuleTest | null;
+}
+
+/** A host that refused extra connections this session, not yet held by a rule. */
+export interface RefusedHost {
+  host: string;
+  connections: number;
+}
+
+/** "ask", or one of the duplicate question's answers given with "Don't ask again". */
+export type DuplicateAnswer = "ask" | "copy" | "overwrite" | "existing";
 
 export const MAIN_QUEUE = "main";
 
@@ -372,6 +482,8 @@ export interface AddOptions {
   from_app?: boolean;
   /** A link already in the list: refuse (the app then asks), add a copy, or ask in the confirmation window. */
   on_duplicate?: OnDuplicate;
+  /** Sent with every request; kept in memory only, never written to disk. */
+  headers?: [string, string][];
   /** Its own command and extraction choice. */
   post?: PostActions;
 }
@@ -394,6 +506,103 @@ export interface ConfirmOptions {
 
 export type QueueMove = "up" | "down" | "top" | "bottom";
 
+/** What the site grabber reads and collects (downpipe_crawl::GrabOptions). */
+export interface GrabOptions {
+  url: string;
+  /** 1 to 5: 1 reads only the start page. */
+  depth: number;
+  /** Pages read at most, the start page included. */
+  max_pages: number;
+  /** Lower case, without dots. */
+  extensions: string[];
+  /** Follow only pages of the start page's site. */
+  same_host: boolean;
+  respect_robots: boolean;
+  /** Wait between two requests to the same host. */
+  delay_ms: number;
+  /** Ask each file's size with a HEAD request. */
+  check_sizes: boolean;
+}
+
+export interface FoundFile {
+  url: string;
+  name: string;
+  extension: string;
+  size: number | null;
+  /** The page the link was first seen on. */
+  found_on: string;
+}
+
+export type GrabPhase = "pages" | "sizes" | "done";
+
+export interface GrabProgress {
+  phase: GrabPhase;
+  pages_done: number;
+  pages_total: number;
+  files: number;
+  sized: number;
+  to_size: number;
+  current: string | null;
+  /** Left out because robots.txt disallows them. */
+  blocked: number;
+  failed: number;
+}
+
+export interface GrabReport {
+  files: FoundFile[];
+  pages: number;
+  blocked: number;
+  failed: number;
+  /** Stopped by the user; `files` holds what was found until then. */
+  canceled: boolean;
+  hit_page_limit: boolean;
+}
+
+export type GrabEvent =
+  | { kind: "progress"; id: string; progress: GrabProgress }
+  | { kind: "done"; id: string; report: GrabReport }
+  | { kind: "error"; id: string; code: string; message: string };
+
+export interface FeedFilter {
+  /** Lower case, without dots. Empty: any file. */
+  extensions: string[];
+  /** A regular expression titles must contain, case ignored. Empty: any title. */
+  title_pattern: string;
+}
+
+/** An RSS or Atom subscription (downpipe_core::feeds::Feed). */
+export interface Feed {
+  id: string;
+  url: string;
+  /** The feed's own title, from the last good check. */
+  title: string;
+  filter: FeedFilter;
+  interval_minutes: number;
+  queue: string;
+  enabled: boolean;
+  created_at: number;
+  last_checked: number | null;
+  last_error: string | null;
+  last_added: number;
+  added_total: number;
+}
+
+export interface FeedInput {
+  url: string;
+  filter: FeedFilter;
+  interval_minutes: number;
+  queue: string;
+  enabled: boolean;
+  /** When subscribing: also add the matching items the feed holds now. */
+  download_existing: boolean;
+}
+
+export interface FeedCheck {
+  items: number;
+  /** Ids of the downloads added. */
+  added: string[];
+}
+
 export type ManagerEvent =
   | { type: "updated"; task: Task }
   | { type: "removed"; id: string }
@@ -410,13 +619,27 @@ export const api = {
   add: (options: AddOptions) => invoke<Task>("add_download", { options }),
   pause: (id: string) => invoke<null>("pause_download", { id }),
   resume: (id: string) => invoke<null>("resume_download", { id }),
+  /** `at` in Unix seconds; the core queues it again then. */
+  pauseUntil: (id: string, at: number) => invoke<null>("pause_download_until", { id, at }),
+  /** Bytes per second; null removes the download's own limit. */
+  setSpeedLimit: (id: string, limit: number | null) => invoke<null>("set_download_speed_limit", { id, limit }),
   cancel: (id: string) => invoke<null>("cancel_download", { id }),
   remove: (id: string, deleteFiles: boolean) => invoke<null>("remove_download", { id, deleteFiles }),
   pauseAll: () => invoke<null>("pause_all"),
   resumeAll: () => invoke<null>("resume_all"),
   clearFinished: () => invoke<null>("clear_finished"),
   settings: () => invoke<Settings>("get_settings"),
-  updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),
+  /** The remote control part is ignored; it has commands of its own. */
+  updateSettings: (settings: Omit<Settings, "remote">) => invoke<Settings>("update_settings", { settings }),
+  /** Checks unsaved rules and tests an address against them, with the download code itself. */
+  checkSiteRules: (rules: SiteRule[], address: string | null) =>
+    invoke<SiteRulesCheck>("check_site_rules", { rules, address }),
+  refusedHosts: () => invoke<RefusedHost[]>("refused_hosts"),
+  remoteStatus: () => invoke<RemoteStatus>("remote_status"),
+  /** Switching it on the first time makes the token, returned once. */
+  setRemote: (enabled: boolean, bind: string, port: number) => invoke<RemoteUpdate>("set_remote", { enabled, bind, port }),
+  /** A new token; the old one stops working at once. */
+  newRemoteToken: () => invoke<RemoteUpdate>("new_remote_token"),
   bridgeStatus: () => invoke<BridgeRegistration>("browser_bridge_status"),
   registerBridge: () => invoke<BridgeRegistration>("register_browser_bridge"),
   pickFolder: (initial: string | null) => invoke<string | null>("pick_folder", { initial }),
@@ -463,7 +686,26 @@ export const api = {
   openMediaSettings: () => invoke<null>("open_media_settings"),
   /** The main window's Settings closed; a question waiting for them returns. */
   settingsClosed: () => invoke<null>("settings_closed"),
+  /** Starts the site grabber; its progress and result arrive as `downpipe://grab` events with this id. */
+  startGrab: (options: GrabOptions) => invoke<string>("start_grab", { options }),
+  /** Stops a grab; it still reports what it found until then. */
+  cancelGrab: (id: string) => invoke<null>("cancel_grab", { id }),
+  feeds: () => invoke<Feed[]>("list_feeds"),
+  /** Reads the feed once; refuses addresses that are not feeds. */
+  addFeed: (input: FeedInput) => invoke<{ feed: Feed; check: FeedCheck }>("add_feed", { input }),
+  updateFeed: (id: string, input: FeedInput) => invoke<Feed>("update_feed", { id, input }),
+  removeFeed: (id: string) => invoke<null>("remove_feed", { id }),
+  checkFeed: (id: string) => invoke<FeedCheck>("check_feed", { id }),
 };
+
+export function onGrabEvent(cb: (event: GrabEvent) => void): Promise<UnlistenFn> {
+  return listen<GrabEvent>("downpipe://grab", (e) => cb(e.payload));
+}
+
+/** The whole list of feeds after any change, also from a check on its interval. */
+export function onFeeds(cb: (feeds: Feed[]) => void): Promise<UnlistenFn> {
+  return listen<Feed[]>("downpipe://feeds", (e) => cb(e.payload));
+}
 
 export function onWhenDone(cb: (view: WhenDoneView) => void): Promise<UnlistenFn> {
   return listen<WhenDoneView>("downpipe://when-done", (e) => cb(e.payload));
@@ -502,11 +744,9 @@ export function isCommandError(err: unknown): err is CommandError {
   return typeof err === "object" && err !== null && "code" in err && "message" in err;
 }
 
+/** A rejected command in the user's language; lib/errors.ts has the details. */
 export function errorMessage(err: unknown): string {
-  if (isCommandError(err)) return err.message;
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  return t("confirm.unknownError");
+  return describeError(err).text;
 }
 
 /** False when the UI is opened in a plain browser instead of the app. */

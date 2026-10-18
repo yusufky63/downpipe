@@ -37,9 +37,12 @@ export const details: Messages["details"] = {
     bestQuality: "最高画質",
     fragments: { other: "フラグメント {done} / {count}" },
     queue: "キュー",
+    siteRule: "サイトのルール",
     checksum: "チェックサム",
     added: "追加日時",
     finished: "完了日時",
+    speedLimit: "速度制限",
+    resumes: "再開時刻",
   },
   relink: {
     button: "新しいリンクを使用…",
@@ -49,4 +52,12 @@ export const details: Messages["details"] = {
   },
   copy: "コピー",
   copied: "コピーしました",
+  /** The download's own speed limit, set in place. */
+  speedLimit: {
+    none: "全体の制限のみ",
+    change: "変更",
+    set: "設定",
+    remove: "解除",
+    label: "このダウンロードの速度制限",
+  },
 };

@@ -12,7 +12,7 @@ use crate::post::PostActions;
 use crate::settings::Settings;
 use crate::task::{MediaInfo, SiteInfo, TaskRecord, TaskState};
 
-const SCHEMA_VERSION: i32 = 6;
+const SCHEMA_VERSION: i32 = 8;
 
 #[derive(Debug)]
 pub struct Store {
@@ -90,6 +90,19 @@ impl Store {
             conn.pragma_update(None, "user_version", 5)?;
         }
         if version < 6 {
+            // A download's own speed limit and the time "Pause until" resumes it.
+            conn.execute_batch(
+                "ALTER TABLE downloads ADD COLUMN speed_limit INTEGER;
+                 ALTER TABLE downloads ADD COLUMN resume_at INTEGER;",
+            )?;
+            conn.pragma_update(None, "user_version", 6)?;
+        }
+        if version < 7 {
+            // The pattern of the site rule the download last started with.
+            conn.execute_batch("ALTER TABLE downloads ADD COLUMN site_rule TEXT;")?;
+            conn.pragma_update(None, "user_version", 7)?;
+        }
+        if version < 8 {
             // Post-download actions: the download's own choices and what
             // the steps found, as JSON.
             conn.execute_batch(
@@ -106,9 +119,10 @@ impl Store {
             "INSERT INTO downloads (id, url, dir, file_name, path, state, total, downloaded,
                                     error, error_kind, checksum, max_connections,
                                     created_at, updated_at, completed_at, category, auto_dir,
-                                    queue, position, media, site, post_actions, post)
+                                    queue, position, media, site, speed_limit, resume_at,
+                                    site_rule, post_actions, post)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                     ?18, ?19, ?20, ?21, ?22, ?23)
+                     ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
              ON CONFLICT(id) DO UPDATE SET
                 url = excluded.url, dir = excluded.dir, file_name = excluded.file_name,
                 path = excluded.path, state = excluded.state, total = excluded.total,
@@ -118,8 +132,9 @@ impl Store {
                 updated_at = excluded.updated_at, completed_at = excluded.completed_at,
                 category = excluded.category, auto_dir = excluded.auto_dir,
                 queue = excluded.queue, position = excluded.position, media = excluded.media,
-                site = excluded.site, post_actions = excluded.post_actions,
-                post = excluded.post",
+                site = excluded.site, speed_limit = excluded.speed_limit,
+                resume_at = excluded.resume_at, site_rule = excluded.site_rule,
+                post_actions = excluded.post_actions, post = excluded.post",
             params![
                 r.id,
                 r.url,
@@ -142,6 +157,9 @@ impl Store {
                 r.position,
                 media_json(r.media.as_ref()),
                 site_json(r.site.as_ref()),
+                r.speed_limit.map(to_i64),
+                r.resume_at,
+                r.site_rule,
                 post_actions_json(&r.post_actions),
                 r.post.as_ref().and_then(|p| serde_json::to_string(p).ok()),
             ],
@@ -159,7 +177,8 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT id, url, dir, file_name, path, state, total, downloaded, error, error_kind,
                     checksum, max_connections, created_at, updated_at, completed_at,
-                    category, auto_dir, queue, position, media, site, post_actions, post
+                    category, auto_dir, queue, position, media, site, speed_limit, resume_at,
+                    site_rule, post_actions, post
              FROM downloads ORDER BY created_at, rowid",
         )?;
         let rows = stmt.query_map([], row_to_record)?;
@@ -222,12 +241,18 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<TaskRecord> {
         site: row
             .get::<_, Option<String>>(20)?
             .and_then(|json| serde_json::from_str(&json).ok()),
+        speed_limit: row
+            .get::<_, Option<i64>>(21)?
+            .map(to_u64)
+            .filter(|&l| l > 0),
+        resume_at: row.get(22)?,
+        site_rule: row.get(23)?,
         post_actions: row
-            .get::<_, Option<String>>(21)?
+            .get::<_, Option<String>>(24)?
             .and_then(|json| serde_json::from_str(&json).ok())
             .unwrap_or_default(),
         post: row
-            .get::<_, Option<String>>(22)?
+            .get::<_, Option<String>>(25)?
             .and_then(|json| serde_json::from_str(&json).ok()),
     })
 }
@@ -284,6 +309,9 @@ mod tests {
             position: created * 10,
             media: None,
             site: None,
+            speed_limit: None,
+            resume_at: None,
+            site_rule: Some("*.example.org".into()),
             post_actions: PostActions::default(),
             post: None,
             created_at: created,
@@ -355,6 +383,21 @@ mod tests {
             }),
             quality: Some("1080p".into()),
         });
+        store.upsert(&r).unwrap();
+        assert_eq!(store.all().unwrap(), vec![r]);
+    }
+
+    #[test]
+    fn speed_limit_and_resume_time_round_trip() {
+        let store = Store::in_memory().unwrap();
+        let mut r = record("s", 1);
+        r.state = TaskState::Paused;
+        r.speed_limit = Some(512 * 1024);
+        r.resume_at = Some(1_900_000_000);
+        store.upsert(&r).unwrap();
+        assert_eq!(store.all().unwrap(), vec![r.clone()]);
+        r.speed_limit = None;
+        r.resume_at = None;
         store.upsert(&r).unwrap();
         assert_eq!(store.all().unwrap(), vec![r]);
     }
@@ -435,6 +478,8 @@ mod tests {
         assert_eq!(old.position, 0);
         assert_eq!(old.media, None);
         assert_eq!(old.site, None);
+        assert_eq!(old.speed_limit, None);
+        assert_eq!(old.resume_at, None);
         assert_eq!(old.post_actions, PostActions::default());
         assert_eq!(old.post, None);
         store.upsert(&record("new", 2)).unwrap();

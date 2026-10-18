@@ -4,9 +4,22 @@
 // (detected from the page's network requests), and sending one is a second
 // request, again only after a click. The page cannot see into the button
 // (a closed shadow root) and synthetic clicks from page scripts are ignored.
+//
+// Buttons like this are a common complaint about download managers because
+// they cover the video's own controls, so this one is a small icon that the
+// user can drag anywhere inside the video (remembered per site), can keep
+// to pointer hovers only, and can hide on a site from its own menu.
 import { t } from "../i18n/core";
 import { ext } from "../lib/browser";
-import { PAGE_ITEM_ID, isOverlayItems, overlayResultText, type OverlayItem } from "../lib/messages";
+import {
+  PAGE_ITEM_ID,
+  isOverlayItems,
+  isOverlayPrefs,
+  overlayResultText,
+  type OverlayItem,
+  type OverlayPrefs,
+} from "../lib/messages";
+import { clampCorner, cornerToPlace, type Box, type Place } from "./place";
 import { activateOverlayLanguage } from "./texts";
 
 /** Thumbnails and decorative loops stay without a button. */
@@ -14,28 +27,41 @@ const MIN_WIDTH = 200;
 const MIN_HEIGHT = 112;
 /** The button stays this long after the pointer left the video. */
 const LINGER_MS = 1500;
-/** And this long after a video starts playing, so it is noticed. */
+/** And this long after a video starts playing, so it is noticed (unless hover only). */
 const AFTER_PLAY_MS = 4000;
 const NOTE_MS = 4000;
 /** How often the pointer may trigger a look for a video under it. */
 const PROBE_MS = 250;
+/** A press that moves less than this is a click, not a drag. */
+const DRAG_THRESHOLD = 4;
+/** Room the menu needs beside and below the button before it opens the other way. */
+const MENU_WIDTH = 240;
+const MENU_HEIGHT = 250;
 
 const STYLE = `
 :host { all: initial; }
 .wrap {
-  position: fixed; top: 0; left: 0; display: grid; justify-items: end; gap: 6px;
-  max-width: 320px; pointer-events: auto; transform: translateX(-100%);
+  position: fixed; top: 0; left: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  max-width: 320px; pointer-events: auto;
   font: 500 13px/1.4 "DM Sans", system-ui, sans-serif; color: #0a0b0d;
   -webkit-font-smoothing: antialiased;
 }
+.wrap[data-side="left"] { align-items: flex-start; }
+.wrap[data-up="true"] { flex-direction: column-reverse; }
 button { font: inherit; cursor: pointer; }
-.main {
-  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px;
-  border: 1px solid #075e5a; border-radius: 6px; background: #0b7a75; color: #fff;
-  white-space: nowrap;
+.bar {
+  display: inline-flex; height: 28px; border: 1px solid #075e5a; border-radius: 6px;
+  background: #0b7a75; color: #fff; overflow: hidden; touch-action: none;
 }
-.main:hover { background: #075e5a; }
-.main:focus-visible, .item:focus-visible { outline: 2px solid #2bb3a6; outline-offset: 2px; }
+.bar[data-dragging="true"], .bar[data-dragging="true"] button { cursor: grabbing; }
+.main, .more {
+  display: inline-flex; align-items: center; justify-content: center; height: 100%;
+  padding: 0; border: 0; background: none; color: inherit;
+}
+.main { width: 28px; cursor: grab; }
+.more { width: 16px; border-left: 1px solid #075e5a; }
+.main:hover, .more:hover, .more[aria-expanded="true"] { background: #075e5a; }
+.main:focus-visible, .more:focus-visible, .item:focus-visible { outline: 2px solid #2bb3a6; outline-offset: -2px; }
 .main:disabled { cursor: progress; opacity: 0.8; }
 .menu, .note {
   min-width: 220px; max-width: 320px; border: 1px solid #dee1e7; border-radius: 8px;
@@ -61,18 +87,18 @@ button { font: inherit; cursor: pointer; }
   .note[data-tone="danger"] { color: #ff6a4d; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .main, .item { transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1); }
+  .main, .more, .item { transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1); }
 }
 `;
 
 const SVG = "http://www.w3.org/2000/svg";
 
-/** A download arrow, drawn with DOM calls so no HTML parsing is involved. */
-function icon(): SVGSVGElement {
+/** A stroked icon, drawn with DOM calls so no HTML parsing is involved. */
+function icon(size: number, paths: readonly string[]): SVGSVGElement {
   const svg = document.createElementNS(SVG, "svg");
   for (const [k, v] of Object.entries({
-    width: "14",
-    height: "14",
+    width: String(size),
+    height: String(size),
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
@@ -83,7 +109,7 @@ function icon(): SVGSVGElement {
   })) {
     svg.setAttribute(k, v);
   }
-  for (const d of ["M12 4v12", "m6 10 6 6 6-6", "M5 20h14"]) {
+  for (const d of paths) {
     const path = document.createElementNS(SVG, "path");
     path.setAttribute("d", d);
     svg.append(path);
@@ -91,10 +117,15 @@ function icon(): SVGSVGElement {
   return svg;
 }
 
+const DOWNLOAD_ICON = ["M12 4v12", "m6 10 6 6 6-6", "M5 20h14"];
+const CHEVRON_ICON = ["m6 9 6 6 6-6"];
+
 interface Ui {
   host: HTMLElement;
   wrap: HTMLElement;
+  bar: HTMLElement;
   main: HTMLButtonElement;
+  more: HTMLButtonElement;
   menu: HTMLElement;
   note: HTMLElement;
 }
@@ -106,12 +137,24 @@ function build(): Ui {
   style.textContent = STYLE;
   const wrap = document.createElement("div");
   wrap.className = "wrap";
+  const bar = document.createElement("div");
+  bar.className = "bar";
   const main = document.createElement("button");
   main.type = "button";
   main.className = "main";
   main.setAttribute("aria-haspopup", "menu");
-  main.title = t("overlay.buttonTitle");
-  main.append(icon(), document.createTextNode(t("common.download")));
+  main.setAttribute("aria-label", t("overlay.buttonTitle"));
+  main.title = `${t("overlay.buttonTitle")}\n${t("overlay.dragHint")}`;
+  main.append(icon(14, DOWNLOAD_ICON));
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "more";
+  more.setAttribute("aria-haspopup", "menu");
+  more.setAttribute("aria-expanded", "false");
+  more.setAttribute("aria-label", t("overlay.more"));
+  more.title = t("overlay.more");
+  more.append(icon(12, CHEVRON_ICON));
+  bar.append(main, more);
   const menu = document.createElement("div");
   menu.className = "menu";
   menu.setAttribute("role", "menu");
@@ -120,9 +163,9 @@ function build(): Ui {
   note.className = "note";
   note.setAttribute("role", "status");
   note.hidden = true;
-  wrap.append(main, menu, note);
+  wrap.append(bar, menu, note);
   root.append(style, wrap);
-  return { host, wrap, main, menu, note };
+  return { host, wrap, bar, main, more, menu, note };
 }
 
 /** Big enough to be the thing being watched, and not DRM-protected. */
@@ -146,34 +189,63 @@ function webPoster(video: HTMLVideoElement): string | undefined {
   return /^https?:\/\//i.test(poster) && poster.length <= 8192 ? poster : undefined;
 }
 
-function start(): void {
+function boxOf(r: DOMRect): Box {
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
+
+function start(prefs: OverlayPrefs): void {
   const ui = build();
   let video: HTMLVideoElement | null = null;
   let visibleUntil = 0;
   let frame = 0;
   let lastProbe = 0;
   let noteTimer: ReturnType<typeof setTimeout> | undefined;
+  let place: Place | null = prefs.place ?? null;
+  /** "Hide on this site" was chosen: nothing shows on this page any more. */
+  let retired = false;
+  /** A press on the bar, while it may still turn into a drag. */
+  let press: { id: number; x: number; y: number; corner: { x: number; y: number }; moved: boolean } | null = null;
+  /** The click that ends a drag is not a click on the button. */
+  let swallowClick = false;
+  let corner = { x: 0, y: 0 };
 
   const shown = () => ui.host.isConnected;
-  const busy = () => !ui.menu.hidden || ui.main.disabled || !ui.note.hidden;
+  const busy = () => !ui.menu.hidden || ui.main.disabled || !ui.note.hidden || press !== null;
+
+  function closeMenu(): void {
+    ui.menu.hidden = true;
+    ui.more.setAttribute("aria-expanded", "false");
+  }
 
   function hide(): void {
     cancelAnimationFrame(frame);
-    ui.menu.hidden = true;
+    closeMenu();
     ui.host.remove();
   }
 
-  function place(): boolean {
+  function barSize(): { width: number; height: number } {
+    return { width: ui.bar.offsetWidth || 46, height: ui.bar.offsetHeight || 28 };
+  }
+
+  function position(): boolean {
     if (!video || !eligible(video)) return false;
     const r = video.getBoundingClientRect();
     if (r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth) return false;
-    ui.wrap.style.top = `${Math.max(8, r.top + 8)}px`;
-    ui.wrap.style.left = `${Math.min(innerWidth - 8, r.right - 8)}px`;
+    const bar = barSize();
+    if (!press?.moved) corner = clampCorner(boxOf(r), place, bar, { width: innerWidth, height: innerHeight });
+    // The menu opens toward the side with room.
+    const left = corner.x - MENU_WIDTH < 0;
+    const up = corner.y + bar.height + MENU_HEIGHT > innerHeight;
+    ui.wrap.dataset.side = left ? "left" : "right";
+    ui.wrap.dataset.up = String(up);
+    ui.wrap.style.left = `${left ? corner.x - bar.width : corner.x}px`;
+    ui.wrap.style.top = `${up ? corner.y + bar.height : corner.y}px`;
+    ui.wrap.style.transform = `${left ? "" : "translateX(-100%)"} ${up ? "translateY(-100%)" : ""}`.trim() || "none";
     return true;
   }
 
   function tick(): void {
-    if (!place() || (Date.now() > visibleUntil && !busy())) {
+    if (retired || !position() || (Date.now() > visibleUntil && !busy())) {
       hide();
       return;
     }
@@ -181,8 +253,9 @@ function start(): void {
   }
 
   function show(target: HTMLVideoElement, forMs: number): void {
+    if (retired) return;
     if (video !== target) {
-      ui.menu.hidden = true;
+      closeMenu();
       ui.note.hidden = true;
     }
     video = target;
@@ -194,8 +267,8 @@ function start(): void {
     }
   }
 
-  function noteText(text: string, tone: "muted" | "danger"): void {
-    ui.menu.hidden = true;
+  function noteText(text: string, tone: "muted" | "danger", then?: () => void): void {
+    closeMenu();
     ui.note.textContent = text;
     ui.note.dataset.tone = tone;
     ui.note.hidden = false;
@@ -203,11 +276,12 @@ function start(): void {
     noteTimer = setTimeout(() => {
       ui.note.hidden = true;
       visibleUntil = Date.now() + LINGER_MS;
+      then?.();
     }, NOTE_MS);
   }
 
   async function send(item: OverlayItem): Promise<void> {
-    ui.menu.hidden = true;
+    closeMenu();
     ui.main.disabled = true;
     try {
       // The page entry (YouTube) sends the page's address, not a detected file.
@@ -223,36 +297,55 @@ function start(): void {
     }
   }
 
-  function openMenu(items: OverlayItem[]): void {
-    const rows = items.map((item) => {
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "item";
-      row.setAttribute("role", "menuitem");
-      const label = document.createElement("span");
-      label.className = "label";
-      label.textContent = item.label;
-      label.title = item.label;
-      const detail = document.createElement("span");
-      detail.className = "detail";
-      detail.textContent = item.detail;
-      row.append(label, detail);
-      row.addEventListener("click", (e) => {
-        if (e.isTrusted) void send(item);
-      });
-      return row;
+  function menuRow(label: string, detail: string | null, onChoose: () => void): HTMLButtonElement {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "item";
+    row.setAttribute("role", "menuitem");
+    const text = document.createElement("span");
+    text.className = "label";
+    text.textContent = label;
+    text.title = label;
+    row.append(text);
+    if (detail) {
+      const small = document.createElement("span");
+      small.className = "detail";
+      small.textContent = detail;
+      row.append(small);
+    }
+    row.addEventListener("click", (e) => {
+      if (e.isTrusted) onChoose();
     });
+    return row;
+  }
+
+  function openMenu(rows: HTMLButtonElement[]): void {
     ui.note.hidden = true;
     ui.menu.replaceChildren(...rows);
     ui.menu.hidden = false;
     rows[0]?.focus();
   }
 
+  async function hideOnSite(): Promise<void> {
+    closeMenu();
+    const reply: unknown = await ext.runtime.sendMessage({ kind: "overlay_hide_site" }).catch(() => null);
+    const ok = typeof reply === "object" && reply !== null && (reply as { ok?: unknown }).ok === true;
+    if (!ok) {
+      noteText(t("overlay.noAnswer"), "danger");
+      return;
+    }
+    // Say where it can be undone, then leave the page alone for good.
+    noteText(t("overlay.hidden"), "muted", () => {
+      retired = true;
+      hide();
+    });
+  }
+
   ui.main.addEventListener("click", (e) => {
     // A page script can click elements, but not with a trusted event.
-    if (!e.isTrusted || !video) return;
+    if (!e.isTrusted || !video || swallowClick) return;
     if (!ui.menu.hidden) {
-      ui.menu.hidden = true;
+      closeMenu();
       return;
     }
     const src = webSource(video);
@@ -266,7 +359,7 @@ function start(): void {
         if (!items) noteText(t("overlay.noAnswer"), "danger");
         else if (items.length === 0) noteText(t("overlay.nothingYet"), "muted");
         else if (items.length === 1 && items[0]) void send(items[0]);
-        else openMenu(items);
+        else openMenu(items.map((item) => menuRow(item.label, item.detail, () => void send(item))));
       })
       .catch(() => {
         ui.main.disabled = false;
@@ -274,16 +367,70 @@ function start(): void {
       });
   });
 
+  ui.more.addEventListener("click", (e) => {
+    if (!e.isTrusted || swallowClick) return;
+    if (!ui.menu.hidden) {
+      closeMenu();
+      return;
+    }
+    openMenu([menuRow(t("overlay.hideSite"), t("overlay.hideSiteDetail"), () => void hideOnSite())]);
+    ui.more.setAttribute("aria-expanded", "true");
+  });
+
+  // Dragging: a press on the bar that moves past the threshold carries the
+  // button with the pointer, inside the video; releasing it keeps the place
+  // for this site. Untrusted presses are ignored like untrusted clicks.
+  ui.bar.addEventListener("pointerdown", (e) => {
+    if (!e.isTrusted || e.button !== 0 || !video) return;
+    press = { id: e.pointerId, x: e.clientX, y: e.clientY, corner: { ...corner }, moved: false };
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+  });
+
+  ui.bar.addEventListener("pointermove", (e) => {
+    if (!press || e.pointerId !== press.id || !video) return;
+    const dx = e.clientX - press.x;
+    const dy = e.clientY - press.y;
+    if (!press.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    if (!press.moved) {
+      press.moved = true;
+      closeMenu();
+      ui.bar.dataset.dragging = "true";
+    }
+    const r = boxOf(video.getBoundingClientRect());
+    const wanted = cornerToPlace(r, { x: press.corner.x + dx, y: press.corner.y + dy });
+    corner = clampCorner(r, wanted, barSize(), { width: innerWidth, height: innerHeight });
+    visibleUntil = Date.now() + LINGER_MS;
+  });
+
+  const endPress = (e: PointerEvent) => {
+    if (!press || e.pointerId !== press.id) return;
+    const moved = press.moved;
+    press = null;
+    delete ui.bar.dataset.dragging;
+    if (!moved || !video) return;
+    place = cornerToPlace(boxOf(video.getBoundingClientRect()), corner);
+    swallowClick = true;
+    setTimeout(() => {
+      swallowClick = false;
+    }, 0);
+    void ext.runtime.sendMessage({ kind: "overlay_place", ...place }).catch(() => undefined);
+  };
+  ui.bar.addEventListener("pointerup", endPress);
+  ui.bar.addEventListener("pointercancel", endPress);
+
   ui.wrap.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !ui.menu.hidden) {
-      ui.menu.hidden = true;
-      ui.main.focus();
+      const fromMore = ui.more.getAttribute("aria-expanded") === "true";
+      closeMenu();
+      (fromMore ? ui.more : ui.main).focus();
     }
   });
 
   document.addEventListener(
     "playing",
     (e) => {
+      // Hover only: a video starting is no reason to cover it.
+      if (prefs.hoverOnly) return;
       if (e.target instanceof HTMLVideoElement && eligible(e.target)) show(e.target, AFTER_PLAY_MS);
     },
     true,
@@ -292,6 +439,7 @@ function start(): void {
   document.addEventListener(
     "pointermove",
     (e) => {
+      if (retired) return;
       if (video && shown()) {
         const r = video.getBoundingClientRect();
         if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
@@ -317,16 +465,26 @@ function start(): void {
     (e) => {
       // A click anywhere else closes the menu; clicks inside the shadow root
       // are retargeted to the host.
-      if (!ui.menu.hidden && e.target !== ui.host) ui.menu.hidden = true;
+      if (!ui.menu.hidden && e.target !== ui.host) closeMenu();
     },
     true,
   );
 }
+
+const DEFAULT_PREFS: OverlayPrefs = { hoverOnly: false, hidden: false };
 
 const flag = globalThis as { __downpipeOverlay?: boolean };
 if (!flag.__downpipeOverlay) {
   flag.__downpipeOverlay = true;
   // The page's own `lang` is left alone: the button speaks the browser's language.
   activateOverlayLanguage();
-  start();
+  // The answer decides whether the button runs here at all, so nothing is
+  // shown before it. A service worker that does not answer leaves the defaults.
+  void ext.runtime
+    .sendMessage({ kind: "overlay_prefs" })
+    .then((reply: unknown) => (isOverlayPrefs(reply) ? reply : DEFAULT_PREFS))
+    .catch(() => DEFAULT_PREFS)
+    .then((prefs) => {
+      if (!prefs.hidden) start(prefs);
+    });
 }

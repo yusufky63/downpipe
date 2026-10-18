@@ -1,9 +1,10 @@
 // App frame: header, filter bar, selection bar, status bar, empty state and toasts.
-import { Download, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sun, Trash2, X } from "lucide-react";
+import { Download, Globe, Moon, MoreHorizontal, Pause, Play, Plus, Rss, Search, Settings as SettingsIcon, Sun, Trash2, X } from "lucide-react";
 import type { MouseEvent, RefObject } from "react";
 
 import { useI18n } from "../i18n";
 import type { Queue, Settings, WhenDone } from "../lib/api";
+import { categoryLabel } from "../lib/categories";
 import { formatSpeed } from "../lib/format";
 import { FILTERS, filterLabel, type Filter } from "../lib/tasks";
 import { Button, Dialog, IconButton } from "./primitives";
@@ -29,6 +30,8 @@ export function Header({
   onPauseAll,
   onResumeAll,
   onSettings,
+  onGrabber,
+  onFeeds,
   hasRunning,
   hasPaused,
 }: {
@@ -38,6 +41,8 @@ export function Header({
   onPauseAll: () => void;
   onResumeAll: () => void;
   onSettings: () => void;
+  onGrabber: () => void;
+  onFeeds: () => void;
   hasRunning: boolean;
   hasPaused: boolean;
 }) {
@@ -45,7 +50,7 @@ export function Header({
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-canvas px-4">
       <Logo />
-      <span className="display-medium text-[18px]">{t("common.appName")}</span>
+      <span className="display-medium text-[18px] max-sm:sr-only">{t("common.appName")}</span>
       <div className="ml-auto flex items-center gap-1.5">
         <Button size="sm" variant="ghost" onClick={onPauseAll} disabled={!hasRunning} className="max-sm:px-2">
           <Pause size={16} strokeWidth={1.75} />
@@ -55,6 +60,12 @@ export function Header({
           <Play size={16} strokeWidth={1.75} />
           <span className="max-sm:sr-only">{t("chrome.resumeAll")}</span>
         </Button>
+        <IconButton label={t("grabber.open")} onClick={onGrabber}>
+          <Globe size={18} strokeWidth={1.75} />
+        </IconButton>
+        <IconButton label={t("feeds.open")} onClick={onFeeds}>
+          <Rss size={18} strokeWidth={1.75} />
+        </IconButton>
         <IconButton label={theme === "dark" ? t("chrome.lightTheme") : t("chrome.darkTheme")} onClick={onToggleTheme}>
           {theme === "dark" ? <Sun size={18} strokeWidth={1.75} /> : <Moon size={18} strokeWidth={1.75} />}
         </IconButton>
@@ -184,7 +195,7 @@ export function FilterBar({
             <option value="">{t("chrome.allTypes")}</option>
             {categories.map((c) => (
               <option key={c} value={c}>
-                {c}
+                {categoryLabel(c)}
               </option>
             ))}
             <option value="-">{t("chrome.uncategorized")}</option>

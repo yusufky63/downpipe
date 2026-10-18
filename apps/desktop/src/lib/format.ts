@@ -2,10 +2,40 @@ import { currentLocale } from "../i18n/core";
 
 const UNITS = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
 
-/** Binary units with one decimal: `12.3 MiB`. */
+// Building a NumberFormat is far slower than using one, and a list of
+// thousands of rows formats several numbers per row.
+const formats = new Map<string, Intl.NumberFormat>();
+
+function numberFormat(digits: number, style: "decimal" | "percent" = "decimal"): Intl.NumberFormat {
+  const locale = currentLocale();
+  const key = `${locale}|${style}|${digits}`;
+  let format = formats.get(key);
+  if (!format) {
+    // No thousands separators: a size never needs one ("1023 B"), and a
+    // grouped "1.023" would read as a decimal in German.
+    format = new Intl.NumberFormat(locale, { style, minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false });
+    formats.set(key, format);
+  }
+  return format;
+}
+
+/** A number with a fixed count of decimals, the active language's way: `1.5`, Turkish `1,5`. */
+export function formatDecimal(n: number, digits: number): string {
+  return numberFormat(digits).format(n);
+}
+
+/**
+ * A percent (0–100) the active language's way: `50%`, Turkish `%50`,
+ * German `50 %`.
+ */
+export function formatPercent(pct: number, digits = 0): string {
+  return numberFormat(digits, "percent").format(pct / 100);
+}
+
+/** Binary units with one decimal: `12.3 MiB`, Turkish `12,3 MiB`. */
 export function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return "–";
-  if (n < 1024) return `${Math.round(n)} B`;
+  if (n < 1024) return `${formatDecimal(Math.round(n), 0)} B`;
   let value = n;
   let unit = 0;
   // 1023.96 would print as "1024.0 KiB"; promote it to the next unit.
@@ -13,7 +43,7 @@ export function formatBytes(n: number): string {
     value /= 1024;
     unit += 1;
   }
-  return `${value.toFixed(1)} ${UNITS[unit]}`;
+  return `${formatDecimal(value, 1)} ${UNITS[unit]}`;
 }
 
 /** Engine messages start lowercase (they compose into longer errors); capitalize for display. */
@@ -110,6 +140,22 @@ export type RateUnit = "KiB" | "MiB";
 export function rateToBytes(value: number, unit: RateUnit): number {
   if (!Number.isFinite(value) || value <= 0) return 0;
   return Math.round(value * (unit === "MiB" ? 1024 * 1024 : 1024));
+}
+
+/**
+ * A decimal typed by the user: a dot or a comma before the decimals, as
+ * either is what someone's keyboard and habit give. NaN for anything else.
+ */
+export function parseDecimal(text: string): number {
+  const value = text.trim();
+  if (!/^\d+(?:[.,]\d+)?$/.test(value)) return Number.NaN;
+  return Number(value.replace(",", "."));
+}
+
+/** A stored decimal as an input field shows it, with the language's decimal sign. */
+export function decimalField(value: number): string {
+  const sign = formatDecimal(1.5, 1).replace(/\d/g, "");
+  return String(value).replace(".", sign);
 }
 
 /** Pick the unit that shows a speed limit most naturally. */

@@ -1006,3 +1006,135 @@ async fn removing_a_stream_download_deletes_its_fragments() {
         "nothing left behind"
     );
 }
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+#[tokio::test]
+async fn pause_until_resumes_at_its_time_and_survives_a_restart() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let url = server.url(&format!("/file/{}?rate=2097152", 8 * MIB));
+    let at = unix_now() + 3600;
+
+    let id = {
+        let manager = open(data.path()).await;
+        let id = add(&manager, url, out.path()).record.id;
+        wait_for(&manager, &id, |t| t.record.downloaded > 256 * KIB).await;
+        manager.pause_until(&id, at).unwrap();
+        let paused = wait_for(&manager, &id, |t| t.record.state == TaskState::Paused).await;
+        assert_eq!(paused.record.resume_at, Some(at));
+        // Not yet: nothing happens before the time.
+        manager.resume_due(at - 1);
+        assert_eq!(manager.get(&id).unwrap().record.state, TaskState::Paused);
+        manager.shutdown().await;
+        id
+    };
+
+    // The time is stored with the download.
+    let manager = open(data.path()).await;
+    let task = manager.get(&id).unwrap();
+    assert_eq!(task.record.state, TaskState::Paused);
+    assert_eq!(task.record.resume_at, Some(at));
+    manager.resume_due(at);
+    let done = wait_for(&manager, &id, |t| t.record.state == TaskState::Completed).await;
+    assert_eq!(done.record.resume_at, None);
+}
+
+#[tokio::test]
+async fn pause_until_a_passed_time_resumes_by_itself() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open(data.path()).await;
+    let id = manager
+        .add(AddOptions {
+            url: server.url(&format!("/file/{}", MIB)),
+            dir: Some(out.path().to_path_buf()),
+            paused: true,
+            ..AddOptions::default()
+        })
+        .unwrap()
+        .record
+        .id;
+    // The manager's own timer picks it up within a few seconds.
+    manager.pause_until(&id, unix_now() - 1).unwrap();
+    wait_for(&manager, &id, |t| t.record.state == TaskState::Completed).await;
+}
+
+#[tokio::test]
+async fn pausing_or_resuming_by_hand_cancels_the_time() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open(data.path()).await;
+    let id = manager
+        .add(AddOptions {
+            url: server.url(&format!("/file/{}", MIB)),
+            dir: Some(out.path().to_path_buf()),
+            paused: true,
+            ..AddOptions::default()
+        })
+        .unwrap()
+        .record
+        .id;
+    let at = unix_now() + 3600;
+    manager.pause_until(&id, at).unwrap();
+    manager.pause(&id).unwrap();
+    assert_eq!(manager.get(&id).unwrap().record.resume_at, None);
+    manager.resume_due(at);
+    assert_eq!(manager.get(&id).unwrap().record.state, TaskState::Paused);
+
+    manager.pause_until(&id, at).unwrap();
+    manager.resume(&id).unwrap();
+    let done = wait_for(&manager, &id, |t| t.record.state == TaskState::Completed).await;
+    assert_eq!(done.record.resume_at, None);
+    // A finished download has nothing to pause.
+    assert!(matches!(
+        manager.pause_until(&id, at),
+        Err(CoreError::InvalidState { .. })
+    ));
+}
+
+#[tokio::test]
+async fn a_download_keeps_its_own_speed_limit() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open(data.path()).await;
+    let id = manager
+        .add(AddOptions {
+            url: server.url(&format!("/file/{}", 4 * MIB)),
+            dir: Some(out.path().to_path_buf()),
+            paused: true,
+            ..AddOptions::default()
+        })
+        .unwrap()
+        .record
+        .id;
+    manager.set_speed_limit(&id, Some(256 * KIB)).unwrap();
+    manager.resume(&id).unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let early = manager.get(&id).unwrap();
+    assert_eq!(early.record.speed_limit, Some(256 * KIB));
+    assert!(
+        early.record.downloaded < 2 * MIB,
+        "limit not applied: {}",
+        early.record.downloaded
+    );
+    // Lifted while it runs: the rest comes at full speed.
+    manager.set_speed_limit(&id, Some(0)).unwrap();
+    assert_eq!(manager.get(&id).unwrap().record.speed_limit, None);
+    wait_for(&manager, &id, |t| t.record.state == TaskState::Completed).await;
+
+    // Stored with the download.
+    manager.set_speed_limit(&id, Some(MIB)).unwrap();
+    drop(manager);
+    let manager = open(data.path()).await;
+    assert_eq!(manager.get(&id).unwrap().record.speed_limit, Some(MIB));
+}

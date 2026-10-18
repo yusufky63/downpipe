@@ -5,4 +5,9 @@ export const overlay = {
   nothingYet: "Nothing to download yet. Let the video play a moment, then try again.",
   /** Also the media list's note after sending something already in the app. */
   duplicate: "Already in Downpipe",
+  dragHint: "Drag to move it within the video.",
+  more: "More options",
+  hideSite: "Hide on this site",
+  hideSiteDetail: "Videos are still detected here.",
+  hidden: "Hidden on this site. Bring it back under Filters in the Downpipe extension.",
 };

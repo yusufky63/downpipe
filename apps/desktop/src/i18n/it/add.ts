@@ -65,9 +65,31 @@ export const add: Messages["add"] = {
     hint: "Facoltativo, ad es. sha256:9f86d0… Il file viene rinominato nella posizione finale solo se corrisponde.",
     videoHint: "Solo per i file: yt-dlp compone il file di un video a partire dai formati del sito.",
   },
+  /** Sent with every request, kept in memory only. */
+  headers: {
+    label: "Intestazioni della richiesta",
+    hint: "Facoltativo. Una per riga, come Nome: valore. Inviate con ogni richiesta e tenute solo in memoria, mai salvate.",
+  },
+  /** "Paste as cURL": a command from the browser's developer tools. */
+  curl: {
+    button: "Incolla come cURL",
+    label: "Comando cURL",
+    hint: "Negli strumenti per sviluppatori del browser: Rete, clic destro sulla richiesta, Copia come cURL. Si possono scaricare solo richieste GET.",
+    apply: "Compila",
+    filled: "Compilato dal comando: il link e le sue intestazioni.",
+    ignored: "Tralasciato: {list}.",
+    notCurl: "Questo non è un comando cURL. Deve iniziare con curl.",
+    quote: "Una virgoletta nel comando non viene mai chiusa. Copia di nuovo l'intero comando.",
+    noUrl: "Il comando non contiene un link http o https.",
+    method: "Questa richiesta usa {method}. Downpipe scarica solo con GET, quindi non può ripeterla.",
+    data: "Questa richiesta invia dati ({option}), quindi è un POST. Downpipe scarica solo con GET.",
+  },
   errors: {
     listTooLarge: "Questo file è troppo grande per un elenco di link.",
     noLinks: "Incolla almeno un link http o https.",
     forLink: "{url}: {error}",
+    headerFormat: "Riga {line}: scrivila come Nome: valore.",
+    headerName: "Riga {line}: {name} non è un nome di intestazione valido.",
+    headerManaged: "Riga {line}: {name} lo imposta Downpipe da sé.",
   },
 };

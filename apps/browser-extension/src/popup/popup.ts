@@ -141,7 +141,7 @@ function activityItem(entry: Activity, now: number): HTMLLIElement {
   const label = span("item-label", view.label);
   label.title = view.label;
   const detail = span("item-detail num", view.detail);
-  detail.title = view.detail;
+  detail.title = view.technical ? `${view.detail}\n${view.technical}` : view.detail;
   li.append(label, span("badge", view.badge), detail);
   // A running download shows live numbers across the row; a finished one
   // also says when it was sent.

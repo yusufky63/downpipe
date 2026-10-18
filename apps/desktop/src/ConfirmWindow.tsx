@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import { Toasts, type Toast } from "./components/Chrome";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DuplicateDialog } from "./components/DuplicateDialog";
 import { LocaleProvider, useLocale } from "./i18n";
 import { api, errorMessage, inTauri, onConfirmAgain, onManagerEvent, onResync, type Settings, type Task } from "./lib/api";
+import { rememberedAnswer, type DuplicateChoice } from "./lib/duplicates";
 import { applyEvent, awaitingIn, canResume } from "./lib/tasks";
 import { useAppWindow, useThemeFromOtherWindows } from "./lib/window";
 
@@ -96,30 +97,47 @@ export function ConfirmWindow() {
 
   // The browser sent a link already in the list: ask about that first, as IDM does.
   const existing = asking?.duplicate_of ? tasks.find((t) => t.id === asking.duplicate_of) : undefined;
+  // Answered before with "Don't ask again". A copy goes on to the usual
+  // question; the other answers need no window at all.
+  const remembered = settings ? rememberedAnswer(settings) : null;
+  const askDuplicate = asking !== undefined && existing !== undefined && !copies.has(asking.id) && remembered !== "copy";
+
+  /** Drops the held copy and turns to the download already in the list. */
+  const turnToExisting = (held: Task, old: Task, choice: Exclude<DuplicateChoice, "copy">) =>
+    run(async () => {
+      await api.remove(held.id, true);
+      if (choice === "overwrite" && old.state === "completed") await api.redownload(old.id, true);
+      else if (canResume(old)) await api.resume(old.id);
+      // Its window: progress while it runs, Open and Open folder once done.
+      await api.watchDownload(old.id);
+    });
+
+  const answered = useRef<string | null>(null);
+  const answerRemembered = useEffectEvent(() => {
+    if (!askDuplicate || !asking || !existing || remembered === null) return;
+    if (answered.current === asking.id) return;
+    answered.current = asking.id;
+    turnToExisting(asking, existing, remembered);
+  });
+  useEffect(() => answerRemembered(), [asking?.id, askDuplicate, remembered]);
 
   return (
     <LocaleProvider locale={locale}>
-      {asking && existing && !copies.has(asking.id) ? (
-        <DuplicateDialog
-          key={`duplicate-${question}`}
-          existing={existing}
-          inWindow
-          onFit={fit}
-          onCancel={() => run(() => api.remove(asking.id, true))}
-          onChoose={(choice) => {
-            if (choice === "copy") {
-              setCopies((ids) => new Set(ids).add(asking.id));
-              return;
-            }
-            run(async () => {
-              await api.remove(asking.id, true);
-              if (choice === "overwrite" && existing.state === "completed") await api.redownload(existing.id, true);
-              else if (canResume(existing)) await api.resume(existing.id);
-              // Its window: progress while it runs, Open and Open folder once done.
-              await api.watchDownload(existing.id);
-            });
-          }}
-        />
+      {askDuplicate ? (
+        remembered === null && (
+          <DuplicateDialog
+            key={`duplicate-${question}`}
+            existing={existing}
+            inWindow
+            onFit={fit}
+            onCancel={() => run(() => api.remove(asking.id, true))}
+            onChoose={(choice, remember) => {
+              if (remember && settings) run(async () => setSettings(await api.updateSettings({ ...settings, duplicate_answer: choice })));
+              if (choice === "copy") setCopies((ids) => new Set(ids).add(asking.id));
+              else turnToExisting(asking, existing, choice);
+            }}
+          />
+        )
       ) : asking && settings && (
         <ConfirmDialog
           key={question}

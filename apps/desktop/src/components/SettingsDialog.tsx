@@ -1,4 +1,4 @@
-import { FolderOpen, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { Fragment, useEffect, useId, useState, type ReactNode } from "react";
 
 import { LOCALES, systemLocaleName, useI18n } from "../i18n";
@@ -8,19 +8,26 @@ import {
   errorMessage,
   type BridgeRegistration,
   type Category,
+  type DuplicateAnswer,
   type Queue,
   type Settings,
+  type SiteRulesCheck,
   type ToolsStatus,
 } from "../lib/api";
 import { BROWSER_NAMES, bridgeStateInfo, canRegister } from "../lib/bridge";
-import { bytesToRate, rateToBytes, type RateUnit } from "../lib/format";
+import { fromRuleDraft, toRuleDraft, type RuleDraft } from "../lib/siteRules";
+import { bytesToRate, decimalField, parseDecimal, rateToBytes, type RateUnit } from "../lib/format";
+import { categoryLabel, storedCategoryName } from "../lib/categories";
 import { hasArchiveTypes } from "../lib/post";
 import { installButtonLabel, toolRows, toolsToInstall } from "../lib/tools";
+import { FolderInput } from "./FolderInput";
 import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } from "./primitives";
+import { RemoteSettingsPanel } from "./RemoteSettings";
+import { SiteRules } from "./SiteRules";
 
-export type SettingsTab = "downloads" | "queues" | "categories" | "post" | "network" | "media" | "schedule" | "app";
+export type SettingsTab = "downloads" | "queues" | "categories" | "post" | "network" | "sites" | "media" | "schedule" | "app" | "remote";
 
-const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "post", "network", "media", "schedule", "app"];
+const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "post", "network", "sites", "media", "schedule", "app", "remote"];
 
 /** Defender is the default scanner only there. */
 const WINDOWS = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
@@ -42,6 +49,8 @@ function fill(text: string, parts: Record<string, ReactNode>): ReactNode {
 /** Categories as edited: extensions stay a free-form string until saved. */
 interface CategoryDraft {
   key: number;
+  /** The name in the settings, which a built-in category shows translated. */
+  stored: string;
   name: string;
   extensions: string;
   folder: string;
@@ -60,7 +69,8 @@ interface QueueDraft {
 let draftKey = 0;
 const toDraft = (c: Category): CategoryDraft => ({
   key: ++draftKey,
-  name: c.name,
+  stored: c.name,
+  name: categoryLabel(c.name),
   extensions: c.extensions.join(" "),
   folder: c.folder,
   extract: c.extract,
@@ -78,7 +88,7 @@ const splitExtensions = (text: string): string[] =>
     .map((e) => e.trim().replace(/^\./, "").toLowerCase())
     .filter(Boolean);
 const fromDraft = (d: CategoryDraft): Category => ({
-  name: d.name.trim(),
+  name: storedCategoryName(d.stored, d.name),
   extensions: splitExtensions(d.extensions),
   folder: d.folder.trim(),
   extract: d.extract,
@@ -101,7 +111,7 @@ export function SettingsDialog({
   const [dir, setDir] = useState(settings.download_dir);
   const [concurrent, setConcurrent] = useState(String(settings.max_concurrent_downloads));
   const [connections, setConnections] = useState(String(settings.max_connections_per_download));
-  const [limit, setLimit] = useState(initialRate.value > 0 ? String(initialRate.value) : "");
+  const [limit, setLimit] = useState(initialRate.value > 0 ? decimalField(initialRate.value) : "");
   const [unit, setUnit] = useState<RateUnit>(initialRate.unit);
   const [registerHost, setRegisterHost] = useState(settings.register_browser_host);
   const [notify, setNotify] = useState(settings.notify_on_finish);
@@ -125,17 +135,49 @@ export function SettingsDialog({
   const [scan, setScan] = useState(settings.post.scan);
   const [scanner, setScanner] = useState(settings.post.scanner);
   const [deleteArchive, setDeleteArchive] = useState(settings.post.delete_archive);
+  const [ruleDrafts, setRuleDrafts] = useState<RuleDraft[]>(() => settings.site_rules.map(toRuleDraft));
+  const [ruleAddress, setRuleAddress] = useState("");
+  const [ruleCheck, setRuleCheck] = useState<SiteRulesCheck | null>(null);
+  const [duplicateAnswer, setDuplicateAnswer] = useState<DuplicateAnswer>(settings.duplicate_answer);
   const [error, setError] = useState<string | null>(null);
   const tabIds = useId();
 
+  const limitValue = limit.trim() === "" ? 0 : parseDecimal(limit);
+  const limitInvalid = Number.isNaN(limitValue);
+
+  // Drafts are checked by the same Rust code that applies saved rules, a
+  // moment after each change, so the tester never disagrees with downloads.
+  useEffect(() => {
+    let live = true;
+    const timer = window.setTimeout(() => {
+      api
+        .checkSiteRules(ruleDrafts.map(fromRuleDraft), ruleAddress.trim() || null)
+        .then((check) => live && setRuleCheck(check))
+        .catch(() => live && setRuleCheck(null));
+    }, 120);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [ruleDrafts, ruleAddress]);
+
   const save = async () => {
+    if (ruleCheck && ruleCheck.problems.length > 0) {
+      setTab("sites");
+      setError(t("sites.fix"));
+      return;
+    }
+    if (limitInvalid) {
+      setTab("downloads");
+      return;
+    }
     try {
       const saved = await api.updateSettings({
         language,
         download_dir: dir.trim(),
         max_concurrent_downloads: Number.parseInt(concurrent, 10) || settings.max_concurrent_downloads,
         max_connections_per_download: Number.parseInt(connections, 10) || settings.max_connections_per_download,
-        speed_limit: rateToBytes(Number.parseFloat(limit), unit),
+        speed_limit: rateToBytes(limitValue, unit),
         register_browser_host: registerHost,
         notify_on_finish: notify,
         close_to_tray: closeToTray,
@@ -159,6 +201,8 @@ export function SettingsDialog({
           scanner: scanner.trim(),
           delete_archive: deleteArchive,
         },
+        site_rules: ruleDrafts.map(fromRuleDraft),
+        duplicate_answer: duplicateAnswer,
       });
       onSaved(saved);
       onClose();
@@ -205,7 +249,7 @@ export function SettingsDialog({
               tab === id ? "border-primary text-ink" : "border-transparent text-ink-secondary hover:text-ink"
             }`}
           >
-            {id === "post" ? t("post.settings.tab") : t(`settings.tabs.${id}`)}
+            {id === "post" ? t("post.settings.tab") : id === "remote" ? t("remote.settings.tab") : t(`settings.tabs.${id}`)}
           </button>
         ))}
       </div>
@@ -224,14 +268,19 @@ export function SettingsDialog({
                 {(id) => <NumberInput id={id} min={1} max={32} value={connections} onChange={setConnections} />}
               </Field>
             </div>
-            <Field label={t("settings.downloads.speedLimit")} hint={t("settings.downloads.speedLimitHint")}>
+            <Field
+              label={t("settings.downloads.speedLimit")}
+              hint={t("settings.downloads.speedLimitHint")}
+              error={limitInvalid ? t("settings.downloads.speedLimitInvalid") : null}
+            >
               {(id) => (
                 <div className="flex gap-2">
                   <input
                     id={id}
-                    type="number"
-                    min={0}
-                    step="any"
+                    // Text, not a number field: Chromium's number field drops a
+                    // comma unless the system's language uses one.
+                    type="text"
+                    inputMode="decimal"
                     value={limit}
                     placeholder={t("settings.downloads.noLimit")}
                     onChange={(e) => setLimit(e.target.value)}
@@ -247,6 +296,21 @@ export function SettingsDialog({
                     <option value="MiB">MiB/s</option>
                   </select>
                 </div>
+              )}
+            </Field>
+            <Field label={t("settings.downloads.duplicate")} hint={t("settings.downloads.duplicateHint")}>
+              {(id) => (
+                <select
+                  id={id}
+                  value={duplicateAnswer}
+                  onChange={(e) => setDuplicateAnswer(e.target.value as DuplicateAnswer)}
+                  className={`${inputClass} h-9`}
+                >
+                  <option value="ask">{t("settings.downloads.duplicateAsk")}</option>
+                  <option value="copy">{t("dialogs.duplicate.copy")}</option>
+                  <option value="overwrite">{t("dialogs.duplicate.overwrite")}</option>
+                  <option value="existing">{t("dialogs.duplicate.existing")}</option>
+                </select>
               )}
             </Field>
           </>
@@ -352,8 +416,11 @@ export function SettingsDialog({
                   <input
                     aria-label={c.name ? t("settings.categories.folder", { name: c.name }) : t("settings.categories.folderUnnamed")}
                     value={c.folder}
+                    // The folder is named after the stored name, which stays English for a built-in category.
                     placeholder={
-                      c.name ? t("settings.categories.folderPlaceholder", { name: c.name }) : t("settings.categories.folderPlaceholderUnnamed")
+                      c.name
+                        ? t("settings.categories.folderPlaceholder", { name: storedCategoryName(c.stored, c.name) })
+                        : t("settings.categories.folderPlaceholderUnnamed")
                     }
                     spellCheck={false}
                     onChange={(e) => updateCategory(c.key, { folder: e.target.value })}
@@ -377,7 +444,7 @@ export function SettingsDialog({
               ))}
             </ul>
             <div>
-              <Button size="sm" onClick={() => setCategories((list) => [...list, { key: ++draftKey, name: "", extensions: "", folder: "", extract: false }])}>
+              <Button size="sm" onClick={() => setCategories((list) => [...list, { key: ++draftKey, stored: "", name: "", extensions: "", folder: "", extract: false }])}>
                 <Plus size={16} strokeWidth={1.75} />
                 {t("settings.categories.add")}
               </Button>
@@ -471,6 +538,17 @@ export function SettingsDialog({
               )}
             </Field>
           </>
+        )}
+
+        {tab === "sites" && (
+          <SiteRules
+            drafts={ruleDrafts}
+            onChange={setRuleDrafts}
+            address={ruleAddress}
+            onAddress={setRuleAddress}
+            check={ruleCheck}
+            queues={schedulable.map((q) => ({ id: q.id, name: q.name.trim() }))}
+          />
         )}
 
         {tab === "media" && (
@@ -599,6 +677,8 @@ export function SettingsDialog({
             <BrowserBridge registerHost={registerHost} onRegisterHostChange={setRegisterHost} />
           </>
         )}
+
+        {tab === "remote" && <RemoteSettingsPanel />}
       </div>
     </Dialog>
   );
@@ -747,24 +827,6 @@ function SiteTools({
       )}
       <Banner tone="neutral">{t("settings.siteTools.cookies")}</Banner>
     </section>
-  );
-}
-
-function FolderInput({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
-  const { t } = useI18n();
-  return (
-    <div className="flex gap-2">
-      <input id={id} value={value} onChange={(e) => onChange(e.target.value)} spellCheck={false} className={`${inputClass} h-9 font-mono text-[13px]`} />
-      <Button
-        onClick={async () => {
-          const picked = await api.pickFolder(value || null).catch(() => null);
-          if (picked) onChange(picked);
-        }}
-      >
-        <FolderOpen size={16} strokeWidth={1.75} />
-        {t("common.browse")}
-      </Button>
-    </div>
   );
 }
 

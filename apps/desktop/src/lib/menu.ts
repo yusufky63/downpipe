@@ -1,14 +1,18 @@
 // The right-click menu of the download list, as data: which entries the
 // selected downloads get and whether they apply. The component draws it.
-import { t } from "../i18n/core";
+import { currentLocale, t } from "../i18n/core";
 import type { Queue, Task } from "./api";
 import { canPause, canResume } from "./tasks";
+import { TONIGHT, UNTIL_PRESETS, canPauseUntil, type UntilPreset } from "./until";
 
 export type MenuAction =
   | "open"
   | "reveal"
   | "resume"
   | "pause"
+  | `pause_until:${UntilPreset}`
+  | "pause_until_custom"
+  | "speed_limit"
   | "redownload"
   | "relink"
   | "move_top"
@@ -39,7 +43,9 @@ export type MenuIcon =
   | "copy"
   | "info"
   | "trash"
-  | "plus";
+  | "plus"
+  | "clock"
+  | "gauge";
 
 export type MenuEntry =
   | {
@@ -94,9 +100,27 @@ export function buildMenu(selected: readonly Task[], queues: readonly Queue[]): 
       disabled: resumable.length === 0,
     },
     { kind: "item", action: "pause", label: t("list.menu.pause"), icon: "pause", disabled: !selected.some(canPause) },
+    {
+      kind: "submenu",
+      label: t("list.menu.pauseUntil"),
+      icon: "clock",
+      disabled: !selected.some(canPauseUntil),
+      items: [
+        ...UNTIL_PRESETS.map((preset): MenuEntry => ({ kind: "item", action: `pause_until:${preset}`, label: untilLabel(preset) })),
+        SEPARATOR,
+        { kind: "item", action: "pause_until_custom", label: t("list.menu.untilCustom") },
+      ],
+    },
   );
   if (one && done) entries.push({ kind: "item", action: "redownload", label: t("list.menu.redownload"), icon: "again" });
   if (one && canRelink(one)) entries.push({ kind: "item", action: "relink", label: t("list.menu.relink"), icon: "link" });
+  entries.push({
+    kind: "item",
+    action: "speed_limit",
+    label: t("list.menu.speedLimit"),
+    icon: "gauge",
+    disabled: selected.every((t) => t.state === "completed"),
+  });
   entries.push(
     SEPARATOR,
     {
@@ -142,6 +166,20 @@ export function buildMenu(selected: readonly Task[], queues: readonly Queue[]): 
     danger: true,
   });
   return entries;
+}
+
+function untilLabel(preset: UntilPreset): string {
+  switch (preset) {
+    case "30m":
+      return t("list.menu.until30m");
+    case "1h":
+      return t("list.menu.until1h");
+    case "tonight": {
+      const at = new Date(2000, 0, 1, TONIGHT.hour, TONIGHT.minute);
+      const time = new Intl.DateTimeFormat(currentLocale(), { hour: "2-digit", minute: "2-digit" }).format(at);
+      return t("list.menu.untilTonight", { time });
+    }
+  }
 }
 
 /** What gets copied: one link per line, in the order shown. */
