@@ -1,0 +1,6 @@
+{
+  "protocol_version": 1,
+  "type": "download",
+  "id": "m3",
+  "resource_url": "magnet:?xt=urn:btih:c9e15763f722f23e98a29decdfae341b98d53056&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Ftracker.example%3A1337"
+}

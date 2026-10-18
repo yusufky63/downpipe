@@ -257,3 +257,19 @@ describe("results", () => {
     expect(downloadLabel(1200)).toBe("Download 1,200 links");
   });
 });
+
+describe("magnet links on a page", () => {
+  const magnet = "magnet:?xt=urn:btih:c9e15763f722f23e98a29decdfae341b98d53056&dn=Pack";
+  it("are kept once and grouped as torrents", () => {
+    const { links } = cleanLinks(
+      [
+        { url: magnet, text: "Pack" },
+        { url: magnet, text: "again" },
+        { url: "magnet:?dn=no-hash", text: "x" },
+      ],
+      "https://example.org/",
+    );
+    expect(links).toEqual([{ url: magnet, text: "Pack" }]);
+    expect(links.map(linkView)[0]).toMatchObject({ name: "Pack", ext: "torrent", page: false });
+  });
+});

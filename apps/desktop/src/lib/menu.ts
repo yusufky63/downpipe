@@ -74,9 +74,9 @@ export const SHORTCUTS = {
 
 const SEPARATOR: MenuEntry = { kind: "separator" };
 
-/** A video page's address does not expire, so only file and stream links can be replaced. */
+/** A video page's address and a torrent's hash do not expire, so only file and stream links can be replaced. */
 export const canRelink = (t: Task) =>
-  t.site === null && (t.state === "paused" || t.state === "failed" || t.state === "canceled" || t.state === "queued");
+  t.site === null && t.torrent === null && (t.state === "paused" || t.state === "failed" || t.state === "canceled" || t.state === "queued");
 
 export function buildMenu(selected: readonly Task[], queues: readonly Queue[]): MenuEntry[] {
   if (selected.length === 0) return [];
@@ -99,7 +99,14 @@ export function buildMenu(selected: readonly Task[], queues: readonly Queue[]): 
       icon: retry ? "retry" : "play",
       disabled: resumable.length === 0,
     },
-    { kind: "item", action: "pause", label: t("list.menu.pause"), icon: "pause", disabled: !selected.some(canPause) },
+    {
+      kind: "item",
+      action: "pause",
+      // For finished torrents that still upload, pausing stops the seeding.
+      label: selected.every((t) => t.swarm?.seeding) ? t("torrent.stopSeeding") : t("list.menu.pause"),
+      icon: "pause",
+      disabled: !selected.some(canPause),
+    },
     {
       kind: "submenu",
       label: t("list.menu.pauseUntil"),
@@ -119,7 +126,8 @@ export function buildMenu(selected: readonly Task[], queues: readonly Queue[]): 
     action: "speed_limit",
     label: t("list.menu.speedLimit"),
     icon: "gauge",
-    disabled: selected.every((t) => t.state === "completed"),
+    // Torrents follow the BitTorrent limits in Settings instead.
+    disabled: selected.every((t) => t.state === "completed" || t.torrent !== null),
   });
   entries.push(
     SEPARATOR,

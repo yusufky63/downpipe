@@ -16,7 +16,7 @@ export const add: Messages["add"] = {
     playlist: "Una playlist di {site}. Nel passaggio successivo scegli i suoi video.",
     channel: "Un canale di {site}. Nel passaggio successivo scegli i suoi video.",
     label: "Link",
-    hint: "Un link per riga, oppure uno schema come file[001-100].zip. Sono supportati solo http e https.",
+    hint: "Un link per riga, oppure uno schema come file[001-100].zip. Sono supportati link http, https e magnet.",
     found: {
       one: "{count} link trovato. Un download per ciascuno.",
       many: "{count} link trovati. Un download per ciascuno.",
@@ -88,7 +88,7 @@ export const add: Messages["add"] = {
   },
   errors: {
     listTooLarge: "Questo file è troppo grande per un elenco di link.",
-    noLinks: "Incolla almeno un link http o https.",
+    noLinks: "Incolla almeno un link http, https o magnet.",
     forLink: "{url}: {error}",
     headerFormat: "Riga {line}: scrivila come Nome: valore.",
     headerName: "Riga {line}: {name} non è un nome di intestazione valido.",

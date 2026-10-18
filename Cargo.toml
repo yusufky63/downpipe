@@ -8,6 +8,7 @@ members = [
     "crates/providers",
     "crates/crawl",
     "crates/remote",
+    "crates/torrent",
     "tools/test-server",
     "apps/desktop/src-tauri",
 ]
@@ -21,6 +22,7 @@ default-members = [
     "crates/providers",
     "crates/crawl",
     "crates/remote",
+    "crates/torrent",
     "tools/test-server",
 ]
 
@@ -39,6 +41,7 @@ downpipe-native-host = { path = "crates/native-host" }
 downpipe-providers = { path = "crates/providers" }
 downpipe-crawl = { path = "crates/crawl" }
 downpipe-remote = { path = "crates/remote" }
+downpipe-torrent = { path = "crates/torrent" }
 downpipe-test-server = { path = "tools/test-server" }
 
 aes = "0.8.4"

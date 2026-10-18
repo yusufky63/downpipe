@@ -84,6 +84,8 @@ describe("urls", () => {
       https://example.org/b.zip, plus ftp://nope and https://example.org/a.iso again`;
     expect(parseUrls(text)).toEqual(["https://example.org/a.iso", "https://example.org/b.zip"]);
     expect(parseUrls("no links here")).toEqual([]);
+    const magnet = "magnet:?xt=urn:btih:c9e15763f722f23e98a29decdfae341b98d53056&dn=a";
+    expect(parseUrls(`${magnet} ${magnet} magnet:?dn=no-hash https://example.org/a.iso`)).toEqual([magnet, "https://example.org/a.iso"]);
   });
 
   it("derives display names", () => {

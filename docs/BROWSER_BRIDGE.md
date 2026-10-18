@@ -266,7 +266,7 @@ Requests:
 | `protocol_version` | Required, must be `1`. Other numbers get `unsupported_version`. |
 | `type` | `ping`, `download`, `media`, `page` or `tasks`. |
 | `id` | Optional, 1 to 64 letters, digits, `-` or `_`. Echoed in the response. |
-| `resource_url` | Required for `download`. http or https, at most 8 KiB, no control characters. The fragment is dropped. |
+| `resource_url` | Required for `download`. http or https, at most 8 KiB, no control characters. The fragment is dropped. A `magnet:` link with a BitTorrent v1 info hash (`xt=urn:btih:`) is accepted too, as it is (feature `torrent`); the extension sends it without page or referrer. |
 | `page_url`, `referrer` | Optional, for `download` and `media`, same URL rules. Credentials and fragments are removed. The referrer is sent as `Referer` (with a stream: with the manifest, every fragment and the key); the page URL is not stored. For `page`, `page_url` is required and is what is downloaded: it must be a video page the site provider takes, or a playlist or channel it lists (see above), or the answer is `unsupported_page`; a `page` message carries no referrer. |
 | `manifest_url` | Required for `media`, allowed nowhere else. The HLS playlist or DASH manifest, with the same rules as `resource_url`. |
 | `kind` | Required for `media`: `hls` or `dash`. |
@@ -282,7 +282,7 @@ Requests:
 Responses carry `protocol_version`, the request's `id` and a `type`:
 
 ```json
-{"protocol_version": 1, "id": "p1", "type": "pong", "host_version": "0.4.0", "app_running": true, "app_version": "0.4.0", "features": ["media", "page", "list"]}
+{"protocol_version": 1, "id": "p1", "type": "pong", "host_version": "0.4.0", "app_running": true, "app_version": "0.4.0", "features": ["media", "page", "list", "torrent"]}
 {"protocol_version": 1, "id": "m1", "type": "accepted", "task_id": "8e48dd86-..."}
 {"protocol_version": 1, "id": "m2", "type": "accepted", "task_id": "68b6ffff-...", "awaiting_confirmation": true}
 {"protocol_version": 1, "id": "y2", "type": "list_opened", "page_url": "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb"}
@@ -296,7 +296,7 @@ Responses carry `protocol_version`, the request's `id` and a `type`:
 
 | Field | In | Meaning |
 |---|---|---|
-| `features` | `pong` | What the host and the running app both support beyond the first messages of version 1. `media`: the `media` message; `page`: the `page` message; `list`: `page` also takes playlists and channels. Left out when there is none (the app is closed, or one of them predates it). |
+| `features` | `pong` | What the host and the running app both support beyond the first messages of version 1. `media`: the `media` message; `page`: the `page` message; `list`: `page` also takes playlists and channels; `torrent`: magnet links in `download` (an app built without BitTorrent leaves it out). Left out when there is none (the app is closed, or one of them predates it). |
 | `task_id` | `accepted`, `tasks`, `duplicate` errors | The app's id for the download. |
 | `file_name` | `accepted`, `tasks` | The hint or the name the app chose; in `tasks`, the final name once the server has answered. |
 | `state` | `tasks` | One of `queued`, `starting`, `downloading`, `waiting`, `verifying`, `paused`, `completed`, `failed` and `canceled`. |

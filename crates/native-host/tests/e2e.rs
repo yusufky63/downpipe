@@ -299,6 +299,7 @@ async fn browser_downloads_wait_for_the_user() {
                 media: None,
                 post: None,
                 subtitles: None,
+                files: None,
             },
         )
         .unwrap();
@@ -510,7 +511,12 @@ async fn streams_from_the_browser_are_offered_with_their_qualities() {
     let mut host = Host::spawn(&app.endpoint);
 
     let pong = host.ask(&json!({"protocol_version": 1, "type": "ping"}));
-    assert_eq!(pong["features"], json!(["media", "page", "list"]), "{pong}");
+    let features = if downpipe_core::TORRENT_SUPPORT {
+        json!(["media", "page", "list", "torrent"])
+    } else {
+        json!(["media", "page", "list"])
+    };
+    assert_eq!(pong["features"], features, "{pong}");
 
     let q = "segments=3&size=4000&split=1";
     let page = web.url("/watch/clip");

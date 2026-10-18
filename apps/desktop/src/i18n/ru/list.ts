@@ -72,8 +72,8 @@ export const list: Messages["list"] = {
 export const app: Messages["app"] = {
   noEngine: "Это окно — интерфейс Downpipe без движка. Чтобы загружать файлы, запустите настольное приложение командой pnpm desktop.",
   loadFailed: "Не удалось получить список загрузок: {error}",
-  dropHere: "Отпустите ссылки или список .txt, чтобы добавить их",
-  dropNothing: "Перетащите ссылки или файл .txt, в котором по одной ссылке в строке.",
+  dropHere: "Отпустите ссылки, список .txt или файл .torrent, чтобы добавить их",
+  dropNothing: "Перетащите ссылки, файл .txt с одной ссылкой в строке или файл .torrent.",
   copied: {
     link: "Ссылка скопирована.",
     links: {

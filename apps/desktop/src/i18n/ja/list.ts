@@ -67,8 +67,8 @@ export const app: Messages["app"] = {
   noEngine:
     "このウィンドウはエンジンを含まない Downpipe のインターフェイスです。ダウンロードするには、pnpm desktop でデスクトップアプリを起動してください。",
   loadFailed: "ダウンロードを読み込めませんでした：{error}",
-  dropHere: "リンクまたは .txt のリストをドロップして追加",
-  dropNothing: "リンク、または 1 行に 1 つのリンクを書いた .txt ファイルをドロップしてください。",
+  dropHere: "リンク、.txt のリスト、または .torrent ファイルをドロップして追加",
+  dropNothing: "リンク、1 行に 1 つのリンクを書いた .txt ファイル、または .torrent ファイルをドロップしてください。",
   copied: {
     link: "リンクをコピーしました。",
     links: { other: "{count} 件のリンクをコピーしました。" },

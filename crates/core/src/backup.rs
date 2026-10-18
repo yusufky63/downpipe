@@ -20,7 +20,7 @@ use serde_json::Value;
 use crate::feeds::{DEFAULT_INTERVAL_MINUTES, Feed, MAX_INTERVAL_MINUTES, MIN_INTERVAL_MINUTES};
 use crate::rules::{self, SiteRule};
 use crate::settings::{Category, MAIN_QUEUE, Queue, RemoteSettings, Settings};
-use crate::task::{MediaInfo, SiteInfo, TaskRecord, TaskState};
+use crate::task::{MediaInfo, SiteInfo, TaskRecord, TaskState, TorrentInfo};
 
 /// The `format` field, so a file picked by mistake is told apart from an
 /// unreadable backup.
@@ -192,6 +192,11 @@ pub struct BackupDownload {
     /// The download's own speed limit in bytes per second.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_limit: Option<u64>,
+    /// A BitTorrent download: its info hash, chosen files and upload total.
+    /// The `.torrent` file itself is not in a backup; an imported torrent
+    /// gets its file list again from its magnet link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub torrent: Option<TorrentInfo>,
 }
 
 fn main_queue() -> String {
@@ -222,12 +227,16 @@ impl BackupDownload {
             created_at: record.created_at,
             completed_at: record.completed_at,
             speed_limit: record.speed_limit,
+            torrent: record.torrent.clone(),
         }
     }
 
     /// Check one download from a file and bring it into the shape the
     /// catalog keeps. `Err` names the first problem.
     pub fn validated(self) -> Result<Self, String> {
+        if is_magnet(&self.url) || self.torrent.is_some() {
+            return self.validated_torrent();
+        }
         let url = url::Url::parse(self.url.trim()).map_err(|e| format!("url: {e}"))?;
         if !matches!(url.scheme(), "http" | "https") {
             return Err(format!("url: `{}` links are not supported", url.scheme()));
@@ -304,7 +313,126 @@ impl BackupDownload {
             created_at: self.created_at.max(0),
             completed_at: self.completed_at.map(|t| t.max(0)),
             speed_limit: self.speed_limit.filter(|&s| s > 0),
+            torrent: None,
         })
+    }
+
+    /// A torrent: a magnet link naming a v1 info hash, or an http(s) link
+    /// of a `.torrent` file. What it says about itself is checked against
+    /// the link; a speed limit, a stream or a site never go with it.
+    fn validated_torrent(self) -> Result<Self, String> {
+        let link = self.url.trim().to_string();
+        if link.len() > MAX_URL_LEN || link.chars().any(char::is_control) {
+            return Err("url: not a usable link".into());
+        }
+        let link_hash = magnet_hash(&link);
+        let url = if is_magnet(&link) {
+            if link_hash.is_none() {
+                return Err("url: a magnet link without a BitTorrent info hash".into());
+            }
+            link
+        } else {
+            let url = url::Url::parse(&link).map_err(|e| format!("url: {e}"))?;
+            if !matches!(url.scheme(), "http" | "https") {
+                return Err(format!("url: `{}` links are not supported", url.scheme()));
+            }
+            downpipe_http::redact_url(&url)
+        };
+        let info = self.torrent.unwrap_or_else(|| TorrentInfo {
+            info_hash: String::new(),
+            name: None,
+            files: 0,
+            only_files: None,
+            uploaded: 0,
+            private: false,
+        });
+        let info_hash = match (&link_hash, info.info_hash.trim().to_ascii_lowercase()) {
+            // The link is what starts it: its hash wins.
+            (Some(hash), _) => hash.clone(),
+            (None, hash) if is_hex_hash(&hash) => hash,
+            (None, _) => String::new(),
+        };
+        let only_files = info.only_files.and_then(|mut files| {
+            files.retain(|&i| info.files == 0 || i < info.files);
+            files.sort_unstable();
+            files.dedup();
+            (!files.is_empty() && files.len() <= MAX_DOWNLOADS).then_some(files)
+        });
+        let file_name = match self.file_name.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(name) if name.chars().count() > MAX_NAME_LEN => {
+                return Err("file_name: too long".into());
+            }
+            Some(name) => Some(filename::sanitize(name)),
+        };
+        let dir_ok = self.dir.is_absolute()
+            && self.dir.as_os_str().len() <= MAX_PATH_LEN
+            && !self.dir.to_string_lossy().chars().any(char::is_control);
+        let state = match self.state {
+            TaskState::Completed | TaskState::Canceled => self.state,
+            _ => TaskState::Paused,
+        };
+        Ok(Self {
+            url,
+            dir: if dir_ok { self.dir } else { PathBuf::new() },
+            file_name,
+            state,
+            total: self.total,
+            downloaded: self
+                .total
+                .map_or(self.downloaded, |t| self.downloaded.min(t)),
+            queue: Some(self.queue.trim())
+                .filter(|q| !q.is_empty() && q.len() <= MAX_LABEL_LEN)
+                .unwrap_or(MAIN_QUEUE)
+                .to_string(),
+            category: self.category.and_then(label),
+            auto_dir: self.auto_dir || !dir_ok,
+            checksum: None,
+            media: None,
+            site: None,
+            created_at: self.created_at.max(0),
+            completed_at: self.completed_at.map(|t| t.max(0)),
+            speed_limit: None,
+            torrent: Some(TorrentInfo {
+                info_hash,
+                name: info.name.and_then(label),
+                only_files,
+                ..info
+            }),
+        })
+    }
+}
+
+fn is_magnet(link: &str) -> bool {
+    link.trim()
+        .get(..7)
+        .is_some_and(|s| s.eq_ignore_ascii_case("magnet:"))
+}
+
+fn is_hex_hash(hash: &str) -> bool {
+    hash.len() == 40 && hash.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// The hex v1 info hash a magnet link names (`xt=urn:btih:<40 hex>`).
+/// Base32 hashes are left to the torrent layer, which reads them when the
+/// download starts; the duplicate check then goes by the link alone.
+fn magnet_hash(link: &str) -> Option<String> {
+    if !is_magnet(link) {
+        return None;
+    }
+    let lower = link.to_ascii_lowercase();
+    let at = lower.find("xt=urn:btih:")? + "xt=urn:btih:".len();
+    let hash: String = lower[at..]
+        .chars()
+        .take_while(char::is_ascii_alphanumeric)
+        .collect();
+    if is_hex_hash(&hash) {
+        Some(hash)
+    } else if hash.len() == 32 {
+        // A base32 hash: kept, the info hash stays unknown until it starts.
+        Some(String::new())
+    } else {
+        None
     }
 }
 
@@ -690,6 +818,45 @@ mod tests {
         assert_eq!(d.dir, PathBuf::new());
         assert!(d.auto_dir);
         assert_eq!(d.state, TaskState::Completed);
+    }
+
+    #[test]
+    fn torrents_round_trip_and_magnets_are_checked() {
+        let hash = "c9e15763f722f23e98a29decdfae341b98d53056";
+        let item = download(json!({
+            "url": format!("magnet:?xt=urn:btih:{}&dn=Pack", hash.to_uppercase()),
+            "dir": abs("Downloads"),
+            "file_name": "Pack",
+            "state": "downloading",
+            "speed_limit": 1000,
+            "torrent": {
+                "info_hash": "0000000000000000000000000000000000000000",
+                "name": "Pack",
+                "files": 3,
+                "only_files": [2, 0, 0, 9],
+                "uploaded": 77,
+            },
+        }))
+        .unwrap();
+        assert_eq!(item.state, TaskState::Paused, "nothing starts by itself");
+        assert_eq!(item.speed_limit, None);
+        let info = item.torrent.unwrap();
+        assert_eq!(info.info_hash, hash, "the link's hash wins");
+        assert_eq!(info.only_files, Some(vec![0, 2]));
+        assert_eq!(info.uploaded, 77);
+
+        // A magnet link that names no torrent is dropped.
+        assert!(
+            download(json!({"url": "magnet:?dn=x", "dir": abs("D"), "state": "paused"})).is_err()
+        );
+        // A plain magnet link (from another program) becomes a torrent.
+        let bare = download(json!({
+            "url": format!("magnet:?xt=urn:btih:{hash}"),
+            "dir": abs("D"),
+            "state": "paused",
+        }))
+        .unwrap();
+        assert_eq!(bare.torrent.unwrap().info_hash, hash);
     }
 
     #[test]

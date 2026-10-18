@@ -16,6 +16,7 @@ downpipe-http.workspace = true
 downpipe-providers.workspace = true
 flate2.workspace = true
 lzma-rust2.workspace = true
+downpipe-torrent = { workspace = true, optional = true }
 parking_lot.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true
@@ -36,11 +37,17 @@ zip = { workspace = true, features = ["deflate64", "lzma", "xz"] }
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 
+[features]
+# BitTorrent downloads through librqbit. Large, so off unless asked for;
+# the desktop app ships with it.
+torrent = ["dep:downpipe-torrent"]
+
 [dev-dependencies]
 axum.workspace = true
 downpipe-test-server.workspace = true
 # The tests build 7z archives, crafted ones included.
 sevenz-rust2 = { workspace = true, features = ["compress"] }
+downpipe-torrent = { workspace = true, features = ["testing"] }
 tempfile.workspace = true
 
 # Runs its own `main`: the test binary doubles as the fake yt-dlp it starts
@@ -54,6 +61,13 @@ harness = false
 [[test]]
 name = "post"
 harness = false
+
+# Runs its own `main`, which makes the manager's torrents listen on
+# loopback before any thread starts.
+[[test]]
+name = "torrents"
+harness = false
+required-features = ["torrent"]
 
 [lints]
 workspace = true

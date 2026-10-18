@@ -1,4 +1,4 @@
-import { FileText, FolderOpen, Terminal } from "lucide-react";
+import { FileText, FolderOpen, Magnet, Terminal } from "lucide-react";
 import { useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
 
 import { useI18n } from "../i18n";
@@ -17,6 +17,7 @@ import { headersText, parseHeaders, type HeaderProblem } from "../lib/headers";
 import { MAX_EXPANDED, expandPatterns, linksFromList } from "../lib/patterns";
 import { categoryExtracts, inheritedCommand, isArchive } from "../lib/post";
 import { siteList, sitePage } from "../lib/sites";
+import { MAX_TORRENT_FILE, isTorrentName, isTorrentUrl } from "../lib/torrent";
 import { PostFields } from "./PostFields";
 import { Button, Dialog, Field, inputClass } from "./primitives";
 
@@ -46,6 +47,13 @@ function curlErrorText(t: Translate, e: CurlError): string {
   }
 }
 
+/** The Links hint's word on the torrents among several links. */
+function torrentsNote(t: Translate, torrents: number, others: number): string {
+  if (torrents === 0 || (torrents === 1 && others === 0)) return "";
+  if (others === 0) return t("torrent.add.all");
+  return t("torrent.add.some", { count: torrents });
+}
+
 /** The Links hint's word on the video pages among several links. */
 function pagesNote(t: Translate, pages: number, files: number): string {
   if (pages === 0) return "";
@@ -61,6 +69,7 @@ export function AddDialog({
   onAdded,
   onDuplicates,
   onLists,
+  onTorrentDuplicate,
 }: {
   /** Kept by the app, so a link copied while the dialog is open joins the list. */
   text: string;
@@ -72,6 +81,8 @@ export function AddDialog({
   onDuplicates: (items: Duplicate[]) => void;
   /** Playlists and channels, whose videos are chosen next. */
   onLists: (urls: string[]) => void;
+  /** A .torrent file that is already in the list: that download's id. */
+  onTorrentDuplicate: (existing: string) => void;
 }) {
   const { t } = useI18n();
   // Empty means automatic: the default folder, or the category's folder.
@@ -101,7 +112,9 @@ export function AddDialog({
   const pages = urls.filter((url) => sitePage(url) !== null).length;
   // Playlists and channels go on to the list of their videos.
   const lists = urls.filter((url) => siteList(url) !== null).length;
-  const onlyPages = pages + lists > 0 && pages + lists === urls.length;
+  // Torrents too: their files are chosen in the next dialog.
+  const torrents = urls.filter(isTorrentUrl).length;
+  const onlyPages = pages + lists + torrents > 0 && pages + lists + torrents === urls.length;
   const fileInput = useRef<HTMLInputElement>(null);
 
   // A dropped or chosen list file is appended, so several lists can be combined.
@@ -119,14 +132,42 @@ export function AddDialog({
     if (!file) return;
     e.preventDefault();
     e.stopPropagation();
-    void appendList(file);
+    if (isTorrentName(file.name)) void addTorrent(() => readTorrent(file));
+    else void appendList(file);
+  };
+
+  const torrentOptions = (): AddOptions => ({ url: "", dir: dir.trim() || null, queue, paused, confirm: true, from_app: true });
+
+  const readTorrent = async (file: File): Promise<Task | null> => {
+    if (file.size > MAX_TORRENT_FILE) throw new Error(t("torrent.add.tooLarge"));
+    return api.addTorrentFile(new Uint8Array(await file.arrayBuffer()), torrentOptions());
+  };
+
+  // A .torrent file is added at once; its files are chosen next.
+  const addTorrent = async (add: () => Promise<Task | null>) => {
+    setError(null);
+    try {
+      const task = await add();
+      if (!task) return;
+      onAdded([task]);
+      onClose();
+    } catch (err) {
+      if (isCommandError(err) && err.code === "duplicate" && err.id) {
+        onTorrentDuplicate(err.id);
+        onClose();
+        return;
+      }
+      setError(errorMessage(err));
+    }
   };
   // Per-file options make sense for zero (not typed yet) or one link.
   const single = urls.length <= 1;
   // yt-dlp builds a video's file itself: no connections or checksum to set.
   const firstPage = single && urls[0] !== undefined ? sitePage(urls[0]) : null;
   const firstList = single && urls[0] !== undefined ? siteList(urls[0]) : null;
-  const video = firstPage !== null || firstList !== null;
+  const firstTorrent = single && urls[0] !== undefined && isTorrentUrl(urls[0]);
+  // None of them has connections, a checksum or a name of its own to set.
+  const video = firstPage !== null || firstList !== null || firstTorrent;
   // The names known now; the server may still name the file differently.
   const names = single && fileName.trim() ? [fileName.trim()] : urls.map(nameFromUrl);
   const archives = names.filter(isArchive);
@@ -188,7 +229,7 @@ export function AddDialog({
         listUrls.push(url);
         continue;
       }
-      const page = sitePage(url) !== null;
+      const page = sitePage(url) !== null || isTorrentUrl(url);
       const options: AddOptions = {
         url,
         dir: dir.trim() || null,
@@ -221,7 +262,7 @@ export function AddDialog({
     else onClose();
   };
 
-  const files = urls.length - pages - lists;
+  const files = urls.length - pages - lists - torrents;
   const linksHint =
     expansion.dropped > 0
       ? t("add.links.patternCapped", { count: MAX_EXPANDED })
@@ -231,7 +272,9 @@ export function AddDialog({
           ? t("add.links.found", { count: urls.length })
           : t("add.links.hint");
   // A sentence of its own, joined here so neither text has to carry the space.
-  const note = pagesNote(t, pages + lists, files);
+  const note = [pagesNote(t, pages + lists, files + torrents), torrentsNote(t, torrents, files + pages + lists)]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <Dialog
@@ -271,9 +314,11 @@ export function AddDialog({
               ? t("add.links.video", { site: firstPage.site })
               : firstList
                 ? t(firstList.kind === "channel" ? "add.links.channel" : "add.links.playlist", { site: firstList.site })
-                : note
-                  ? `${linksHint} ${note}`
-                  : linksHint
+                : firstTorrent
+                  ? t("torrent.add.magnet")
+                  : note
+                    ? `${linksHint} ${note}`
+                    : linksHint
           }
         >
           {(id) => (
@@ -294,12 +339,17 @@ export function AddDialog({
           )}
         </Field>
 
-        <div className="-mt-3 flex items-center gap-2">
+        {/* Wraps in a narrow window: four items share the row. */}
+        <div className="-mt-3 flex flex-wrap items-center gap-2">
           <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>
             <FileText size={16} strokeWidth={1.75} />
             {t("add.links.importList")}
           </Button>
           <span className="mr-auto text-[12px] text-ink-muted">{t("add.links.importHint")}</span>
+          <Button size="sm" variant="ghost" onClick={() => void addTorrent(() => api.openTorrentFile(torrentOptions()))}>
+            <Magnet size={16} strokeWidth={1.75} />
+            {t("torrent.add.openFile")}
+          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -379,13 +429,21 @@ export function AddDialog({
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-[1fr_120px]">
           <Field
             label={t("add.fileName.label")}
-            hint={video ? t("add.fileName.videoHint") : single ? t("add.fileName.hint") : t("add.fileName.singleOnly")}
+            hint={
+              firstTorrent
+                ? t("torrent.add.nameHint")
+                : video
+                  ? t("add.fileName.videoHint")
+                  : single
+                    ? t("add.fileName.hint")
+                    : t("add.fileName.singleOnly")
+            }
           >
             {(id) => (
               <input
                 id={id}
                 value={fileName}
-                disabled={!single || firstList !== null}
+                disabled={!single || firstTorrent || firstList !== null}
                 onChange={(e) => setFileName(e.target.value)}
                 spellCheck={false}
                 placeholder={t("add.fileName.placeholder")}
@@ -393,7 +451,10 @@ export function AddDialog({
               />
             )}
           </Field>
-          <Field label={t("add.connections.label")} hint={video ? t("add.connections.videoHint") : t("add.connections.hint")}>
+          <Field
+            label={t("add.connections.label")}
+            hint={firstTorrent ? t("torrent.add.connectionsHint") : video ? t("add.connections.videoHint") : t("add.connections.hint")}
+          >
             {(id) => (
               <input
                 id={id}
@@ -425,7 +486,7 @@ export function AddDialog({
 
         <Field
           label={t("add.checksum.label")}
-          hint={video ? t("add.checksum.videoHint") : t("add.checksum.hint")}
+          hint={firstTorrent ? t("torrent.add.checksumHint") : video ? t("add.checksum.videoHint") : t("add.checksum.hint")}
         >
           {(id) => (
             <input

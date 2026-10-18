@@ -41,6 +41,8 @@ export const DEFAULT_CAPTURE_TYPES: readonly string[] = [
   "mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "wma", "aif", "aiff",
   // Video
   "mp4", "m4v", "mkv", "webm", "mov", "avi", "wmv", "flv", "mpg", "mpeg", "3gp", "ogv",
+  // Torrents: the app downloads what the .torrent file describes
+  "torrent",
 ];
 
 /** No filtering at all: what capture did before filters existed. */

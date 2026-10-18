@@ -65,8 +65,8 @@ export const list = {
 export const app = {
   noEngine: "This window is the Downpipe interface without its engine. Start the desktop app with pnpm desktop to download.",
   loadFailed: "Could not load downloads: {error}",
-  dropHere: "Drop links or a .txt list to add them",
-  dropNothing: "Drop links, or a .txt file with one link per line.",
+  dropHere: "Drop links, a .txt list or a .torrent file to add them",
+  dropNothing: "Drop links, a .txt file with one link per line, or a .torrent file.",
   copied: {
     link: "Copied the link.",
     links: { one: "Copied {count} link.", other: "Copied {count} links." },

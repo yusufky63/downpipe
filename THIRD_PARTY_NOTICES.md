@@ -25,6 +25,7 @@ No external programs (yt-dlp, Deno, FFmpeg, aria2) are bundled. Stream downloads
 | httpdate | 1.0.3 | MIT OR Apache-2.0 |
 | indicatif | 0.18.6 | MIT |
 | keepawake (desktop: keep the computer awake while downloading) | 0.6.1 | MIT |
+| librqbit (BitTorrent; `crates/torrent`, the desktop app's `torrent` feature) | 9.0.1 | Apache-2.0 |
 | lzma-rust2 (XZ, for extracting .tar.xz archives) | 0.22.0 | Apache-2.0 |
 | parking_lot | 0.12.5 | MIT OR Apache-2.0 |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 |
@@ -55,7 +56,7 @@ No external programs (yt-dlp, Deno, FFmpeg, aria2) are bundled. Stream downloads
 
 ## Rust: all transitive dependencies by license
 
-629 crates in total. Most are MIT and/or Apache-2.0; the others are permissive (BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, Unlicense, 0BSD, CC0-1.0, BSL-1.0, CDLA-Permissive-2.0) except for these weak-copyleft crates, all pulled in by Tauri's HTML tooling or `dirs`:
+629 crates in total, plus 78 that librqbit brings in (its own `librqbit-*` crates under Apache-2.0, the rest MIT, Apache-2.0, Zlib or BSD-3-Clause, none copyleft). Most are MIT and/or Apache-2.0; the others are permissive (BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, Unlicense, 0BSD, CC0-1.0, BSL-1.0, CDLA-Permissive-2.0) except for these weak-copyleft crates, all pulled in by Tauri's HTML tooling or `dirs`:
 
 | Crate | Version | License |
 |---|---|---|

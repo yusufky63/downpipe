@@ -17,7 +17,7 @@ export const add = {
     channel: "A {site} channel. You choose its videos next.",
     label: "Links",
     /** The pattern example stays as written: it is the syntax the field accepts. */
-    hint: "One link per line, or a pattern like file[001-100].zip. Only http and https are supported.",
+    hint: "One link per line, or a pattern like file[001-100].zip. http, https and magnet links are supported.",
     found: { one: "{count} link found. One download each.", other: "{count} links found. One download each." },
     fromPattern: { one: "{count} link from the pattern. One download each.", other: "{count} links from the pattern. One download each." },
     patternCapped: { one: "Only the first {count} link of the pattern is used.", other: "Only the first {count} links of the pattern are used." },
@@ -77,7 +77,7 @@ export const add = {
   },
   errors: {
     listTooLarge: "That file is too large for a list of links.",
-    noLinks: "Paste at least one http or https link.",
+    noLinks: "Paste at least one http, https or magnet link.",
     /** One line per failed link when several were added. */
     forLink: "{url}: {error}",
     headerFormat: "Line {line}: write it as Name: value.",

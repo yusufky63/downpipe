@@ -26,6 +26,7 @@ import { canPause, canResume, displayName, errorText, isRunning, lastActivity, n
 import { resumesText } from "../lib/until";
 import { Badge, IconButton } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
+import { torrentDetail } from "../lib/torrent";
 
 // One template for header and rows keeps the columns aligned.
 // The actions column has a fixed width (three 32px buttons) because every
@@ -315,7 +316,10 @@ function DownloadRow({
         : "–";
   const detail =
     (task.state === "failed" ? errorText(task) : task.state === "completed" ? postProblem(task) : waitingText(task)) ??
-    [resumesText(task, now), hostOf(task.url), streamLabel(task), task.category && categoryLabel(task.category), queueName].filter(Boolean).join(" · ");
+    // A torrent has no host to show: its peers and uploads instead.
+    [resumesText(task, now), task.torrent ? torrentDetail(task) : hostOf(task.url), streamLabel(task), task.category && categoryLabel(task.category), queueName]
+      .filter(Boolean)
+      .join(" · ");
   const done = task.state === "completed";
   const name = displayName(task);
   const dateTitle = [
@@ -414,7 +418,7 @@ function DownloadRow({
         onDoubleClick={(e) => e.stopPropagation()}
       >
         {canPause(task) && (
-          <IconButton label={t("common.pause")} onClick={() => actions.onPause(task.id)}>
+          <IconButton label={task.swarm?.seeding ? t("torrent.stopSeeding") : t("common.pause")} onClick={() => actions.onPause(task.id)}>
             <Pause size={16} strokeWidth={1.75} />
           </IconButton>
         )}

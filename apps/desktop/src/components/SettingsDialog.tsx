@@ -21,15 +21,17 @@ import { categoryLabel, storedCategoryName } from "../lib/categories";
 import { DEFAULT_TEMPLATE, PLACEHOLDERS, namesAlike, renderTemplate, type NameFields } from "../lib/naming";
 import { hasArchiveTypes } from "../lib/post";
 import { installButtonLabel, toolRows, toolsToInstall } from "../lib/tools";
+import { fromTorrentDraft, torrentDraft } from "../lib/torrent";
 import { BackupSection, IdmImport } from "./BackupSection";
 import { FolderInput } from "./FolderInput";
 import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } from "./primitives";
 import { RemoteSettingsPanel } from "./RemoteSettings";
 import { SiteRules } from "./SiteRules";
+import { TorrentSettingsPanel } from "./TorrentSettings";
 
-export type SettingsTab = "downloads" | "queues" | "categories" | "post" | "network" | "sites" | "media" | "schedule" | "app" | "remote";
+export type SettingsTab = "downloads" | "queues" | "categories" | "post" | "network" | "sites" | "media" | "torrent" | "schedule" | "app" | "remote";
 
-const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "post", "network", "sites", "media", "schedule", "app", "remote"];
+const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "post", "network", "sites", "media", "torrent", "schedule", "app", "remote"];
 
 /** Defender is the default scanner only there. */
 const WINDOWS = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
@@ -145,6 +147,7 @@ export function SettingsDialog({
   const [ruleAddress, setRuleAddress] = useState("");
   const [ruleCheck, setRuleCheck] = useState<SiteRulesCheck | null>(null);
   const [duplicateAnswer, setDuplicateAnswer] = useState<DuplicateAnswer>(settings.duplicate_answer);
+  const [torrent, setTorrent] = useState(() => torrentDraft(settings.torrent));
   const [error, setError] = useState<string | null>(null);
   const tabIds = useId();
 
@@ -210,6 +213,7 @@ export function SettingsDialog({
         media_name_template: nameTemplate.trim() || DEFAULT_TEMPLATE,
         site_rules: ruleDrafts.map(fromRuleDraft),
         duplicate_answer: duplicateAnswer,
+        torrent: fromTorrentDraft(torrent, settings.torrent),
       });
       onSaved(saved);
       onClose();
@@ -256,7 +260,13 @@ export function SettingsDialog({
               tab === id ? "border-primary text-ink" : "border-transparent text-ink-secondary hover:text-ink"
             }`}
           >
-            {id === "post" ? t("post.settings.tab") : id === "remote" ? t("remote.settings.tab") : t(`settings.tabs.${id}`)}
+            {id === "post"
+              ? t("post.settings.tab")
+              : id === "remote"
+                ? t("remote.settings.tab")
+                : id === "torrent"
+                  ? t("torrent.settings.tab")
+                  : t(`settings.tabs.${id}`)}
           </button>
         ))}
       </div>
@@ -584,6 +594,8 @@ export function SettingsDialog({
             <NameTemplate value={nameTemplate} onChange={setNameTemplate} />
           </>
         )}
+
+        {tab === "torrent" && <TorrentSettingsPanel draft={torrent} onChange={setTorrent} />}
 
         {tab === "schedule" && (
           <>

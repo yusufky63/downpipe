@@ -94,6 +94,7 @@ const MENU_ID = "downpipe-download-link";
 const PAGE_MENU_ID = "downpipe-page-links";
 const SELECTION_MENU_ID = "downpipe-selected-links";
 const VIDEO_MENU_ID = "downpipe-video-page";
+const TORRENT_MENU_ID = "downpipe-magnet-link";
 const LIST_MENU_ID = "downpipe-list-page";
 /** Pages `lib/sites.ts` recognizes, as match patterns for the page menu. */
 const VIDEO_PAGES = [
@@ -186,6 +187,18 @@ function createMenu(): void {
       contexts: ["page", "frame"],
       documentUrlPatterns: VIDEO_PAGES,
     });
+    // Magnet links are not web pages, so the link item above never shows on
+    // them. A browser whose match patterns refuse the scheme leaves this
+    // item out; the links page still lists magnet links.
+    ext.contextMenus.create(
+      {
+        id: TORRENT_MENU_ID,
+        title: t("menus.torrent"),
+        contexts: ["link"],
+        targetUrlPatterns: ["magnet:*"],
+      },
+      () => void ext.runtime.lastError,
+    );
     // A playlist or channel opens in the app, where its videos are chosen.
     ext.contextMenus.create({
       id: LIST_MENU_ID,
@@ -206,7 +219,7 @@ ext.runtime.onInstalled.addListener(createMenu);
 ext.runtime.onStartup.addListener(createMenu);
 
 ext.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === MENU_ID) {
+  if (info.menuItemId === MENU_ID || info.menuItemId === TORRENT_MENU_ID) {
     void sendLink(info);
     return;
   }

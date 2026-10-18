@@ -16,7 +16,7 @@ export const add: Messages["add"] = {
     playlist: "一个 {site} 播放列表。接下来选择其中的视频。",
     channel: "一个 {site} 频道。接下来选择其中的视频。",
     label: "链接",
-    hint: "每行一个链接，或使用 file[001-100].zip 这样的模式。仅支持 http 和 https。",
+    hint: "每行一个链接，或使用 file[001-100].zip 这样的模式。支持 http、https 和 magnet 链接。",
     found: { other: "找到 {count} 个链接，每个链接各一个下载。" },
     fromPattern: { other: "从模式生成 {count} 个链接，每个链接各一个下载。" },
     patternCapped: { other: "仅使用模式中的前 {count} 个链接。" },
@@ -72,7 +72,7 @@ export const add: Messages["add"] = {
   },
   errors: {
     listTooLarge: "该文件太大，不能作为链接列表。",
-    noLinks: "请至少粘贴一个 http 或 https 链接。",
+    noLinks: "请至少粘贴一个 http、https 或 magnet 链接。",
     forLink: "{url}：{error}",
     headerFormat: "第 {line} 行：请写成 名称: 值 的格式。",
     headerName: "第 {line} 行：{name} 不是有效的请求头名称。",

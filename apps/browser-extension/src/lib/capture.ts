@@ -8,7 +8,7 @@ import {
   type CaptureFilters,
 } from "./filters";
 import type { DownloadFields } from "./protocol";
-import { referrerFor, webUrl } from "./url";
+import { magnetUrl, referrerFor, webUrl } from "./url";
 
 /** The parts of `downloads.DownloadItem` capture looks at. */
 export interface DownloadItemLike {
@@ -89,8 +89,10 @@ export interface LinkClickLike {
   frameUrl?: string;
 }
 
-/** Null when the link is not an http(s) URL. */
+/** Null when the link is neither an http(s) URL nor a magnet link. */
 export function linkFields(info: LinkClickLike): DownloadFields | null {
+  const magnet = magnetUrl(info.linkUrl);
+  if (magnet) return { resourceUrl: magnet };
   if (!info.linkUrl || !webUrl(info.linkUrl)) return null;
   // A link inside an iframe belongs to the frame's document.
   const page = info.frameUrl || info.pageUrl;

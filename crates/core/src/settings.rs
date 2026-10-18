@@ -74,6 +74,50 @@ pub struct Settings {
     /// After a download completes: the default command, the virus scan and
     /// what happens to extracted archives.
     pub post: PostSettings,
+    /// BitTorrent: seeding, upload limit and how peers are found.
+    pub torrent: TorrentSettings,
+}
+
+/// BitTorrent settings. The download limit is `Settings::speed_limit`, the
+/// same as for everything else.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TorrentSettings {
+    /// Keep uploading a finished torrent to other peers until a limit below
+    /// is reached. Off: stop as soon as it finishes.
+    pub seed: bool,
+    /// Stop seeding once this many percent of the downloaded size was
+    /// uploaded (100 = ratio 1.0); 0 for no ratio limit.
+    pub seed_ratio_percent: u32,
+    /// Stop seeding after this many minutes; 0 for no time limit.
+    pub seed_minutes: u32,
+    /// Upload limit in bytes per second, 0 = unlimited.
+    pub upload_limit: u64,
+    /// TCP port for incoming peers; 0 picks a free one at every start.
+    pub listen_port: u16,
+    /// Find peers through the distributed hash table.
+    pub dht: bool,
+    /// Find peers on the local network.
+    pub lsd: bool,
+    /// Ask the router to forward the port (UPnP). Off by default: it opens
+    /// a port on the router.
+    pub upnp: bool,
+}
+
+impl Default for TorrentSettings {
+    fn default() -> Self {
+        Self {
+            seed: true,
+            // Give back what was taken, for at most two hours.
+            seed_ratio_percent: 100,
+            seed_minutes: 120,
+            upload_limit: 0,
+            listen_port: 0,
+            dht: true,
+            lsd: true,
+            upnp: false,
+        }
+    }
 }
 
 /// Port the remote control listens on unless the user picks another.
@@ -238,6 +282,7 @@ impl Default for Settings {
             duplicate_answer: "ask".into(),
             remote: RemoteSettings::default(),
             post: PostSettings::default(),
+            torrent: TorrentSettings::default(),
         }
     }
 }
@@ -274,6 +319,9 @@ impl Settings {
 
         self.remote = std::mem::take(&mut self.remote).normalized();
         self.post = std::mem::take(&mut self.post).normalized();
+        // Ratio 100.0 and 30 days are far beyond anything useful.
+        self.torrent.seed_ratio_percent = self.torrent.seed_ratio_percent.min(10_000);
+        self.torrent.seed_minutes = self.torrent.seed_minutes.min(60 * 24 * 30);
         self.categories = self
             .categories
             .into_iter()
@@ -589,6 +637,10 @@ mod tests {
         assert!(s.close_to_tray && s.notify_on_finish && s.use_categories);
         assert!(!s.start_with_system && !s.schedule.enabled);
         assert_eq!(s.categories, default_categories());
+        // Conservative seeding: ratio 1.0 or two hours, no UPnP.
+        assert!(s.torrent.seed && s.torrent.dht && !s.torrent.upnp);
+        assert_eq!(s.torrent.seed_ratio_percent, 100);
+        assert_eq!(s.torrent.seed_minutes, 120);
         assert!(!s.post.scan && s.post.command.is_empty() && !s.post.delete_archive);
         assert_eq!(s.post.timeout_secs, 600);
         assert!(

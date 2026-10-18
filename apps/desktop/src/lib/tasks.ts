@@ -86,6 +86,8 @@ export function displayName(task: Task): string {
   // came with the playlist it was chosen from.
   if (task.site?.title) return task.site.title;
   if (task.site) return t("common.siteVideo", { site: task.site.site });
+  // A magnet link's address names nothing a person reads.
+  if (task.torrent) return task.torrent.name || t("torrent.kind");
   return nameFromUrl(task.url);
 }
 
@@ -124,7 +126,9 @@ export function knownSize(total: number | null, estimate: number | undefined): s
  * Retrying would get the same answer, so the list offers a new link instead.
  */
 export function needsNewLink(task: Task): boolean {
-  return task.state === "failed" && task.site === null && task.error_kind !== null && NEW_LINK_KINDS.has(task.error_kind);
+  return (
+    task.state === "failed" && task.site === null && task.torrent === null && task.error_kind !== null && NEW_LINK_KINDS.has(task.error_kind)
+  );
 }
 
 const NEW_LINK_KINDS = new Set(["expired_link", "login_required", "forbidden"]);
@@ -151,7 +155,8 @@ export function waitingText(task: Task): string | null {
   return task.state === "waiting" && task.waiting ? t(WAIT_TEXTS[task.waiting]) : null;
 }
 
-export const canPause = (t: Task) => isRunning(t.state) || t.state === "queued";
+/** Pausing a seeding torrent stops its seeding. */
+export const canPause = (t: Task) => isRunning(t.state) || t.state === "queued" || t.swarm?.seeding === true;
 export const canResume = (t: Task) => t.state === "paused" || t.state === "failed" || t.state === "canceled";
 export const canCancel = (t: Task) => t.state !== "completed" && t.state !== "canceled";
 
@@ -159,6 +164,7 @@ export type Tone = "primary" | "positive" | "danger" | "warning" | "neutral";
 
 export function stateInfo(task: Task): { label: string; tone: Tone } {
   if (task.awaiting_confirmation) return { label: t("states.confirm"), tone: "warning" };
+  if (task.state === "completed" && task.swarm?.seeding) return { label: t("torrent.seeding"), tone: "positive" };
   // Completed, but still being scanned or extracted, or flagged by the scan.
   const post = task.state === "completed" ? postBadge(task) : null;
   if (post) return post;

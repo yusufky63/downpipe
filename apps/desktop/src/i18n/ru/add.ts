@@ -16,7 +16,7 @@ export const add: Messages["add"] = {
     playlist: "Плейлист {site}. Дальше вы выберете его видео.",
     channel: "Канал {site}. Дальше вы выберете его видео.",
     label: "Ссылки",
-    hint: "По одной ссылке в строке или шаблон вида file[001-100].zip. Поддерживаются только http и https.",
+    hint: "По одной ссылке в строке или шаблон вида file[001-100].zip. Поддерживаются ссылки http, https и magnet.",
     found: {
       one: "Найдена {count} ссылка. По одной загрузке на ссылку.",
       few: "Найдены {count} ссылки. По одной загрузке на ссылку.",
@@ -93,7 +93,7 @@ export const add: Messages["add"] = {
   },
   errors: {
     listTooLarge: "Этот файл слишком велик для списка ссылок.",
-    noLinks: "Вставьте хотя бы одну ссылку http или https.",
+    noLinks: "Вставьте хотя бы одну ссылку http, https или magnet.",
     forLink: "{url}: {error}",
     headerFormat: "Строка {line}: запишите в виде Имя: значение.",
     headerName: "Строка {line}: {name} — недопустимое имя заголовка.",

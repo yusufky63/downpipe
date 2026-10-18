@@ -15,6 +15,7 @@ import { post } from "./post";
 import { remote } from "./remote";
 import { settings } from "./settings";
 import { sites } from "./sites";
+import { torrent } from "./torrent";
 import { feeds, grabber } from "./web";
 
-export const ru: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, sites, media, confirm, errors, builtin, remote, grabber, feeds, post, playlist };
+export const ru: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, sites, media, confirm, errors, builtin, remote, grabber, feeds, post, playlist, torrent };

@@ -17,7 +17,7 @@ export const add: Messages["add"] = {
     channel: "Une chaîne {site}. Vous choisissez ses vidéos ensuite.",
     label: "Liens",
     // The pattern example stays as written: it is the syntax the field accepts.
-    hint: "Un lien par ligne, ou un modèle comme file[001-100].zip. Seuls http et https sont pris en charge.",
+    hint: "Un lien par ligne, ou un modèle comme file[001-100].zip. Les liens http, https et magnet sont pris en charge.",
     found: {
       one: "{count} lien trouvé. Un téléchargement par lien.",
       many: "{count} liens trouvés. Un téléchargement par lien.",
@@ -91,7 +91,7 @@ export const add: Messages["add"] = {
   },
   errors: {
     listTooLarge: "Ce fichier est trop volumineux pour une liste de liens.",
-    noLinks: "Collez au moins un lien http ou https.",
+    noLinks: "Collez au moins un lien http, https ou magnet.",
     forLink: "{url} : {error}",
     headerFormat: "Ligne {line} : écrivez-le sous la forme Nom : valeur.",
     headerName: "Ligne {line} : {name} n'est pas un nom d'en-tête valide.",

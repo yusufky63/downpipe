@@ -10,9 +10,9 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::post::PostActions;
 use crate::settings::Settings;
-use crate::task::{MediaInfo, SiteInfo, TaskRecord, TaskState};
+use crate::task::{MediaInfo, SiteInfo, TaskRecord, TaskState, TorrentInfo};
 
-const SCHEMA_VERSION: i32 = 8;
+const SCHEMA_VERSION: i32 = 9;
 
 #[derive(Debug)]
 pub struct Store {
@@ -109,6 +109,12 @@ impl Store {
                 "ALTER TABLE downloads ADD COLUMN post_actions TEXT;
                  ALTER TABLE downloads ADD COLUMN post TEXT;",
             )?;
+            conn.pragma_update(None, "user_version", 8)?;
+        }
+        if version < 9 {
+            // BitTorrent downloads: info hash, chosen files and upload total,
+            // as JSON. The file list stays in the `.torrent` file.
+            conn.execute_batch("ALTER TABLE downloads ADD COLUMN torrent TEXT;")?;
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         Ok(Self { conn })
@@ -120,9 +126,9 @@ impl Store {
                                     error, error_kind, checksum, max_connections,
                                     created_at, updated_at, completed_at, category, auto_dir,
                                     queue, position, media, site, speed_limit, resume_at,
-                                    site_rule, post_actions, post)
+                                    site_rule, post_actions, post, torrent)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                     ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
+                     ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)
              ON CONFLICT(id) DO UPDATE SET
                 url = excluded.url, dir = excluded.dir, file_name = excluded.file_name,
                 path = excluded.path, state = excluded.state, total = excluded.total,
@@ -134,7 +140,8 @@ impl Store {
                 queue = excluded.queue, position = excluded.position, media = excluded.media,
                 site = excluded.site, speed_limit = excluded.speed_limit,
                 resume_at = excluded.resume_at, site_rule = excluded.site_rule,
-                post_actions = excluded.post_actions, post = excluded.post",
+                post_actions = excluded.post_actions, post = excluded.post,
+                torrent = excluded.torrent",
             params![
                 r.id,
                 r.url,
@@ -162,6 +169,9 @@ impl Store {
                 r.site_rule,
                 post_actions_json(&r.post_actions),
                 r.post.as_ref().and_then(|p| serde_json::to_string(p).ok()),
+                r.torrent
+                    .as_ref()
+                    .and_then(|t| serde_json::to_string(t).ok()),
             ],
         )?;
         Ok(())
@@ -188,7 +198,7 @@ impl Store {
             "SELECT id, url, dir, file_name, path, state, total, downloaded, error, error_kind,
                     checksum, max_connections, created_at, updated_at, completed_at,
                     category, auto_dir, queue, position, media, site, speed_limit, resume_at,
-                    site_rule, post_actions, post
+                    site_rule, post_actions, post, torrent
              FROM downloads ORDER BY created_at, rowid",
         )?;
         let rows = stmt.query_map([], row_to_record)?;
@@ -264,6 +274,9 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<TaskRecord> {
         post: row
             .get::<_, Option<String>>(25)?
             .and_then(|json| serde_json::from_str(&json).ok()),
+        torrent: row
+            .get::<_, Option<String>>(26)?
+            .and_then(|json| serde_json::from_str::<TorrentInfo>(&json).ok()),
     })
 }
 
@@ -324,6 +337,7 @@ mod tests {
             site_rule: Some("*.example.org".into()),
             post_actions: PostActions::default(),
             post: None,
+            torrent: None,
             created_at: created,
             updated_at: created,
             completed_at: None,
@@ -448,6 +462,23 @@ mod tests {
     }
 
     #[test]
+    fn torrent_records_round_trip() {
+        let store = Store::in_memory().unwrap();
+        let mut r = record("t", 1);
+        r.url = "magnet:?xt=urn:btih:c9e15763f722f23e98a29decdfae341b98d53056".into();
+        r.torrent = Some(TorrentInfo {
+            info_hash: "c9e15763f722f23e98a29decdfae341b98d53056".into(),
+            name: Some("Big Buck Bunny".into()),
+            files: 3,
+            only_files: Some(vec![0, 2]),
+            uploaded: 1234,
+            private: false,
+        });
+        store.upsert(&r).unwrap();
+        assert_eq!(store.all().unwrap(), vec![r]);
+    }
+
+    #[test]
     fn settings_round_trip() {
         let store = Store::in_memory().unwrap();
         assert_eq!(store.load_settings().unwrap(), None);
@@ -501,6 +532,7 @@ mod tests {
         assert_eq!(old.resume_at, None);
         assert_eq!(old.post_actions, PostActions::default());
         assert_eq!(old.post, None);
+        assert_eq!(old.torrent, None);
         store.upsert(&record("new", 2)).unwrap();
         assert_eq!(store.all().unwrap().len(), 2);
     }

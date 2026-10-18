@@ -16,7 +16,7 @@ export const add: Messages["add"] = {
     playlist: "{site} の再生リストです。次に動画を選びます。",
     channel: "{site} のチャンネルです。次に動画を選びます。",
     label: "リンク",
-    hint: "1 行に 1 つのリンク、または file[001-100].zip のようなパターンを入力します。http と https のみ対応しています。",
+    hint: "1 行に 1 つのリンク、または file[001-100].zip のようなパターンを入力します。http、https、magnet のリンクに対応しています。",
     found: { other: "{count} 件のリンクが見つかりました。リンクごとに 1 つのダウンロードになります。" },
     fromPattern: { other: "パターンから {count} 件のリンクを作成しました。リンクごとに 1 つのダウンロードになります。" },
     patternCapped: { other: "パターンの最初の {count} 件のリンクのみ使用されます。" },
@@ -72,7 +72,7 @@ export const add: Messages["add"] = {
   },
   errors: {
     listTooLarge: "このファイルはリンクのリストとしては大きすぎます。",
-    noLinks: "http または https のリンクを 1 つ以上貼り付けてください。",
+    noLinks: "http、https、magnet のいずれかのリンクを 1 つ以上貼り付けてください。",
     forLink: "{url}: {error}",
     headerFormat: "{line} 行目: 名前: 値 の形式で入力してください。",
     headerName: "{line} 行目: {name} は有効なヘッダー名ではありません。",

@@ -276,7 +276,8 @@ impl Plan {
                 .scan
                 .then(|| Scanner::from_setting(&settings.post.scanner)),
             extract,
-            delete_archive: settings.post.delete_archive,
+            // A torrent seeds from its files: its archive stays.
+            delete_archive: settings.post.delete_archive && record.torrent.is_none(),
             command: command_line.map(CommandLine::parse),
             timeout: Duration::from_secs(u64::from(settings.post.timeout_secs.max(5))),
         };
@@ -509,6 +510,7 @@ mod tests {
             site_rule: None,
             speed_limit: None,
             resume_at: None,
+            torrent: None,
             created_at: 0,
             updated_at: 0,
             completed_at: None,

@@ -133,6 +133,10 @@ pub enum DownloadError {
     #[error("{0}")]
     Extractor(String),
 
+    /// A BitTorrent download failed: unreadable metadata, no peers to get
+    /// it from, a port in use, or a build without BitTorrent support.
+    #[error("{0}")]
+    Torrent(String),
     /// A site provider's failure whose cause is known well enough for the
     /// UI to explain it, and what to do, in the user's language. `kind` is
     /// a stable `site_*` code (see [`SITE_KINDS`]); `message` is the
@@ -219,6 +223,7 @@ impl DownloadError {
             Self::ToolMissing(_) => "tool_missing",
             Self::Unavailable(_) => "unavailable",
             Self::Extractor(_) => "extractor",
+            Self::Torrent(_) => "torrent",
             Self::Site { kind, .. } => kind,
             Self::RetriesExhausted { last, .. } => last.kind(),
         }

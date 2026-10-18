@@ -3,7 +3,7 @@
 // extension never even asks for something the host would refuse, and that
 // optional hints which do not fit are dropped instead of failing the request.
 import { siteList, sitePage } from "./sites";
-import { MAX_URL_LENGTH, baseName, webUrl, withoutSecrets } from "./url";
+import { MAX_URL_LENGTH, baseName, magnetUrl, webUrl, withoutSecrets } from "./url";
 
 export const HOST_NAME = "dev.downpipe.native_host";
 export const PROTOCOL_VERSION = 1;
@@ -109,8 +109,12 @@ export function tasksMessage(taskIds: readonly string[], id: string): TasksMessa
   return ids.length ? { protocol_version: PROTOCOL_VERSION, type: "tasks", id, task_ids: ids } : null;
 }
 
-/** Null when the resource itself cannot be downloaded (not http/https). */
+/** Null when the resource itself cannot be downloaded (not http/https or a magnet link). */
 export function downloadMessage(fields: DownloadFields, id: string): DownloadMessage | null {
+  // A magnet link names a torrent, not a server: no page or referrer goes
+  // with it.
+  const magnet = magnetUrl(fields.resourceUrl);
+  if (magnet) return { protocol_version: PROTOCOL_VERSION, type: "download", id, resource_url: magnet };
   const resource = webUrl(fields.resourceUrl);
   if (!resource) return null;
   resource.hash = "";

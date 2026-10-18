@@ -24,6 +24,7 @@ import { SITE_SETUP_KINDS, siteFailureText } from "../lib/siteErrors";
 import { displayName, knownSize } from "../lib/tasks";
 import { PostFields } from "./PostFields";
 import { Banner, Button, Dialog, inputClass } from "./primitives";
+import { TorrentDialog } from "./TorrentDialog";
 
 /** What reading a stream's or a video page's qualities came to. */
 type Inspection =
@@ -47,18 +48,12 @@ type Inspection =
  * Nothing but a stream's manifest (or yt-dlp's reading of the page) is
  * fetched before the answer.
  */
-export function ConfirmDialog({
-  task,
-  waiting,
-  queues,
-  settings,
-  inWindow = false,
-  onFit,
-  onConfirm,
-  onDiscard,
-  onStopAsking,
-  onOpenSettings,
-}: {
+export function ConfirmDialog(props: ConfirmDialogProps) {
+  // A torrent asks for its files instead of a name and a quality.
+  return props.task.torrent ? <TorrentDialog {...props} /> : <FileConfirmDialog {...props} />;
+}
+
+interface ConfirmDialogProps {
   task: Task;
   /** More downloads waiting after this one. */
   waiting: number;
@@ -76,7 +71,20 @@ export function ConfirmDialog({
   onStopAsking?: () => void;
   /** Settings, Media: where yt-dlp and FFmpeg are set up. */
   onOpenSettings: () => void;
-}) {
+}
+
+function FileConfirmDialog({
+  task,
+  waiting,
+  queues,
+  settings,
+  inWindow = false,
+  onFit,
+  onConfirm,
+  onDiscard,
+  onStopAsking,
+  onOpenSettings,
+}: ConfirmDialogProps) {
   // Added in Downpipe (the Add dialog and the like), not sent by the browser.
   const { t } = useI18n();
   const fromApp = task.from_app;

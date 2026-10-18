@@ -51,6 +51,12 @@ export function progressEyebrow(task: Task | null): string {
 
 /** IDM's status line. */
 export function statusText(task: Task): string {
+  // A torrent counts peers, not connections, and may seed once finished.
+  if (task.torrent && task.swarm) {
+    if (task.swarm.fetching_metadata) return t("torrent.progress.fetching");
+    if (task.state === "completed" && task.swarm.seeding) return t("torrent.progress.seeding");
+    if (task.state === "downloading") return t("torrent.progress.peers", { count: task.swarm.peers });
+  }
   switch (task.state) {
     case "queued":
       return t("confirm.progress.status.queued");

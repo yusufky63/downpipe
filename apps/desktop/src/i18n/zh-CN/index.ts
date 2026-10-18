@@ -15,6 +15,7 @@ import { post } from "./post";
 import { remote } from "./remote";
 import { settings } from "./settings";
 import { sites } from "./sites";
+import { torrent } from "./torrent";
 import { feeds, grabber } from "./web";
 
-export const zhCN: Catalog = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, sites, media, errors, builtin, remote, grabber, feeds, post, playlist };
+export const zhCN: Catalog = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, sites, media, errors, builtin, remote, grabber, feeds, post, playlist, torrent };
