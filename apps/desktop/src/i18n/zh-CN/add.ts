@@ -13,6 +13,8 @@ export const add: Messages["add"] = {
     downloadMany: { other: "下载 {count} 个文件" },
   },
   links: {
+    playlist: "一个 {site} 播放列表。接下来选择其中的视频。",
+    channel: "一个 {site} 频道。接下来选择其中的视频。",
     label: "链接",
     hint: "每行一个链接，或使用 file[001-100].zip 这样的模式。仅支持 http 和 https。",
     found: { other: "找到 {count} 个链接，每个链接各一个下载。" },

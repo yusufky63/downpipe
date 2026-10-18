@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 // crates/providers/src/pages.rs reads the same cases, so the extension
 // offers its button on exactly the pages the app accepts.
+import listCases from "../../../../crates/providers/tests/fixtures/lists.json";
 import cases from "../../../../crates/providers/tests/fixtures/pages.json";
-import { isSiteMedia, pageTitle, sitePage } from "./sites";
+import { isSiteMedia, pageTitle, siteList, sitePage } from "./sites";
+
+describe("siteList", () => {
+  it.each(listCases)("$url", ({ url, kind, canonical }) => {
+    const list = siteList(url);
+    expect(list?.kind ?? null).toBe(kind);
+    expect(list?.url ?? null).toBe(canonical);
+  });
+});
 
 describe("sitePage", () => {
   it.each(cases)("$url", ({ url, site, canonical }) => {

@@ -39,7 +39,7 @@ mod writer;
 pub use checksum::{Checksum, HashAlgo, hash_file};
 pub use config::{DownloadRequest, EngineConfig, KIB, MIB};
 pub use engine::{DownloadControl, DownloadHandle, Engine, JobContext, Outcome};
-pub use error::DownloadError;
+pub use error::{DownloadError, SITE_KINDS};
 pub use http::{
     ContentRange, ResourceInfo, build_headers, display_url, parse_content_range, redact_url,
 };

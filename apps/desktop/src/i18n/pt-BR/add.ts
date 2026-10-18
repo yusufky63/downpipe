@@ -13,6 +13,8 @@ export const add: Messages["add"] = {
     downloadMany: { one: "Baixar {count} arquivo", many: "Baixar {count} arquivos", other: "Baixar {count} arquivos" },
   },
   links: {
+    playlist: "Uma playlist do {site}. Em seguida você escolhe os vídeos.",
+    channel: "Um canal do {site}. Em seguida você escolhe os vídeos.",
     label: "Links",
     // The pattern example stays as written: it is the syntax the field accepts.
     hint: "Um link por linha ou um padrão como file[001-100].zip. Somente http e https são aceitos.",

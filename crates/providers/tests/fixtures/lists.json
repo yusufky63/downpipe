@@ -1,0 +1,79 @@
+[
+  {
+    "url": "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb",
+    "kind": "playlist",
+    "canonical": "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb"
+  },
+  {
+    "url": "https://music.youtube.com/playlist?list=OLAK5uy_kYJzZm1QnU6ZBxEd5BYtJyEJbTqt-tvLs&si=abc",
+    "kind": "playlist",
+    "canonical": "https://www.youtube.com/playlist?list=OLAK5uy_kYJzZm1QnU6ZBxEd5BYtJyEJbTqt-tvLs"
+  },
+  {
+    "url": "https://m.youtube.com/playlist?list=UUsXVk37bltHxD1rDPwtNM8Q",
+    "kind": "playlist",
+    "canonical": "https://www.youtube.com/playlist?list=UUsXVk37bltHxD1rDPwtNM8Q"
+  },
+  { "url": "https://www.youtube.com/playlist?list=WL", "kind": null, "canonical": null },
+  { "url": "https://www.youtube.com/playlist?list=LL", "kind": null, "canonical": null },
+  { "url": "https://www.youtube.com/playlist", "kind": null, "canonical": null },
+  { "url": "https://www.youtube.com/playlist?list=PL%3Cscript%3E", "kind": null, "canonical": null },
+  {
+    "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw&list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb",
+    "kind": null,
+    "canonical": null
+  },
+  {
+    "url": "https://www.youtube.com/@jawed",
+    "kind": "channel",
+    "canonical": "https://www.youtube.com/@jawed/videos"
+  },
+  {
+    "url": "https://youtube.com/@jawed/featured?si=x",
+    "kind": "channel",
+    "canonical": "https://www.youtube.com/@jawed/videos"
+  },
+  {
+    "url": "https://www.youtube.com/@NASA/shorts",
+    "kind": "channel",
+    "canonical": "https://www.youtube.com/@NASA/shorts"
+  },
+  {
+    "url": "https://www.youtube.com/@NASA/streams",
+    "kind": "channel",
+    "canonical": "https://www.youtube.com/@NASA/streams"
+  },
+  {
+    "url": "https://www.youtube.com/@NASA/playlists",
+    "kind": "channel",
+    "canonical": "https://www.youtube.com/@NASA/videos"
+  },
+  {
+    "url": "https://www.youtube.com/channel/UC4QZ_LsYcvcq7qOsOhpAX4A",
+    "kind": "channel",
+    "canonical": "https://www.youtube.com/channel/UC4QZ_LsYcvcq7qOsOhpAX4A/videos"
+  },
+  {
+    "url": "https://www.youtube.com/channel/UC4QZ_LsYcvcq7qOsOhpAX4A/shorts",
+    "kind": "channel",
+    "canonical": "https://www.youtube.com/channel/UC4QZ_LsYcvcq7qOsOhpAX4A/shorts"
+  },
+  { "url": "https://www.youtube.com/channel/UCshort", "kind": null, "canonical": null },
+  {
+    "url": "https://www.youtube.com/c/GoogleDevelopers/videos",
+    "kind": "channel",
+    "canonical": "https://www.youtube.com/c/GoogleDevelopers/videos"
+  },
+  {
+    "url": "https://www.youtube.com/user/Google",
+    "kind": "channel",
+    "canonical": "https://www.youtube.com/user/Google/videos"
+  },
+  { "url": "https://www.youtube.com/", "kind": null, "canonical": null },
+  { "url": "https://www.youtube.com/feed/subscriptions", "kind": null, "canonical": null },
+  { "url": "https://www.youtube.com/results?search_query=zoo", "kind": null, "canonical": null },
+  { "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw", "kind": null, "canonical": null },
+  { "url": "https://youtu.be/jNQXAC9IVRw", "kind": null, "canonical": null },
+  { "url": "https://example.org/@someone", "kind": null, "canonical": null },
+  { "url": "ftp://www.youtube.com/@jawed", "kind": null, "canonical": null }
+]

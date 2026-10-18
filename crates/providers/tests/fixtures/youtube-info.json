@@ -2,6 +2,9 @@
  "_type": "video",
  "id": "jNQXAC9IVRw",
  "title": "Me at the zoo",
+ "channel": "jawed",
+ "uploader": "jawed",
+ "upload_date": "20050423",
  "extractor": "youtube",
  "extractor_key": "Youtube",
  "duration": 19,
@@ -463,5 +466,57 @@
    "dynamic_range": "SDR",
    "audio_channels": null
   }
- ]
+ ],
+ "subtitles": {
+  "en": [
+   {
+    "ext": "vtt",
+    "url": "https://www.youtube.com/api/timedtext?v=jNQXAC9IVRw&lang=en&fmt=vtt",
+    "name": "English"
+   }
+  ],
+  "de": [
+   {
+    "ext": "vtt",
+    "url": "https://www.youtube.com/api/timedtext?v=jNQXAC9IVRw&lang=de&fmt=vtt",
+    "name": "German"
+   }
+  ],
+  "live_chat": [
+   {
+    "ext": "json",
+    "url": "https://www.youtube.com/live_chat_replay"
+   }
+  ],
+  "x;rm": [
+   {
+    "ext": "vtt",
+    "url": "https://example.org/"
+   }
+  ]
+ },
+ "automatic_captions": {
+  "en-orig": [
+   {
+    "ext": "vtt",
+    "url": "https://www.youtube.com/api/timedtext?v=jNQXAC9IVRw&lang=en&kind=asr&fmt=vtt",
+    "name": "English (Original)"
+   }
+  ],
+  "en": [
+   {
+    "ext": "vtt",
+    "url": "https://www.youtube.com/api/timedtext?v=jNQXAC9IVRw&lang=en&kind=asr&tlang=en&fmt=vtt",
+    "name": "English"
+   }
+  ],
+  "tr": [
+   {
+    "ext": "vtt",
+    "url": "https://www.youtube.com/api/timedtext?v=jNQXAC9IVRw&lang=en&kind=asr&tlang=tr&fmt=vtt",
+    "name": "Turkish"
+   }
+  ],
+  "empty": []
+ }
 }

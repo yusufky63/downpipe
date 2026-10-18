@@ -84,6 +84,18 @@ export const settings: Messages["settings"] = {
       "流来自浏览器扩展的媒体检测，或在此处添加的 .m3u8 和 .mpd 链接。不会下载受 DRM 保护的流和直播流。",
   },
   siteTools: {
+    template: "媒体文件名模板",
+    templateHint: "为 YouTube 等页面上的视频命名，扩展名会自动添加。点击占位符即可插入。",
+    templatePreview: "示例：{name}",
+    templateSame: "不含标题或 ID 时，所有视频都会得到相同的名称，Downpipe 会在后面的视频名后加上 (1)、(2)。",
+    templateInsert: "占位符",
+    placeholders: {
+      title: "视频标题",
+      channel: "频道名称",
+      date: "上传日期，例如 2005-04-23",
+      index: "在播放列表中的位置，例如 42 个中的第 07 个",
+      id: "视频在网站上的 ID",
+    },
     heading: "页面中的视频",
     intro:
       "在 YouTube 页面上，“使用 Downpipe 下载”会将页面交给 yt-dlp，由它找出其中的视频。yt-dlp 需要 Deno 才能处理 YouTube，并需要 FFmpeg 来合并 360p 以上的视频和声音。",

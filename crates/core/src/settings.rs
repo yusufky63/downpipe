@@ -59,6 +59,9 @@ pub struct Settings {
     /// Deno, which yt-dlp needs for YouTube. Empty: the tools folder, then
     /// `PATH` (and Node 22 or newer when there is no Deno at all).
     pub deno_path: String,
+    /// How site downloads (YouTube) are named: `{title}`, `{channel}`,
+    /// `{date}`, `{index}` and `{id}` (see `downpipe_providers::naming`).
+    pub media_name_template: String,
     /// Per-site overrides; see [`crate::rules`].
     pub site_rules: Vec<SiteRule>,
     /// The answer to "this link is already in the list" once the user chose
@@ -230,6 +233,7 @@ impl Default for Settings {
             ffmpeg_path: String::new(),
             yt_dlp_path: String::new(),
             deno_path: String::new(),
+            media_name_template: downpipe_providers::naming::DEFAULT_TEMPLATE.into(),
             site_rules: Vec::new(),
             duplicate_answer: "ask".into(),
             remote: RemoteSettings::default(),
@@ -262,6 +266,7 @@ impl Settings {
         self.ffmpeg_path = self.ffmpeg_path.trim().trim_matches('"').to_string();
         self.yt_dlp_path = self.yt_dlp_path.trim().trim_matches('"').to_string();
         self.deno_path = self.deno_path.trim().trim_matches('"').to_string();
+        self.media_name_template = downpipe_providers::naming::normalize(&self.media_name_template);
         // An answer a newer version knows and this one does not asks again.
         if !DUPLICATE_ANSWERS.contains(&self.duplicate_answer.as_str()) {
             self.duplicate_answer = "ask".into();

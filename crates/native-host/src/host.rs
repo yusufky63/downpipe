@@ -235,6 +235,7 @@ fn added(answer: Result<AppResponse, IpcError>, what: &str) -> ResponseBody {
             message,
             task_id,
         },
+        Ok(AppResponse::ListOpened { page_url }) => ResponseBody::ListOpened { page_url },
         Ok(other @ (AppResponse::Pong { .. } | AppResponse::Tasks { .. })) => unavailable(
             &IpcError::BadResponse(format!("unexpected answer to {what}: {other:?}")),
         ),

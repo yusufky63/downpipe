@@ -9,7 +9,9 @@
 //!
 //! * [`pages`] decides which links are such pages.
 //! * [`info`] runs `yt-dlp -J` and turns its answer into the quality list
-//!   the stream chooser already shows.
+//!   the stream chooser already shows, with the subtitle languages.
+//! * [`playlist`] lists a playlist's or channel's videos to choose from.
+//! * [`naming`] names files from the user's template.
 //! * [`job`] runs the download behind a normal
 //!   [`DownloadHandle`](downpipe_http::DownloadHandle), with yt-dlp's
 //!   progress turned into the usual [`Progress`](downpipe_http::Progress).
@@ -25,13 +27,19 @@ pub mod files;
 pub mod info;
 pub mod install;
 pub mod job;
+pub mod naming;
 pub mod pages;
+pub mod playlist;
 pub mod process;
 pub mod progress;
 pub mod tools;
 
-pub use args::{format_selector, needs_merge, valid_format_id};
-pub use info::PageInfo;
+pub use args::{
+    MAX_LIST_ENTRIES, Preset, SubtitleRef, format_selector, needs_merge, valid_format_id,
+    valid_sub_lang,
+};
+pub use info::{PageInfo, SubtitleOption};
 pub use job::SiteRequest;
-pub use pages::Page;
+pub use pages::{ListKind, ListPage, Page};
+pub use playlist::{ListEntry, ListInfo};
 pub use tools::{ToolConfig, Tools, ToolsStatus};

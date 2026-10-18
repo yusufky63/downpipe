@@ -78,7 +78,7 @@ import {
   type TaskStatus,
 } from "./lib/protocol";
 import { isOwnContentScript, isTrustedSender } from "./lib/sender";
-import { isSiteMedia, pageTitle, sitePage } from "./lib/sites";
+import { isSiteMedia, pageTitle, siteList, sitePage } from "./lib/sites";
 import {
   bridgeDown,
   bridgeStatus,
@@ -88,11 +88,13 @@ import {
   type HandOver,
 } from "./lib/status";
 import { linkLabel, referrerFor } from "./lib/url";
+import { pageRowView } from "./lib/view";
 
 const MENU_ID = "downpipe-download-link";
 const PAGE_MENU_ID = "downpipe-page-links";
 const SELECTION_MENU_ID = "downpipe-selected-links";
 const VIDEO_MENU_ID = "downpipe-video-page";
+const LIST_MENU_ID = "downpipe-list-page";
 /** Pages `lib/sites.ts` recognizes, as match patterns for the page menu. */
 const VIDEO_PAGES = [
   "*://*.youtube.com/watch*",
@@ -101,6 +103,14 @@ const VIDEO_PAGES = [
   "*://*.youtube.com/live/*",
   "*://*.youtube-nocookie.com/embed/*",
   "*://youtu.be/*",
+];
+/** Playlists and channels `lib/sites.ts` recognizes (`siteList`). */
+const LIST_PAGES = [
+  "*://*.youtube.com/playlist*",
+  "*://*.youtube.com/@*",
+  "*://*.youtube.com/channel/*",
+  "*://*.youtube.com/c/*",
+  "*://*.youtube.com/user/*",
 ];
 const WEB_PAGES = ["http://*/*", "https://*/*"];
 const LINK_TIMEOUT_MS = 10_000;
@@ -176,6 +186,13 @@ function createMenu(): void {
       contexts: ["page", "frame"],
       documentUrlPatterns: VIDEO_PAGES,
     });
+    // A playlist or channel opens in the app, where its videos are chosen.
+    ext.contextMenus.create({
+      id: LIST_MENU_ID,
+      title: t("menus.list"),
+      contexts: ["page", "frame"],
+      documentUrlPatterns: LIST_PAGES,
+    });
     ext.contextMenus.create({
       id: SELECTION_MENU_ID,
       title: t("menus.selection"),
@@ -200,6 +217,11 @@ ext.contextMenus.onClicked.addListener((info, tab) => {
     if (url) void sendVideoPage(url, title, "link");
     return;
   }
+  if (info.menuItemId === LIST_MENU_ID) {
+    const title = info.pageUrl === tab?.url ? pageTitle(cleanTitle(tab?.title)) : undefined;
+    if (info.pageUrl && siteList(info.pageUrl)) void sendVideoPage(info.pageUrl, title, "link");
+    return;
+  }
   // Choosing the item grants `activeTab` for this tab, which is what lets
   // the collector run there.
   if ((info.menuItemId === PAGE_MENU_ID || info.menuItemId === SELECTION_MENU_ID) && tab) {
@@ -208,8 +230,9 @@ ext.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 async function sendLink(info: chrome.contextMenus.OnClickData): Promise<void> {
-  // A link to a video page goes to the site provider, not as a file.
-  if (sitePage(info.linkUrl) && info.linkUrl) {
+  // A link to a video page goes to the site provider, not as a file; one
+  // to a playlist or channel opens it in the app.
+  if ((sitePage(info.linkUrl) || siteList(info.linkUrl)) && info.linkUrl) {
     await sendVideoPage(info.linkUrl, undefined, "link");
     return;
   }
@@ -287,7 +310,7 @@ async function sendVideoPage(
   source: Activity["source"],
   options: { quiet?: boolean } = {},
 ): Promise<LinkResult> {
-  const page = sitePage(url);
+  const page = sitePage(url) ?? siteList(url);
   const message = page && pageMessage({ pageUrl: page.url, title }, newMessageId());
   if (!page || !message) {
     return { outcome: "failed", message: t("errors.notVideoPage"), stop: false };
@@ -297,7 +320,12 @@ async function sendVideoPage(
   await report(
     {
       source,
-      label: outcome.fileName ?? title ?? t("media.siteVideo", { site: page.site }),
+      label:
+        outcome.fileName ??
+        title ??
+        ("kind" in page
+          ? t(page.kind === "channel" ? "media.thisSiteChannel" : "media.thisSitePlaylist", { site: page.site })
+          : t("media.siteVideo", { site: page.site })),
       outcome: outcome.outcome,
       message: outcome.message,
       taskId: outcome.taskId,
@@ -319,12 +347,16 @@ async function videoPageOf(tabId: number, frameUrl?: string): Promise<{ url: str
   if (fromTab && tab?.url) {
     return { url: tab.url, item: { site: fromTab.site, title: pageTitle(cleanTitle(tab.title)) } };
   }
+  const list = siteList(tab?.url);
+  if (list && tab?.url) {
+    return { url: tab.url, item: { site: list.site, list: list.kind, title: pageTitle(cleanTitle(tab.title)) } };
+  }
   const fromFrame = sitePage(frameUrl);
   return fromFrame && frameUrl ? { url: frameUrl, item: { site: fromFrame.site } } : null;
 }
 
 async function sendPageLink(url: string, pageUrl: string | undefined): Promise<LinkResult> {
-  if (sitePage(url)) return sendVideoPage(url, undefined, "link", { quiet: true });
+  if (sitePage(url) || siteList(url)) return sendVideoPage(url, undefined, "link", { quiet: true });
   const label = linkLabel(url);
   const fields = linkFields({ linkUrl: url, pageUrl });
   const message = fields && downloadMessage(fields, newMessageId());
@@ -767,10 +799,12 @@ function overlayItem(c: MediaCandidate, label: string): OverlayItem {
 }
 
 function pageOverlayItem(page: PageItem): OverlayItem {
+  // A channel's trailer plays on its page: the item then opens the channel.
+  const view = page.list ? pageRowView(page, true) : null;
   return {
     mediaId: PAGE_ITEM_ID,
-    label: page.title ?? t("media.thisSiteVideo", { site: page.site }),
-    detail: t("media.siteVideoQuality", { site: page.site }),
+    label: view?.label ?? page.title ?? t("media.thisSiteVideo", { site: page.site }),
+    detail: view?.detail ?? t("media.siteVideoQuality", { site: page.site }),
   };
 }
 

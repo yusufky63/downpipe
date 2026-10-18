@@ -2,6 +2,29 @@ use std::time::Duration;
 
 use crate::progress::WaitReason;
 
+/// The `kind` codes of [`DownloadError::Site`], each with its own text in
+/// the apps:
+///
+/// * `site_forbidden`: the site refused the media (HTTP 403); a newer
+///   yt-dlp usually fixes it.
+/// * `site_sign_in`: the site wants a signed-in browser ("confirm you're
+///   not a bot"); Downpipe never sends cookies, so waiting or another
+///   network is what helps.
+/// * `site_age_restricted`: only signed-in adults may watch it.
+/// * `site_js_runtime`: yt-dlp could not answer the site's JavaScript
+///   challenges, because no JavaScript runtime (Deno) is set up.
+/// * `site_po_token`: the site wants a proof-of-origin token yt-dlp could
+///   not make for this video.
+/// * `site_outdated`: yt-dlp no longer understands the site's pages.
+pub const SITE_KINDS: &[&str] = &[
+    "site_forbidden",
+    "site_sign_in",
+    "site_age_restricted",
+    "site_js_runtime",
+    "site_po_token",
+    "site_outdated",
+];
+
 /// Everything that can stop a download, grouped so callers can tell the user
 /// *why* it failed instead of showing a bare status code.
 #[derive(Debug, thiserror::Error)]
@@ -110,6 +133,13 @@ pub enum DownloadError {
     #[error("{0}")]
     Extractor(String),
 
+    /// A site provider's failure whose cause is known well enough for the
+    /// UI to explain it, and what to do, in the user's language. `kind` is
+    /// a stable `site_*` code (see [`SITE_KINDS`]); `message` is the
+    /// English explanation with the tool's own words.
+    #[error("{message}")]
+    Site { kind: &'static str, message: String },
+
     #[error("gave up after {attempts} attempts: {last}")]
     RetriesExhausted {
         attempts: u32,
@@ -189,6 +219,7 @@ impl DownloadError {
             Self::ToolMissing(_) => "tool_missing",
             Self::Unavailable(_) => "unavailable",
             Self::Extractor(_) => "extractor",
+            Self::Site { kind, .. } => kind,
             Self::RetriesExhausted { last, .. } => last.kind(),
         }
     }

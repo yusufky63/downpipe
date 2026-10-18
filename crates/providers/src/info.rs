@@ -27,7 +27,13 @@ const MAX_TITLE: usize = 200;
 /// A video page: its title and the qualities to choose from, best first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PageInfo {
+    /// The video's id on the site.
+    pub id: Option<String>,
     pub title: Option<String>,
+    /// The channel or uploader, for the file name template.
+    pub channel: Option<String>,
+    /// `YYYYMMDD`, for the file name template.
+    pub upload_date: Option<String>,
     /// The site as yt-dlp names its extractor ("Youtube").
     pub extractor: Option<String>,
     pub duration_ms: Option<u64>,
@@ -35,14 +41,45 @@ pub struct PageInfo {
     pub videos: Vec<VideoOption>,
     /// Separate sound tracks that go with the video-only qualities.
     pub audios: Vec<AudioOption>,
+    /// Subtitles the uploader added, then the site's automatic captions.
+    pub subtitles: Vec<SubtitleOption>,
 }
+
+/// A subtitle language a page offers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SubtitleOption {
+    /// The site's code (`en`, `pt-BR`, `en-orig`), checked with
+    /// [`args::valid_sub_lang`] because it goes back to yt-dlp.
+    pub language: String,
+    /// The site's name for it ("English (auto-generated)"), if it gave one.
+    pub name: Option<String>,
+    /// Captions the site generated from the speech (and their machine
+    /// translations), rather than subtitles the uploader added.
+    pub auto: bool,
+}
+
+/// Automatic captions kept: YouTube offers a machine translation into
+/// about 150 languages for every video.
+const MAX_AUTO_CAPTIONS: usize = 200;
 
 #[derive(Debug, Default, Deserialize)]
 struct RawInfo {
     #[serde(rename = "_type", default)]
     kind: Option<String>,
     #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
     title: Option<String>,
+    #[serde(default)]
+    channel: Option<String>,
+    #[serde(default)]
+    uploader: Option<String>,
+    #[serde(default)]
+    upload_date: Option<String>,
+    #[serde(default)]
+    subtitles: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default)]
+    automatic_captions: Option<HashMap<String, serde_json::Value>>,
     #[serde(default)]
     extractor_key: Option<String>,
     #[serde(default)]
@@ -172,13 +209,65 @@ pub fn parse(json: &[u8]) -> Result<PageInfo, DownloadError> {
     let (audios, audio_only) = audio_choices(&usable, duration_ms);
     let mut videos = video_choices(&usable, duration_ms);
     videos.extend(audio_only);
+    let mut subtitles = subtitle_choices(raw.subtitles.as_ref(), false);
+    subtitles.extend(subtitle_choices(raw.automatic_captions.as_ref(), true));
     Ok(PageInfo {
+        id: raw
+            .id
+            .as_deref()
+            .filter(|id| args::valid_format_id(id))
+            .map(str::to_string),
         title: raw.title.as_deref().and_then(clean_title),
+        channel: raw
+            .channel
+            .as_deref()
+            .or(raw.uploader.as_deref())
+            .and_then(clean_title),
+        upload_date: raw
+            .upload_date
+            .filter(|d| d.len() == 8 && d.bytes().all(|b| b.is_ascii_digit())),
         extractor: raw.extractor_key.as_deref().and_then(clean_title),
         duration_ms,
         videos,
         audios,
+        subtitles,
     })
+}
+
+/// One entry per language of yt-dlp's `subtitles` or `automatic_captions`
+/// map (language code to a list of formats). The original language of
+/// automatic captions (`en-orig`) comes first; YouTube's live chat replay,
+/// which yt-dlp lists as a subtitle, is left out.
+fn subtitle_choices(
+    map: Option<&HashMap<String, serde_json::Value>>,
+    auto: bool,
+) -> Vec<SubtitleOption> {
+    let Some(map) = map else {
+        return Vec::new();
+    };
+    let mut out: Vec<SubtitleOption> = map
+        .iter()
+        .filter(|(lang, formats)| {
+            lang.as_str() != "live_chat"
+                && args::valid_sub_lang(lang)
+                && formats.as_array().is_some_and(|f| !f.is_empty())
+        })
+        .map(|(lang, formats)| SubtitleOption {
+            language: lang.clone(),
+            name: formats
+                .as_array()
+                .and_then(|f| f.iter().find_map(|f| f.get("name")?.as_str()))
+                .and_then(clean_title)
+                .map(|n| n.chars().take(80).collect()),
+            auto,
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        let orig = |s: &SubtitleOption| !s.language.ends_with("-orig");
+        orig(a).cmp(&orig(b)).then(a.language.cmp(&b.language))
+    });
+    out.truncate(MAX_AUTO_CAPTIONS);
+    out
 }
 
 /// A title without control characters, capped.
@@ -428,6 +517,27 @@ mod tests {
     fn condenses_youtube_formats() {
         let info = parse(&read("youtube-info.json")).unwrap();
         assert_eq!(info.title.as_deref(), Some("Me at the zoo"));
+        assert_eq!(info.id.as_deref(), Some("jNQXAC9IVRw"));
+        assert_eq!(info.channel.as_deref(), Some("jawed"));
+        assert_eq!(info.upload_date.as_deref(), Some("20050423"));
+        let subs: Vec<(&str, bool)> = info
+            .subtitles
+            .iter()
+            .map(|s| (s.language.as_str(), s.auto))
+            .collect();
+        // The uploader's subtitles, then the original captions, then their
+        // translations; live chat is no subtitle.
+        assert_eq!(
+            subs,
+            [
+                ("de", false),
+                ("en", false),
+                ("en-orig", true),
+                ("en", true),
+                ("tr", true)
+            ]
+        );
+        assert_eq!(info.subtitles[1].name.as_deref(), Some("English"));
         assert_eq!(info.extractor.as_deref(), Some("Youtube"));
         assert_eq!(info.duration_ms, Some(19_000));
         let ids: Vec<&str> = info.videos.iter().map(|v| v.id.as_str()).collect();

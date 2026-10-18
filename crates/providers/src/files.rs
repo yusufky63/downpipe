@@ -16,6 +16,11 @@ const MEDIA_EXTENSIONS: &[&str] = &[
     "3gp", "ts", "m4v",
 ];
 
+/// Subtitle files yt-dlp writes next to a video: `Clip.en.vtt`.
+const SUBTITLE_EXTENSIONS: &[&str] = &[
+    "vtt", "srt", "ass", "ssa", "ttml", "srv1", "srv2", "srv3", "json3", "lrc",
+];
+
 /// Longest stem picked from a title, in characters; leaves room for
 /// `(12).f137.mp4.part` within the usual 255.
 const MAX_STEM: usize = 180;
@@ -69,6 +74,13 @@ fn kind_of(rest: &str) -> Option<Kind> {
     {
         return Some(Kind::Partial);
     }
+    // <language>.<subtitle extension>
+    if let Some((lang, ext)) = lower.rsplit_once('.')
+        && SUBTITLE_EXTENSIONS.contains(&ext)
+        && crate::args::valid_sub_lang(lang)
+    {
+        return Some(Kind::Subtitle);
+    }
     MEDIA_EXTENSIONS
         .contains(&lower.as_str())
         .then_some(Kind::Finished)
@@ -77,6 +89,8 @@ fn kind_of(rest: &str) -> Option<Kind> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Partial,
+    /// Written before the video; part of the result once it is there.
+    Subtitle,
     Finished,
 }
 
@@ -103,10 +117,17 @@ pub fn partials(dir: &Path, stem: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Delete the work files of a canceled or removed download. The finished
-/// file, if there is one, is left alone.
+/// Delete the work files of a canceled or removed download, and its
+/// subtitles while the video is not finished. The finished file, if there
+/// is one, is left alone with its subtitles.
 pub fn remove_partials(dir: &Path, stem: &str) {
-    for path in partials(dir, stem) {
+    let found = entries(dir, stem);
+    let finished = found.iter().any(|(_, k)| *k == Kind::Finished);
+    let doomed = found
+        .into_iter()
+        .filter(|(_, k)| *k == Kind::Partial || (*k == Kind::Subtitle && !finished))
+        .map(|(p, _)| p);
+    for path in doomed {
         if let Err(e) = std::fs::remove_file(&path) {
             tracing::debug!("could not delete {}: {e}", path.display());
         }
@@ -116,9 +137,11 @@ pub fn remove_partials(dir: &Path, stem: &str) {
 /// `stem` itself when a download under it is under way (work files exist)
 /// or nothing uses it yet; otherwise the first free `stem (n)`.
 pub fn unique_stem(dir: &Path, stem: &str) -> String {
+    // Subtitles alone mean a download under way: they come first.
     let free = |s: &str| {
         let found = entries(dir, s);
-        found.iter().any(|(_, k)| *k == Kind::Partial) || found.is_empty()
+        found.iter().any(|(_, k)| *k == Kind::Partial)
+            || !found.iter().any(|(_, k)| *k == Kind::Finished)
     };
     if free(stem) {
         return stem.to_string();
@@ -208,5 +231,24 @@ mod tests {
         assert_eq!(unique_stem(dir.path(), "Clip"), "Clip (1)");
         touch("Clip (1).m4a");
         assert_eq!(unique_stem(dir.path(), "Clip"), "Clip (2)");
+        // Subtitles written before a paused video keep the stem.
+        touch("Talk.en.vtt");
+        assert_eq!(unique_stem(dir.path(), "Talk"), "Talk");
+    }
+
+    #[test]
+    fn subtitles_go_with_an_unfinished_video_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let touch = |name: &str| std::fs::write(dir.path().join(name), b"x").unwrap();
+        touch("Clip.en.vtt");
+        touch("Clip.f137.mp4.part");
+        touch("Clip.notes.txt");
+        remove_partials(dir.path(), "Clip");
+        assert!(!dir.path().join("Clip.en.vtt").exists());
+        assert!(dir.path().join("Clip.notes.txt").exists());
+        touch("Done.mp4");
+        touch("Done.tr.srt");
+        remove_partials(dir.path(), "Done");
+        assert!(dir.path().join("Done.tr.srt").exists());
     }
 }

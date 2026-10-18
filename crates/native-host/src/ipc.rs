@@ -200,6 +200,11 @@ pub enum AppResponse {
     Tasks {
         tasks: Vec<TaskStatus>,
     },
+    /// A playlist or channel is open in the app for the user to choose
+    /// from.
+    ListOpened {
+        page_url: String,
+    },
 }
 
 impl AppResponse {

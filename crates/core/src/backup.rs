@@ -272,13 +272,13 @@ impl BackupDownload {
             .to_string();
         let category = self.category.and_then(label);
         let site = page.map(|p| SiteInfo {
-            site: p.site.to_string(),
             selection: self.site.as_ref().and_then(|s| s.selection.clone()),
             quality: self
                 .site
                 .as_ref()
                 .and_then(|s| s.quality.clone())
                 .and_then(label),
+            ..SiteInfo::new(p.site)
         });
         let media = match (&site, self.media) {
             (Some(_), _) => None,

@@ -4,6 +4,24 @@
 import type { Messages } from "../core";
 
 export const media: Messages["media"] = {
+  subtitles: {
+    label: "Sous-titres",
+    none: "Aucun",
+    uploaded: "De l'auteur",
+    auto: "Sous-titres automatiques",
+    original: "{language} (original)",
+    embedded: "Les sous-titres sont intégrés au fichier vidéo.",
+    separate: "Les sous-titres sont enregistrés à côté de la vidéo, dans un fichier.",
+  },
+  siteErrors: {
+    forbidden: "YouTube a refusé le téléchargement. Une version plus récente de yt-dlp règle souvent le problème : mettez-la à jour dans Paramètres, Médias, puis réessayez.",
+    signIn: "YouTube demande un navigateur connecté pour ce téléchargement. Downpipe n'utilise pas les cookies du navigateur : patientez un moment ou utilisez un autre réseau, puis réessayez.",
+    ageRestricted: "YouTube ne montre cette vidéo qu'aux adultes connectés. Downpipe n'utilise ni compte ni cookies du navigateur ; il ne peut donc pas la télécharger.",
+    unavailable: "Cette vidéo n'est pas disponible : elle est privée, supprimée, réservée aux membres ou bloquée dans votre région.",
+    jsRuntime: "yt-dlp n'a pas pu répondre aux défis JavaScript de YouTube. Téléchargez Deno dans Paramètres, Médias, puis réessayez.",
+    poToken: "YouTube a demandé un jeton de preuve d'origine (PO) pour cette vidéo. Mettez à jour yt-dlp dans Paramètres, Médias, ou choisissez une autre qualité.",
+    outdated: "yt-dlp ne comprend plus cette page ; YouTube l'a probablement modifiée. Mettez à jour yt-dlp dans Paramètres, Médias, puis réessayez.",
+  },
   audioOnly: "Audio uniquement",
   defaultQuality: "Par défaut",
   aboutSize: "environ {size}",

@@ -167,6 +167,16 @@ impl Store {
         Ok(())
     }
 
+    /// Many records in one transaction: a playlist's videos are written in
+    /// one go instead of one commit (and disk sync) each.
+    pub fn upsert_many(&self, records: &[TaskRecord]) -> rusqlite::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for r in records {
+            self.upsert(r)?;
+        }
+        tx.commit()
+    }
+
     pub fn delete(&self, id: &str) -> rusqlite::Result<()> {
         self.conn
             .execute("DELETE FROM downloads WHERE id = ?1", params![id])?;
@@ -382,6 +392,15 @@ mod tests {
                 }),
             }),
             quality: Some("1080p".into()),
+            // A playlist's video keeps its preset, place and subtitles.
+            preset: Some(downpipe_providers::Preset::P720),
+            subtitles: vec![downpipe_providers::SubtitleRef {
+                language: "en".into(),
+                auto: true,
+            }],
+            title: Some("Me at the zoo".into()),
+            index: Some(3),
+            count: Some(12),
         });
         store.upsert(&r).unwrap();
         assert_eq!(store.all().unwrap(), vec![r]);

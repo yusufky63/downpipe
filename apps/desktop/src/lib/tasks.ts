@@ -30,6 +30,7 @@ export function applyEvent(tasks: Task[], event: ManagerEvent): Task[] {
     case "removed":
       return tasks.filter((t) => t.id !== event.id);
     case "settings":
+    case "list_offered":
       return tasks;
   }
 }
@@ -81,7 +82,9 @@ export function sortForDisplay(tasks: Task[]): Task[] {
 
 export function displayName(task: Task): string {
   if (task.file_name) return task.file_name;
-  // A page's address names nothing ("watch"); its title arrives later.
+  // A page's address names nothing ("watch"); its title arrives later, or
+  // came with the playlist it was chosen from.
+  if (task.site?.title) return task.site.title;
   if (task.site) return t("common.siteVideo", { site: task.site.site });
   return nameFromUrl(task.url);
 }

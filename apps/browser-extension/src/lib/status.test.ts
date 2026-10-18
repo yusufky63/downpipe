@@ -29,6 +29,7 @@ describe("bridgeStatus", () => {
       hostVersion: "0.2.0",
       media: false,
       pages: false,
+      lists: false,
     });
     expect(bridgeStatus(ok({ type: "pong", hostVersion: "0.2.0", appRunning: false, features: [] }))).toEqual({
       state: "app_not_running",
@@ -46,7 +47,9 @@ describe("bridgeStatus", () => {
 
   it("knows whether video pages can be sent", () => {
     const pong = ok({ type: "pong", hostVersion: "0.4.0", appRunning: true, appVersion: "0.4.0", features: ["media", "page"] });
-    expect(bridgeStatus(pong)).toMatchObject({ state: "connected", media: true, pages: true });
+    expect(bridgeStatus(pong)).toMatchObject({ state: "connected", media: true, pages: true, lists: false });
+    const lists = ok({ type: "pong", hostVersion: "0.5.0", appRunning: true, appVersion: "0.5.0", features: ["media", "page", "list"] });
+    expect(bridgeStatus(lists)).toMatchObject({ state: "connected", lists: true });
   });
 
   it("explains app errors in its own words", () => {
@@ -150,7 +153,7 @@ describe("statusView", () => {
 
   it("uses calm tones for working states", () => {
     expect(statusView(null, chromeExt).tone).toBe("muted");
-    expect(statusView({ state: "connected", appVersion: "1", hostVersion: "1", media: true, pages: true }, chromeExt).tone).toBe(
+    expect(statusView({ state: "connected", appVersion: "1", hostVersion: "1", media: true, pages: true, lists: true }, chromeExt).tone).toBe(
       "positive",
     );
     expect(statusView({ state: "app_not_running", hostVersion: "1" }, chromeExt).tone).toBe("warning");
@@ -182,5 +185,8 @@ describe("pageOutcome", () => {
     expect(pageOutcome(other)).toEqual({ outcome: "failed", message: "Downpipe does not download videos from this site." });
     const held = ok({ type: "accepted", taskId: "y", fileName: "Me at the zoo.mp4", awaitingConfirmation: true });
     expect(pageOutcome(held)).toMatchObject({ outcome: "added", taskId: "y", fileName: "Me at the zoo.mp4" });
+    // A playlist opens in the app; nothing is added yet.
+    const opened = ok({ type: "list_opened", pageUrl: "https://www.youtube.com/@jawed/videos" });
+    expect(pageOutcome(opened)).toEqual({ outcome: "added", message: "Open in Downpipe: choose the videos there." });
   });
 });

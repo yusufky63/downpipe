@@ -16,7 +16,7 @@ import { nameFromUrl, parseUrls } from "../lib/format";
 import { headersText, parseHeaders, type HeaderProblem } from "../lib/headers";
 import { MAX_EXPANDED, expandPatterns, linksFromList } from "../lib/patterns";
 import { categoryExtracts, inheritedCommand, isArchive } from "../lib/post";
-import { sitePage } from "../lib/sites";
+import { siteList, sitePage } from "../lib/sites";
 import { PostFields } from "./PostFields";
 import { Button, Dialog, Field, inputClass } from "./primitives";
 
@@ -60,6 +60,7 @@ export function AddDialog({
   onClose,
   onAdded,
   onDuplicates,
+  onLists,
 }: {
   /** Kept by the app, so a link copied while the dialog is open joins the list. */
   text: string;
@@ -69,6 +70,8 @@ export function AddDialog({
   onAdded: (tasks: Task[]) => void;
   /** Links already in the list, with what was asked, so the app can ask what to do. */
   onDuplicates: (items: Duplicate[]) => void;
+  /** Playlists and channels, whose videos are chosen next. */
+  onLists: (urls: string[]) => void;
 }) {
   const { t } = useI18n();
   // Empty means automatic: the default folder, or the category's folder.
@@ -96,7 +99,9 @@ export function AddDialog({
   // Video pages (YouTube) are not started from here: each goes on to the
   // confirmation dialog, where yt-dlp lists its qualities.
   const pages = urls.filter((url) => sitePage(url) !== null).length;
-  const onlyPages = pages > 0 && pages === urls.length;
+  // Playlists and channels go on to the list of their videos.
+  const lists = urls.filter((url) => siteList(url) !== null).length;
+  const onlyPages = pages + lists > 0 && pages + lists === urls.length;
   const fileInput = useRef<HTMLInputElement>(null);
 
   // A dropped or chosen list file is appended, so several lists can be combined.
@@ -120,7 +125,8 @@ export function AddDialog({
   const single = urls.length <= 1;
   // yt-dlp builds a video's file itself: no connections or checksum to set.
   const firstPage = single && urls[0] !== undefined ? sitePage(urls[0]) : null;
-  const video = firstPage !== null;
+  const firstList = single && urls[0] !== undefined ? siteList(urls[0]) : null;
+  const video = firstPage !== null || firstList !== null;
   // The names known now; the server may still name the file differently.
   const names = single && fileName.trim() ? [fileName.trim()] : urls.map(nameFromUrl);
   const archives = names.filter(isArchive);
@@ -176,7 +182,12 @@ export function AddDialog({
     const added: Task[] = [];
     const problems: string[] = [];
     const duplicates: Duplicate[] = [];
+    const listUrls: string[] = [];
     for (const url of urls) {
+      if (siteList(url)) {
+        listUrls.push(url);
+        continue;
+      }
       const page = sitePage(url) !== null;
       const options: AddOptions = {
         url,
@@ -205,11 +216,12 @@ export function AddDialog({
     setBusy(false);
     if (added.length > 0) onAdded(added);
     if (duplicates.length > 0) onDuplicates(duplicates);
+    if (listUrls.length > 0) onLists(listUrls);
     if (problems.length > 0) setError(problems.join("\n"));
     else onClose();
   };
 
-  const files = urls.length - pages;
+  const files = urls.length - pages - lists;
   const linksHint =
     expansion.dropped > 0
       ? t("add.links.patternCapped", { count: MAX_EXPANDED })
@@ -219,7 +231,7 @@ export function AddDialog({
           ? t("add.links.found", { count: urls.length })
           : t("add.links.hint");
   // A sentence of its own, joined here so neither text has to carry the space.
-  const note = pagesNote(t, pages, files);
+  const note = pagesNote(t, pages + lists, files);
 
   return (
     <Dialog
@@ -254,7 +266,15 @@ export function AddDialog({
         <Field
           label={t("add.links.label")}
           error={error}
-          hint={firstPage ? t("add.links.video", { site: firstPage.site }) : note ? `${linksHint} ${note}` : linksHint}
+          hint={
+            firstPage
+              ? t("add.links.video", { site: firstPage.site })
+              : firstList
+                ? t(firstList.kind === "channel" ? "add.links.channel" : "add.links.playlist", { site: firstList.site })
+                : note
+                  ? `${linksHint} ${note}`
+                  : linksHint
+          }
         >
           {(id) => (
             <textarea
@@ -365,7 +385,7 @@ export function AddDialog({
               <input
                 id={id}
                 value={fileName}
-                disabled={!single}
+                disabled={!single || firstList !== null}
                 onChange={(e) => setFileName(e.target.value)}
                 spellCheck={false}
                 placeholder={t("add.fileName.placeholder")}

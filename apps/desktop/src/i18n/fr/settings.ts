@@ -85,6 +85,18 @@ export const settings: Messages["settings"] = {
       "Les flux proviennent de la détection de médias de l'extension de navigateur, ou des liens .m3u8 et .mpd ajoutés ici. Les flux protégés par DRM et les flux en direct ne sont pas téléchargés.",
   },
   siteTools: {
+    template: "Modèle de nom des fichiers multimédias",
+    templateHint: "Nomme les vidéos de pages comme YouTube ; l'extension est ajoutée. Cliquez sur un champ pour l'insérer.",
+    templatePreview: "Exemple : {name}",
+    templateSame: "Sans le titre ni l'identifiant, toutes les vidéos portent le même nom, et Downpipe ajoute (1), (2) aux suivantes.",
+    templateInsert: "Champs",
+    placeholders: {
+      title: "Le titre de la vidéo",
+      channel: "Le nom de la chaîne",
+      date: "La date de mise en ligne, comme 2005-04-23",
+      index: "La position dans la playlist, comme 07 sur 42",
+      id: "L'identifiant de la vidéo sur le site",
+    },
     heading: "Vidéos sur les pages web",
     // Quotes the extension's French menu item (browser-extension fr/menus.ts, menus.link).
     intro:

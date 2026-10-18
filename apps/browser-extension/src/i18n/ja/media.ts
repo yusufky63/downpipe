@@ -3,6 +3,11 @@
 import type { Messages } from "../core";
 
 export const media: Messages["media"] = {
+  sitePlaylist: "{site} の再生リスト · 動画は Downpipe で選択",
+  siteChannel: "{site} のチャンネル · 動画は Downpipe で選択",
+  thisSitePlaylist: "この {site} の再生リスト",
+  thisSiteChannel: "この {site} のチャンネル",
+  updateForLists: "再生リストをダウンロードするには Downpipe を更新してください",
   hls: "HLS ストリーム",
   dash: "DASH ストリーム",
   hlsQualities: { other: "HLS · {count} 種類の画質" },

@@ -2,6 +2,11 @@
 // overlay's menu. {site} is a site's own name (YouTube), {format} a file
 // format in capitals (MP4).
 export const media = {
+  sitePlaylist: "{site} playlist · videos chosen in Downpipe",
+  siteChannel: "{site} channel · videos chosen in Downpipe",
+  thisSitePlaylist: "This {site} playlist",
+  thisSiteChannel: "This {site} channel",
+  updateForLists: "Update Downpipe to download playlists",
   hls: "HLS stream",
   dash: "DASH stream",
   hlsQualities: { one: "HLS · {count} quality", other: "HLS · {count} qualities" },

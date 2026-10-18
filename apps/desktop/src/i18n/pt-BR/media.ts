@@ -4,6 +4,24 @@
 import type { Messages } from "../core";
 
 export const media: Messages["media"] = {
+  subtitles: {
+    label: "Legendas",
+    none: "Nenhuma",
+    uploaded: "Do autor",
+    auto: "Legendas automáticas",
+    original: "{language} (original)",
+    embedded: "As legendas vão dentro do arquivo de vídeo.",
+    separate: "As legendas são salvas ao lado do vídeo, em um arquivo.",
+  },
+  siteErrors: {
+    forbidden: "O YouTube recusou o download. Uma versão mais nova do yt-dlp costuma resolver: atualize-o em Configurações, Mídia e tente de novo.",
+    signIn: "O YouTube quer um navegador conectado para este download. O Downpipe não usa cookies do navegador: espere um pouco ou use outra rede e tente de novo.",
+    ageRestricted: "O YouTube mostra este vídeo apenas para adultos conectados. O Downpipe não usa contas nem cookies do navegador, então não consegue baixá-lo.",
+    unavailable: "Este vídeo não está disponível: ele é privado, foi removido, é exclusivo para membros ou está bloqueado na sua região.",
+    jsRuntime: "O yt-dlp não conseguiu responder aos desafios de JavaScript do YouTube. Baixe o Deno em Configurações, Mídia e tente de novo.",
+    poToken: "O YouTube pediu um token de prova de origem (PO) para este vídeo. Atualize o yt-dlp em Configurações, Mídia ou escolha outra qualidade.",
+    outdated: "O yt-dlp não entende mais esta página; provavelmente o YouTube a mudou. Atualize o yt-dlp em Configurações, Mídia e tente de novo.",
+  },
   audioOnly: "Somente áudio",
   defaultQuality: "Padrão",
   aboutSize: "cerca de {size}",

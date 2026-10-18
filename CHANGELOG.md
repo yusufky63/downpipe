@@ -60,6 +60,14 @@ The download engine handles what users of other download managers keep running i
 - **Large lists stay fast.** The download list draws only the rows in view, so thousands of downloads scroll and update like a few. Keyboard selection, checkboxes, the right-click menu and dragging files out work as before.
 - Bridge: `tasks` answers carry `error_kind` next to `error` for failed downloads.
 
+### YouTube playlists, subtitles and names
+
+- **Playlists and channels.** A YouTube playlist or channel link, added in the app (typed, pasted, dropped, or copied while clipboard watching is on) or sent from the extension (the popup's page row, **Choose videos from this list with Downpipe…** in the page's context menu, or a link to one), opens a list of its videos, read by yt-dlp from the list pages alone in seconds. Tick the videos (Shift-click for a range, a title filter, **Select all** / **Select none**); the list stays quick with thousands of rows. One quality for all (**Best**, **Up to 1080p**, **Up to 720p**, **Audio only**), one subtitle language with automatic captions as a fallback, a folder named after the list (editable, or none), a queue, and **Add paused**. Videos already in the list are skipped. A channel link lists its Videos tab (or Shorts or Live when that was the link); Watch later and liked videos are not offered, since they need the browser's cookies.
+- **Subtitles.** The quality step lists the video's subtitles and, separately, YouTube's automatic captions (the original language first). The chosen one goes into the video when FFmpeg is there, else it is saved next to it as a file (SRT next to audio files).
+- **File name template.** **Settings → Media → Media file name template** names videos from pages with `{title}`, `{channel}`, `{date}`, `{index}` (the position in the playlist, zero-padded) and `{id}`, with a preview; separators next to an empty field drop out, so `{index} - {title}` of a single video is just its title. The confirmation dialog offers the name it makes.
+- **Readable yt-dlp errors.** YouTube's 403, its "confirm you're not a bot" and age checks, unavailable videos, a missing JavaScript runtime, PO token requests and an outdated yt-dlp are explained in the app's language with what to do, with a link to **Settings → Media** where that helps, in the list, the details and the quality dialog.
+- Bridge: `page` also takes playlists and channels, answered with `list_opened`; feature `list` in `pong`. Core: `inspect_list`, `add_list`, `offer_list`, `ManagerEvent::ListOffered`, `Settings::media_name_template`, `SiteInfo` presets and subtitles; error kinds `site_forbidden`, `site_sign_in`, `site_age_restricted`, `site_js_runtime`, `site_po_token` and `site_outdated`.
+
 ## 0.4.0 — 2026-10-18
 
 Media detection: the videos and audio a web page plays, including HLS and DASH streams behind `blob:` players, download in Downpipe. YouTube pages download through yt-dlp.

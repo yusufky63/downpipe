@@ -13,6 +13,8 @@ export const add: Messages["add"] = {
     downloadMany: { one: "{count} dosya indir", other: "{count} dosya indir" },
   },
   links: {
+    playlist: "Bir {site} oynatma listesi. Sonraki adımda videolarını seçersiniz.",
+    channel: "Bir {site} kanalı. Sonraki adımda videolarını seçersiniz.",
     label: "Bağlantılar",
     hint: "Her satıra bir bağlantı ya da file[001-100].zip gibi bir desen. Yalnızca http ve https desteklenir.",
     found: { one: "{count} bağlantı bulundu. Her biri için bir indirme.", other: "{count} bağlantı bulundu. Her biri için bir indirme." },

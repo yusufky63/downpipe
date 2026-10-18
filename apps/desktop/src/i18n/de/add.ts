@@ -13,6 +13,8 @@ export const add: Messages["add"] = {
     downloadMany: { one: "{count} Datei herunterladen", other: "{count} Dateien herunterladen" },
   },
   links: {
+    playlist: "Eine {site}-Playlist. Als Nächstes wählen Sie ihre Videos aus.",
+    channel: "Ein {site}-Kanal. Als Nächstes wählen Sie seine Videos aus.",
     label: "Links",
     hint: "Ein Link pro Zeile oder ein Muster wie file[001-100].zip. Nur http und https werden unterstützt.",
     found: { one: "{count} Link gefunden. Ein Download pro Link.", other: "{count} Links gefunden. Ein Download pro Link." },

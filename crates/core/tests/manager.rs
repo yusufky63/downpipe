@@ -712,6 +712,7 @@ async fn browser_downloads_wait_for_confirmation() {
                 start: true,
                 media: None,
                 post: None,
+                subtitles: None,
             },
         )
         .unwrap();

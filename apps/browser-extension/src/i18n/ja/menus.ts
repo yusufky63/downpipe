@@ -2,6 +2,7 @@
 import type { Messages } from "../core";
 
 export const menus: Messages["menus"] = {
+  list: "このリストから Downpipe で動画を選ぶ…",
   link: "Downpipe でダウンロード",
   pageLinks: "このページのリンクを Downpipe でダウンロード…",
   video: "この動画を Downpipe でダウンロード",

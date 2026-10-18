@@ -84,6 +84,18 @@ export const settings: Messages["settings"] = {
       "Akışlar, tarayıcı eklentisinin medya algılamasından ya da buraya eklenen .m3u8 ve .mpd bağlantılarından gelir. DRM korumalı ve canlı akışlar indirilmez.",
   },
   siteTools: {
+    template: "Medya dosya adı şablonu",
+    templateHint: "YouTube gibi sayfalardaki videoları adlandırır; uzantı eklenir. Eklemek için bir yer tutucuya tıklayın.",
+    templatePreview: "Örnek: {name}",
+    templateSame: "Başlık ya da kimlik olmadan her video aynı adı alır; Downpipe sonrakilere (1), (2) ekler.",
+    templateInsert: "Yer tutucular",
+    placeholders: {
+      title: "Videonun başlığı",
+      channel: "Kanalın adı",
+      date: "Yüklenme tarihi, örneğin 2005-04-23",
+      index: "Oynatma listesindeki sırası, örneğin 42 videonun 07'ncisi",
+      id: "Videonun sitedeki kimliği",
+    },
     heading: "Sayfalardaki videolar",
     intro:
       "Bir YouTube sayfasında “Downpipe ile indir” komutu, sayfayı yt-dlp'ye verir; o da videoyu ayıklar. yt-dlp, YouTube için Deno'ya ve 360p üzerinde video ile sesi birleştirmek için FFmpeg'e ihtiyaç duyar.",

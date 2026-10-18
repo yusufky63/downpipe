@@ -381,6 +381,9 @@ fn on_event(app: &AppHandle, manager: &Manager, event: &ManagerEvent) {
             bg.tasks.lock().remove(id);
         }
         ManagerEvent::Settings { .. } => {}
+        // A playlist from the browser: its videos are chosen in the main
+        // window, which has to be in front for that.
+        ManagerEvent::ListOffered { .. } => tray::show_main(app),
     }
     if !bg.asking_in_window() {
         confirm::settled(app);
