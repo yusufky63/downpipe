@@ -1,0 +1,9 @@
+// The Download button over playing videos on web pages.
+import type { Messages } from "../core";
+
+export const overlay: Messages["overlay"] = {
+  buttonTitle: "Télécharger cette vidéo avec Downpipe",
+  noAnswer: "L'extension de Downpipe n'a pas répondu. Rechargez la page et réessayez.",
+  nothingYet: "Rien à télécharger pour l'instant. Laissez la vidéo jouer un instant, puis réessayez.",
+  duplicate: "Déjà dans Downpipe",
+};

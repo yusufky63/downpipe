@@ -1,0 +1,46 @@
+// The toolbar popup.
+import type { Messages } from "../core";
+
+export const popup: Messages["popup"] = {
+  connected: "Verbunden",
+  connectedTitle: "{title}. {detail}",
+  desktopApp: "Desktop-App",
+  mediaHeading: "Medien auf dieser Seite",
+  detectMedia: "Medien auf Seiten erkennen",
+  downloadsHeading: "Downloads",
+  pageLinks: "Links auf dieser Seite…",
+  emptyActivity: "Klicken Sie mit der rechten Maustaste auf einen Link, und wählen Sie „Mit Downpipe herunterladen“.",
+  capture: "Browser-Downloads übernehmen",
+  captureDetail: "Ist Downpipe geschlossen, lädt der Browser sie selbst herunter.",
+  notifications: "Benachrichtigungen",
+  notificationsDetail: "Wenn ein Download übergeben wird oder nicht.",
+  // Short so the row stays on one line; the host is in the tooltip.
+  pauseSite: "Auf dieser Website pausieren",
+  resumeSite: "Auf dieser Website fortsetzen",
+  pauseSiteTitle: "Downloads von {host} oder von dessen Seiten aus gestartete Downloads bleiben im Browser",
+  resumeSiteTitle: "Downloads von {host} gehen wieder an Downpipe",
+  pausedBy: "Hier pausiert durch {site}",
+  progress: "Fortschritt von {label}",
+  downloadItem: "{label} mit Downpipe herunterladen",
+  state: {
+    queued: "In Warteschlange",
+    starting: "Startet",
+    downloading: "Wird heruntergeladen",
+    waiting: "Wartet",
+    verifying: "Wird geprüft",
+    paused: "Pausiert",
+    completed: "Fertig",
+    failed: "Fehlgeschlagen",
+    canceled: "Abgebrochen",
+  },
+  outcome: {
+    added: "Gesendet",
+    duplicate: "In Downpipe",
+    failed: "Nicht gesendet",
+    kept: "Im Browser",
+  },
+  waitingBadge: "Wartet in Downpipe",
+  needsAnswer: "Antwort erforderlich",
+  downloadFailed: "Der Download ist fehlgeschlagen",
+  canceledInApp: "In Downpipe abgebrochen",
+};

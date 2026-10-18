@@ -12,43 +12,43 @@
     <header class="head">
       <img class="logo" src="icons/icon-32.png" alt="" width="20" height="20" />
       <span class="brand">Downpipe</span>
-      <span class="connected" id="connected" hidden><span class="dot" aria-hidden="true"></span>Connected</span>
+      <span class="connected" id="connected" hidden><span class="dot" aria-hidden="true"></span><span data-i18n="popup.connected"></span></span>
       <span class="label version" id="version"></span>
     </header>
 
-    <section class="block" id="status-block" aria-label="Desktop app">
+    <section class="block" id="status-block" data-i18n-aria-label="popup.desktopApp">
       <div class="status" id="status" data-tone="muted" role="status" aria-live="polite">
         <span class="dot" aria-hidden="true"></span>
         <div class="status-text">
-          <p class="status-title" id="status-title">Checking the connection</p>
+          <p class="status-title" id="status-title" data-i18n="status.checking"></p>
           <p class="status-detail" id="status-detail" hidden></p>
           <code class="command" id="status-command" hidden></code>
         </div>
       </div>
       <div class="actions" id="status-actions">
-        <button type="button" class="btn" id="recheck">Check again</button>
+        <button type="button" class="btn" id="recheck" data-i18n="common.checkAgain"></button>
         <a
           class="link"
           id="guide"
           href="https://github.com/yusufky63/downpipe/blob/main/docs/BROWSER_BRIDGE.md"
           target="_blank"
           rel="noopener noreferrer"
+          data-i18n="common.setupGuide"
           hidden
-          >Setup guide</a
-        >
+        ></a>
       </div>
     </section>
 
     <section class="block" id="media-block" aria-labelledby="media-heading" hidden>
       <div class="block-head">
-        <h2 class="eyebrow" id="media-heading">Media on this page</h2>
+        <h2 class="eyebrow" id="media-heading" data-i18n="popup.mediaHeading"></h2>
         <input
           type="checkbox"
           role="switch"
           class="switch"
           id="media"
-          aria-label="Detect media on pages"
-          title="Detect media on pages"
+          data-i18n-aria-label="popup.detectMedia"
+          data-i18n-title="popup.detectMedia"
         />
       </div>
       <ul class="activity media-list" id="media-list" aria-live="polite"></ul>
@@ -57,34 +57,32 @@
 
     <section class="block" aria-labelledby="downloads-heading">
       <div class="block-head">
-        <h2 class="eyebrow" id="downloads-heading">Downloads</h2>
-        <button type="button" class="link" id="page-links" hidden>Links on this page…</button>
+        <h2 class="eyebrow" id="downloads-heading" data-i18n="popup.downloadsHeading"></h2>
+        <button type="button" class="link" id="page-links" data-i18n="popup.pageLinks" hidden></button>
       </div>
       <ul class="activity" id="activity" aria-live="polite"></ul>
-      <p class="empty" id="activity-empty">Right-click a link and choose Download with Downpipe.</p>
+      <p class="empty" id="activity-empty" data-i18n="popup.emptyActivity"></p>
     </section>
 
     <section class="block">
       <div class="capture">
         <label class="switch-row" for="capture">
           <span class="switch-text">
-            <span class="row-title">Capture browser downloads</span>
-            <span class="row-detail"
-              >The browser keeps them when Downpipe is closed.</span
-            >
+            <span class="row-title" data-i18n="popup.capture"></span>
+            <span class="row-detail" data-i18n="popup.captureDetail"></span>
           </span>
           <input type="checkbox" role="switch" class="switch" id="capture" />
         </label>
         <div class="capture-links">
-          <button type="button" class="link" id="filters">Filters</button>
+          <button type="button" class="link" id="filters" data-i18n="common.filters"></button>
           <button type="button" class="link site-action" id="site-action" hidden></button>
           <span class="site-note" id="site-note" hidden></span>
         </div>
       </div>
       <label class="switch-row" for="notify">
         <span class="switch-text">
-          <span class="row-title">Notifications</span>
-          <span class="row-detail">When a download is handed over, or not.</span>
+          <span class="row-title" data-i18n="popup.notifications"></span>
+          <span class="row-detail" data-i18n="popup.notificationsDetail"></span>
         </span>
         <input type="checkbox" role="switch" class="switch" id="notify" checked />
       </label>

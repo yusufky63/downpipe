@@ -1,5 +1,6 @@
 // What the extension's own pages (popup, options, links page) and the
 // service worker say to each other.
+import { t } from "../i18n/core";
 import { parseFilters, normalizeSitePattern, validFilters, type CaptureFilters } from "./filters";
 import {
   isMediaId,
@@ -205,13 +206,14 @@ export function isOverlayItems(value: unknown): value is { items: OverlayItem[] 
 /** What the overlay button says after a send: the service worker's answer in short. */
 export function overlayResultText(reply: unknown): { text: string; failed: boolean } {
   if (!isLinkResult(reply)) {
-    return { text: "Downpipe's extension did not answer. Reload the page and try again.", failed: true };
+    return { text: t("overlay.noAnswer"), failed: true };
   }
   switch (reply.outcome) {
     case "added":
-      return { text: reply.message === "Added to Downpipe" ? "Sent to Downpipe" : reply.message, failed: false };
+      // The service worker words its replies in the same language as this script.
+      return { text: reply.message === t("results.added") ? t("results.sent") : reply.message, failed: false };
     case "duplicate":
-      return { text: "Already in Downpipe", failed: false };
+      return { text: t("overlay.duplicate"), failed: false };
     case "failed":
       return { text: reply.message, failed: true };
   }
@@ -341,10 +343,10 @@ export function parseActivity(value: unknown): Activity[] {
 /** "just now", "4 min ago", "2 h ago", or a date. */
 export function relativeTime(at: number, now: number): string {
   const seconds = Math.max(0, Math.round((now - at) / 1000));
-  if (seconds < 45) return "just now";
+  if (seconds < 45) return t("common.justNow");
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60) return t("common.minutesAgo", { count: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
+  if (hours < 24) return t("common.hoursAgo", { count: hours });
   return new Date(at).toISOString().slice(0, 10);
 }

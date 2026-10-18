@@ -1,0 +1,77 @@
+// The links page: links collected from a page, to pick and send.
+import type { Messages } from "../core";
+
+export const links: Messages["links"] = {
+  pageTitle: "Ссылки · Downpipe",
+  headLabel: "Ссылки на странице",
+  title: "Ссылки на этой странице",
+  titleHost: "Ссылки на {host}",
+  found: {
+    one: "Найдена {count} ссылка.",
+    few: "Найдены {count} ссылки.",
+    many: "Найдено {count} ссылок.",
+    other: "Найдено {count} ссылки.",
+  },
+  foundTruncated: {
+    one: "Найдена {count} ссылка. Показаны только первые {max}.",
+    few: "Найдены {count} ссылки. Показаны только первые {max}.",
+    many: "Найдено {count} ссылок. Показаны только первые {max}.",
+    other: "Найдено {count} ссылки. Показаны только первые {max}.",
+  },
+  pickerLabel: "Ссылки",
+  filterPlaceholder: "Фильтр по тексту или адресу",
+  filterLabel: "Фильтровать ссылки по тексту или адресу",
+  hidePages: "Скрыть веб-страницы",
+  fileTypes: "Типы файлов",
+  allTypes: "Все типы",
+  otherTypes: "Другие",
+  selectAll: "Выбрать все",
+  selectNone: "Снять выбор",
+  selected: "Выбрано: {chosen} из {total}",
+  emptyOnlyPages: "Все ссылки здесь ведут на веб-страницы. Выключите «Скрыть веб-страницы», чтобы увидеть их.",
+  emptyNoMatch: "Нет ссылок, соответствующих фильтру.",
+  stop: "Остановить",
+  downloadCount: {
+    one: "Загрузить {count} ссылку",
+    few: "Загрузить {count} ссылки",
+    many: "Загрузить {count} ссылок",
+    other: "Загрузить {count} ссылки",
+  },
+  checkingApp: "Проверка Downpipe…",
+  sendingProgress: "Отправка: {done} из {total}…",
+  nothingSentBecause: "Ничего не отправлено: {reason}.",
+  stoppedBecause: "Остановлено: {reason}",
+  stopped: "Остановлено. {summary}",
+  // The parts start a sentence after "Остановлено.", so each begins with the number.
+  added: {
+    one: "{count} ссылка добавлена",
+    few: "{count} ссылки добавлены",
+    many: "{count} ссылок добавлено",
+    other: "{count} ссылки добавлено",
+  },
+  duplicate: {
+    one: "{count} уже в Downpipe",
+    few: "{count} уже в Downpipe",
+    many: "{count} уже в Downpipe",
+    other: "{count} уже в Downpipe",
+  },
+  failed: {
+    one: "{count} ссылку не удалось отправить",
+    few: "{count} ссылки не удалось отправить",
+    many: "{count} ссылок не удалось отправить",
+    other: "{count} ссылки не удалось отправить",
+  },
+  separator: ", ",
+  summary: "{parts}.",
+  nothingSent: "Ничего не отправлено.",
+  row: {
+    sending: "Отправка",
+    added: "Добавлено",
+    duplicate: "В Downpipe",
+    failed: "Ошибка",
+  },
+  gone: "Эти ссылки больше недоступны. Вернитесь на страницу и снова выберите «Загрузить ссылки на этой странице с помощью Downpipe…».",
+  unreadable:
+    "Браузер не позволяет расширениям читать эту страницу. Нельзя прочитать его собственные страницы, магазины расширений и некоторые встроенные средства просмотра.",
+  noLinks: "На этой странице не найдено ссылок http или https.",
+};

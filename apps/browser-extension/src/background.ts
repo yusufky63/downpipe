@@ -1,6 +1,7 @@
 // Service worker (Chrome, Edge) or event page (Firefox). Every listener is
 // registered synchronously at the top level, so the browser can wake the
 // worker for any of them.
+import { activateBrowserLanguage, t } from "./i18n";
 import { ext } from "./lib/browser";
 import { decideCapture, linkFields, type DownloadItemLike } from "./lib/capture";
 import { collectPageLinks } from "./lib/collect";
@@ -115,13 +116,19 @@ const BADGE_MS = { ok: 4_000, fail: 10_000 };
 const sendNative = (host: string, message: object): Promise<unknown> =>
   ext.runtime.sendNativeMessage(host, message);
 
+// Before anything is worded: menus, notifications, the toolbar tooltip and
+// the replies to the pages and the overlay.
+activateBrowserLanguage();
+
 // ---------- Context menus ----------
 
+// Created on install and at every browser start, which is also when a new
+// browser language takes effect, so the titles never need updating.
 function createMenu(): void {
   void ext.contextMenus.removeAll().then(() => {
     ext.contextMenus.create({
       id: MENU_ID,
-      title: "Download with Downpipe",
+      title: t("menus.link"),
       contexts: ["link"],
       targetUrlPatterns: WEB_PAGES,
     });
@@ -129,7 +136,7 @@ function createMenu(): void {
     // does not crowd the link menu above.
     ext.contextMenus.create({
       id: PAGE_MENU_ID,
-      title: "Download links on this page with Downpipe…",
+      title: t("menus.pageLinks"),
       contexts: ["page", "frame"],
       documentUrlPatterns: WEB_PAGES,
     });
@@ -137,13 +144,13 @@ function createMenu(): void {
     // provider (yt-dlp) gets its address and picks the video out.
     ext.contextMenus.create({
       id: VIDEO_MENU_ID,
-      title: "Download this video with Downpipe",
+      title: t("menus.video"),
       contexts: ["page", "frame"],
       documentUrlPatterns: VIDEO_PAGES,
     });
     ext.contextMenus.create({
       id: SELECTION_MENU_ID,
-      title: "Download selected links with Downpipe…",
+      title: t("menus.selection"),
       contexts: ["selection"],
       documentUrlPatterns: WEB_PAGES,
     });
@@ -186,7 +193,7 @@ async function sendLink(info: chrome.contextMenus.OnClickData): Promise<void> {
       source: "link",
       label,
       outcome: "failed",
-      message: "This link cannot be downloaded. Only http and https links work.",
+      message: t("errors.code.invalid_url"),
     });
     return;
   }
@@ -255,14 +262,14 @@ async function sendVideoPage(
   const page = sitePage(url);
   const message = page && pageMessage({ pageUrl: page.url, title }, newMessageId());
   if (!page || !message) {
-    return { outcome: "failed", message: "Downpipe does not download videos from this page.", stop: false };
+    return { outcome: "failed", message: t("errors.notVideoPage"), stop: false };
   }
   const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
   const outcome = pageOutcome(result);
   await report(
     {
       source,
-      label: outcome.fileName ?? title ?? `${page.site} video`,
+      label: outcome.fileName ?? title ?? t("media.siteVideo", { site: page.site }),
       outcome: outcome.outcome,
       message: outcome.message,
       taskId: outcome.taskId,
@@ -294,7 +301,7 @@ async function sendPageLink(url: string, pageUrl: string | undefined): Promise<L
   const fields = linkFields({ linkUrl: url, pageUrl });
   const message = fields && downloadMessage(fields, newMessageId());
   if (!message) {
-    return { outcome: "failed", message: "This link cannot be downloaded. Only http and https links work.", stop: false };
+    return { outcome: "failed", message: t("errors.code.invalid_url"), stop: false };
   }
   const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
   const outcome = downloadOutcome(result);
@@ -646,7 +653,7 @@ async function forgetAllMedia(): Promise<void> {
 async function sendMedia(tabId: number, mediaId: string): Promise<LinkResult> {
   const item = (await tabMedia(tabId)).find((c) => c.id === mediaId);
   if (!item) {
-    return { outcome: "failed", message: "This media is no longer listed. Play it again.", stop: false };
+    return { outcome: "failed", message: t("errors.mediaGone"), stop: false };
   }
   // Readable because detection holds access to every site.
   const tab = await ext.tabs.get(tabId).catch(() => undefined);
@@ -662,7 +669,7 @@ async function sendMedia(tabId: number, mediaId: string): Promise<LinkResult> {
   if (item.kind === "direct") {
     const fileName = titleFileName(title, item);
     const message = downloadMessage({ resourceUrl: item.url, pageUrl, referrer, mimeType: item.mime, fileName }, id);
-    if (!message) return { outcome: "failed", message: "This media cannot be downloaded.", stop: false };
+    if (!message) return { outcome: "failed", message: t("errors.mediaInvalid"), stop: false };
     result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
     outcome = downloadOutcome(result);
   } else {
@@ -670,7 +677,7 @@ async function sendMedia(tabId: number, mediaId: string): Promise<LinkResult> {
       { manifestUrl: item.url, kind: item.kind, pageUrl, referrer, title, origin: item.origin },
       id,
     );
-    if (!message) return { outcome: "failed", message: "This stream cannot be downloaded.", stop: false };
+    if (!message) return { outcome: "failed", message: t("errors.streamInvalid"), stop: false };
     result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
     outcome = streamOutcome(result);
   }
@@ -693,8 +700,8 @@ function overlayItem(c: MediaCandidate, label: string): OverlayItem {
 function pageOverlayItem(page: PageItem): OverlayItem {
   return {
     mediaId: PAGE_ITEM_ID,
-    label: page.title ?? `This ${page.site} video`,
-    detail: `${page.site} video · quality chosen in Downpipe`,
+    label: page.title ?? t("media.thisSiteVideo", { site: page.site }),
+    detail: t("media.siteVideoQuality", { site: page.site }),
   };
 }
 
@@ -728,7 +735,7 @@ async function overlayAnswer(
       return sendMedia(tabId, request.mediaId);
     case "overlay_page": {
       const page = await videoPageOf(tabId, frameUrl);
-      if (!page) return { outcome: "failed", message: "This is not a video page Downpipe knows.", stop: false };
+      if (!page) return { outcome: "failed", message: t("errors.unknownVideoPage"), stop: false };
       return sendVideoPage(page.url, page.item.title, "media");
     }
   }
@@ -823,7 +830,7 @@ async function record(activity: Activity, quiet: boolean): Promise<void> {
   const ok = activity.outcome === "added" || activity.outcome === "duplicate";
   await ext.action.setBadgeBackgroundColor({ color: ok ? BADGE_OK : BADGE_FAIL });
   await ext.action.setBadgeText({ text: ok ? "+" : "!" });
-  await ext.action.setTitle({ title: `Downpipe: ${activity.label}. ${activity.message}` });
+  await ext.action.setTitle({ title: t("notifications.toolbarTitle", { label: activity.label, message: activity.message }) });
   // One timer for the latest report, so an older one cannot clear a newer badge.
   clearTimeout(badgeTimer);
   badgeTimer = setTimeout(
@@ -930,7 +937,7 @@ async function answer(request: PopupRequest): Promise<Reply> {
       return sendMedia(request.tabId, request.mediaId);
     case "send_page": {
       const page = await videoPageOf(request.tabId);
-      if (!page) return { outcome: "failed", message: "This is not a video page Downpipe knows.", stop: false };
+      if (!page) return { outcome: "failed", message: t("errors.unknownVideoPage"), stop: false };
       return sendVideoPage(page.url, page.item.title, "media");
     }
   }

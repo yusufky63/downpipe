@@ -1,0 +1,51 @@
+// The links page: links collected from a page, to pick and send.
+import type { Messages } from "../core";
+
+export const links: Messages["links"] = {
+  pageTitle: "Links · Downpipe",
+  headLabel: "Links em uma página",
+  title: "Links nesta página",
+  titleHost: "Links em {host}",
+  found: { one: "{count} link encontrado.", many: "{count} links encontrados.", other: "{count} links encontrados." },
+  foundTruncated: {
+    one: "{count} link encontrado. Somente os primeiros {max} são listados.",
+    many: "{count} links encontrados. Somente os primeiros {max} são listados.",
+    other: "{count} links encontrados. Somente os primeiros {max} são listados.",
+  },
+  pickerLabel: "Links",
+  filterPlaceholder: "Filtrar por texto ou endereço",
+  filterLabel: "Filtrar links por texto ou endereço",
+  hidePages: "Ocultar páginas da web",
+  fileTypes: "Tipos de arquivo",
+  allTypes: "Todos os tipos",
+  otherTypes: "Outros",
+  selectAll: "Selecionar todos",
+  selectNone: "Desmarcar todos",
+  selected: "{chosen} de {total} selecionados",
+  emptyOnlyPages: "Todos os links aqui são páginas da web. Desative Ocultar páginas da web para vê-los.",
+  emptyNoMatch: "Nenhum link corresponde ao filtro.",
+  stop: "Parar",
+  downloadCount: { one: "Baixar {count} link", many: "Baixar {count} links", other: "Baixar {count} links" },
+  checkingApp: "Verificando o Downpipe…",
+  sendingProgress: "Enviando {done} de {total}…",
+  // {reason} is the connection's state, e.g. "O Downpipe não está em execução".
+  nothingSentBecause: "Nada enviado: {reason}.",
+  stoppedBecause: "Parado: {reason}",
+  stopped: "Parado. {summary}",
+  added: { one: "{count} adicionado", many: "{count} adicionados", other: "{count} adicionados" },
+  duplicate: { one: "{count} já no Downpipe", many: "{count} já no Downpipe", other: "{count} já no Downpipe" },
+  failed: { one: "{count} com falha", many: "{count} com falha", other: "{count} com falha" },
+  separator: ", ",
+  summary: "{parts}.",
+  nothingSent: "Nada enviado.",
+  row: {
+    sending: "Enviando",
+    added: "Adicionado",
+    duplicate: "No Downpipe",
+    failed: "Falhou",
+  },
+  gone: "Estes links não estão mais disponíveis. Volte à página e escolha Baixar links desta página com o Downpipe novamente.",
+  unreadable:
+    "O navegador não permite que extensões leiam esta página. As páginas do próprio navegador, as lojas de extensões e alguns visualizadores integrados não podem ser lidos.",
+  noLinks: "Nenhum link http ou https foi encontrado nesta página.",
+};

@@ -1,5 +1,6 @@
 // Links collected from a page: pick some, send them to Downpipe one by one
 // through the service worker, see what happened to each.
+import { formatNumber, t, type MessageKey } from "../i18n";
 import { runLimited } from "../lib/batch";
 import { ext } from "../lib/browser";
 import { hostOf } from "../lib/filters";
@@ -19,7 +20,9 @@ import {
 } from "../lib/links";
 import { isLinkResult, type LinkResult, type PingReply } from "../lib/messages";
 import { statusView, type StatusView, type Tone } from "../lib/view";
-import { byId, extensionInfo, paintStatus, span } from "../ui/dom";
+import { byId, extensionInfo, paintStatus, span, startPage } from "../ui/dom";
+
+startPage();
 
 /** Links handed over at once; each one starts a native host process. */
 const CONCURRENCY = 3;
@@ -55,11 +58,11 @@ const els = {
 
 type RowState = { state: "sending" } | { state: LinkOutcome; message: string };
 
-const ROW_VIEW: Record<RowState["state"], { badge: string; tone: Tone }> = {
-  sending: { badge: "Sending", tone: "primary" },
-  added: { badge: "Added", tone: "positive" },
-  duplicate: { badge: "In Downpipe", tone: "muted" },
-  failed: { badge: "Failed", tone: "danger" },
+const ROW_VIEW: Record<RowState["state"], { badge: MessageKey; tone: Tone }> = {
+  sending: { badge: "links.row.sending", tone: "primary" },
+  added: { badge: "links.row.added", tone: "positive" },
+  duplicate: { badge: "links.row.duplicate", tone: "muted" },
+  failed: { badge: "links.row.failed", tone: "danger" },
 };
 
 let collection: LinkCollection | null = null;
@@ -122,7 +125,7 @@ function chipButton(key: string, label: string, count: number | null, pressed: b
   button.dataset.key = key;
   button.setAttribute("aria-pressed", String(pressed));
   button.append(span("chip-label", label));
-  if (count !== null) button.append(span("chip-count num", count.toLocaleString("en-US")));
+  if (count !== null) button.append(span("chip-count num", formatNumber(count)));
   return button;
 }
 
@@ -131,7 +134,7 @@ function renderChips(): void {
   // A type that "Hide web pages" just took away cannot stay chosen.
   types = new Set([...types].filter((key) => chips.some((c) => c.key === key)));
   const buttons = chips.map((c) => chipButton(c.key, c.label, c.count, types.has(c.key)));
-  els.chips.replaceChildren(...(chips.length > 1 ? [chipButton("", "All types", null, types.size === 0), ...buttons] : []));
+  els.chips.replaceChildren(...(chips.length > 1 ? [chipButton("", t("links.allTypes"), null, types.size === 0), ...buttons] : []));
 }
 
 function paintRow(li: HTMLLIElement, url: string): void {
@@ -148,7 +151,7 @@ function paintRow(li: HTMLLIElement, url: string): void {
   const view = ROW_VIEW[result.state];
   li.dataset.tone = view.tone;
   badge.hidden = false;
-  badge.textContent = view.badge;
+  badge.textContent = t(view.badge);
   badge.title = "message" in result ? result.message : "";
   // The reason a link failed, under its address; a tooltip alone would be
   // out of reach on touch screens.
@@ -192,7 +195,7 @@ function row(view: LinkView, index: number): HTMLLIElement {
 
 function renderCount(): void {
   const chosen = visible.filter((v) => selected.has(v.url)).length;
-  els.count.textContent = `${chosen.toLocaleString("en-US")} of ${visible.length.toLocaleString("en-US")} selected`;
+  els.count.textContent = t("links.selected", { chosen, total: visible.length });
   if (!sending) {
     els.download.textContent = downloadLabel(chosen);
     els.download.disabled = chosen === 0;
@@ -211,24 +214,19 @@ function renderList(): void {
   els.rows.replaceChildren(...items);
   els.empty.hidden = visible.length > 0;
   const onlyPages = els.hidePages.checked && views.length > 0 && views.every((v) => v.page);
-  els.empty.textContent = onlyPages
-    ? "Every link here is a web page. Turn off Hide web pages to see them."
-    : "No links match the filter.";
+  els.empty.textContent = t(onlyPages ? "links.emptyOnlyPages" : "links.emptyNoMatch");
   renderCount();
 }
 
 function renderIntro(c: LinkCollection): void {
   const host = hostOf(c.pageUrl);
-  els.title.textContent = c.title || (host ? `Links on ${host}` : "Links on this page");
+  els.title.textContent = c.title || (host ? t("links.titleHost", { host }) : t("links.title"));
   els.pageUrl.textContent = c.pageUrl;
   els.pageUrl.title = c.pageUrl;
   els.pageUrl.hidden = !c.pageUrl;
   const n = c.links.length;
   els.found.textContent =
-    n === 0
-      ? ""
-      : `${n.toLocaleString("en-US")} ${n === 1 ? "link" : "links"} found.` +
-        (c.truncated ? ` Only the first ${MAX_PAGE_LINKS.toLocaleString("en-US")} are listed.` : "");
+    n === 0 ? "" : c.truncated ? t("links.foundTruncated", { count: n, max: MAX_PAGE_LINKS }) : t("links.found", { count: n });
   els.found.hidden = n === 0;
 }
 
@@ -241,7 +239,7 @@ async function checkBridge(): Promise<StatusView> {
     const bridge =
       typeof reply === "object" && reply !== null && typeof (reply as PingReply).bridge === "object"
         ? (reply as PingReply).bridge
-        : ({ state: "error", message: "The extension did not answer." } as const);
+        : ({ state: "error", message: t("common.extensionNoAnswer") } as const);
     const view = statusView(bridge, extensionInfo());
     paintStatus(els.status, view);
     // Nothing to say while connected.
@@ -278,7 +276,7 @@ async function sendOne(view: LinkView, pageUrl: string): Promise<LinkResult> {
   const reply: unknown = await ext.runtime.sendMessage(request).catch(() => null);
   return isLinkResult(reply)
     ? reply
-    : { outcome: "failed", message: "The extension did not answer.", stop: true };
+    : { outcome: "failed", message: t("common.extensionNoAnswer"), stop: true };
 }
 
 async function sendChosen(): Promise<void> {
@@ -290,21 +288,21 @@ async function sendChosen(): Promise<void> {
   stopRequested = false;
   els.summary.dataset.tone = "muted";
   els.summary.textContent = "";
-  els.download.textContent = "Checking Downpipe…";
+  els.download.textContent = t("links.checkingApp");
   // One check first: with the app closed nothing is sent, instead of the
   // first few links failing.
   const bridge = await checkBridge();
   if (bridge.tone !== "positive") {
     setSending(false);
     els.summary.dataset.tone = "danger";
-    els.summary.textContent = `Nothing sent: ${bridge.title}.`;
+    els.summary.textContent = t("links.nothingSentBecause", { reason: bridge.title });
     els.bridge.scrollIntoView({ block: "nearest" });
     return;
   }
   const outcomes: LinkOutcome[] = [];
   let bridgeProblem: string | null = null;
   const progress = () => {
-    els.download.textContent = `Sending ${outcomes.length.toLocaleString("en-US")} of ${chosen.length.toLocaleString("en-US")}…`;
+    els.download.textContent = t("links.sendingProgress", { done: outcomes.length, total: chosen.length });
   };
   progress();
   await runLimited(
@@ -335,11 +333,11 @@ async function sendChosen(): Promise<void> {
   const summary = summarize(outcomes);
   if (bridgeProblem) {
     els.summary.dataset.tone = "danger";
-    els.summary.textContent = `Stopped: ${bridgeProblem}`;
+    els.summary.textContent = t("links.stoppedBecause", { reason: bridgeProblem });
     await checkBridge();
   } else if (stopRequested) {
     els.summary.dataset.tone = "muted";
-    els.summary.textContent = `Stopped. ${summary}`;
+    els.summary.textContent = t("links.stopped", { summary });
   } else {
     const failed = outcomes.filter((o) => o === "failed").length;
     els.summary.dataset.tone = failed === 0 ? "positive" : failed === outcomes.length ? "danger" : "muted";
@@ -394,20 +392,16 @@ async function start(): Promise<void> {
   collection = await readCollection();
   void checkBridge();
   if (!collection) {
-    showNotice(
-      "These links are no longer available. Go back to the page and choose Download links on this page with Downpipe again.",
-    );
+    showNotice(t("links.gone"));
     return;
   }
   renderIntro(collection);
   if (collection.unreadable) {
-    showNotice(
-      "The browser does not let extensions read this page. Its own pages, extension stores and some built-in viewers cannot be read.",
-    );
+    showNotice(t("links.unreadable"));
     return;
   }
   if (!collection.links.length) {
-    showNotice("No http or https links were found on this page.");
+    showNotice(t("links.noLinks"));
     return;
   }
   views = collection.links.map(linkView);

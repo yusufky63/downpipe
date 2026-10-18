@@ -1,0 +1,46 @@
+// The toolbar popup. Its switch labels are quoted on the options page, so keep them in step.
+import type { Messages } from "../core";
+
+export const popup: Messages["popup"] = {
+  connected: "Connecté",
+  connectedTitle: "{title}. {detail}",
+  desktopApp: "Application de bureau",
+  mediaHeading: "Médias sur cette page",
+  detectMedia: "Détecter les médias sur les pages",
+  downloadsHeading: "Téléchargements",
+  pageLinks: "Liens de cette page…",
+  emptyActivity: "Cliquez avec le bouton droit sur un lien et choisissez Télécharger avec Downpipe.",
+  capture: "Capturer les téléchargements du navigateur",
+  captureDetail: "Le navigateur les conserve lorsque Downpipe est fermé.",
+  notifications: "Notifications",
+  notificationsDetail: "Lorsqu'un téléchargement est transmis, ou non.",
+  pauseSite: "Suspendre la capture sur ce site",
+  resumeSite: "Reprendre la capture sur ce site",
+  pauseSiteTitle: "Les téléchargements provenant de {host}, ou lancés sur ses pages, restent dans le navigateur",
+  resumeSiteTitle: "Les téléchargements provenant de {host} vont de nouveau à Downpipe",
+  pausedBy: "Capture suspendue ici par {site}",
+  progress: "Progression de {label}",
+  downloadItem: "Télécharger {label} avec Downpipe",
+  // The same states as the desktop app's list, worded as it words them.
+  state: {
+    queued: "En attente",
+    starting: "Connexion",
+    downloading: "Téléchargement",
+    waiting: "Nouvelle tentative",
+    verifying: "Vérification",
+    paused: "Suspendu",
+    completed: "Terminé",
+    failed: "Échec",
+    canceled: "Annulé",
+  },
+  outcome: {
+    added: "Envoyé",
+    duplicate: "Dans Downpipe",
+    failed: "Non envoyé",
+    kept: "Dans le navigateur",
+  },
+  waitingBadge: "En attente dans Downpipe",
+  needsAnswer: "Attend votre réponse",
+  downloadFailed: "Le téléchargement a échoué",
+  canceledInApp: "Annulé dans Downpipe",
+};

@@ -1,0 +1,47 @@
+// The links page: links collected from a page, to pick and send.
+import type { Messages } from "../core";
+
+export const links: Messages["links"] = {
+  pageTitle: "リンク · Downpipe",
+  headLabel: "ページ上のリンク",
+  title: "このページのリンク",
+  titleHost: "{host} のリンク",
+  found: { other: "{count} 件のリンクが見つかりました。" },
+  foundTruncated: { other: "{count} 件のリンクが見つかりました。最初の {max} 件のみ表示しています。" },
+  pickerLabel: "リンク",
+  filterPlaceholder: "テキストまたはアドレスで絞り込み",
+  filterLabel: "リンクをテキストまたはアドレスで絞り込み",
+  hidePages: "Web ページを非表示",
+  fileTypes: "ファイルの種類",
+  allTypes: "すべての種類",
+  otherTypes: "その他",
+  selectAll: "すべて選択",
+  selectNone: "選択を解除",
+  selected: "{total} 件中 {chosen} 件を選択",
+  emptyOnlyPages: "ここにあるリンクはすべて Web ページです。表示するには「Web ページを非表示」をオフにしてください。",
+  emptyNoMatch: "フィルターに一致するリンクはありません。",
+  stop: "停止",
+  downloadCount: { other: "{count} 件のリンクをダウンロード" },
+  checkingApp: "Downpipe を確認中…",
+  sendingProgress: "{total} 件中 {done} 件を送信中…",
+  nothingSentBecause: "送信しませんでした：{reason}。",
+  stoppedBecause: "停止しました：{reason}",
+  stopped: "停止しました。{summary}",
+  // Joined as "3 件を追加、1 件は Downpipe に登録済み、2 件が失敗。"
+  added: { other: "{count} 件を追加" },
+  duplicate: { other: "{count} 件は Downpipe に登録済み" },
+  failed: { other: "{count} 件が失敗" },
+  separator: "、",
+  summary: "{parts}。",
+  nothingSent: "何も送信されませんでした。",
+  row: {
+    sending: "送信中",
+    added: "追加済み",
+    duplicate: "登録済み",
+    failed: "失敗",
+  },
+  gone: "これらのリンクは利用できなくなりました。ページに戻り、もう一度「このページのリンクを Downpipe でダウンロード」を選択してください。",
+  unreadable:
+    "ブラウザーは、拡張機能がこのページを読み取ることを許可していません。ブラウザー自身のページ、拡張機能ストア、一部の組み込みビューアーは読み取れません。",
+  noLinks: "このページに http または https のリンクは見つかりませんでした。",
+};

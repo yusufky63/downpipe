@@ -1,3 +1,4 @@
+import { t, type MessageKey } from "../i18n";
 import { formatBytes, formatSpeed, percent, sentence } from "./format";
 import { kindLabel, mediaName, type MediaCandidate } from "./media";
 import type { Activity, PageItem } from "./messages";
@@ -35,23 +36,24 @@ export function mayChange(task: TaskStatus): boolean {
   return isRunning(task.state) || isAwaitingConfirmation(task);
 }
 
-const STATE_VIEW: Record<TaskState, { badge: string; tone: Tone }> = {
-  queued: { badge: "Queued", tone: "muted" },
-  starting: { badge: "Starting", tone: "primary" },
-  downloading: { badge: "Downloading", tone: "primary" },
-  waiting: { badge: "Waiting", tone: "warning" },
-  verifying: { badge: "Verifying", tone: "primary" },
-  paused: { badge: "Paused", tone: "muted" },
-  completed: { badge: "Done", tone: "positive" },
-  failed: { badge: "Failed", tone: "danger" },
-  canceled: { badge: "Canceled", tone: "muted" },
+// Keys, not texts: the language is chosen after this module loads.
+const STATE_VIEW: Record<TaskState, { badge: MessageKey; tone: Tone }> = {
+  queued: { badge: "popup.state.queued", tone: "muted" },
+  starting: { badge: "popup.state.starting", tone: "primary" },
+  downloading: { badge: "popup.state.downloading", tone: "primary" },
+  waiting: { badge: "popup.state.waiting", tone: "warning" },
+  verifying: { badge: "popup.state.verifying", tone: "primary" },
+  paused: { badge: "popup.state.paused", tone: "muted" },
+  completed: { badge: "popup.state.completed", tone: "positive" },
+  failed: { badge: "popup.state.failed", tone: "danger" },
+  canceled: { badge: "popup.state.canceled", tone: "muted" },
 };
 
-const OUTCOME_VIEW: Record<Activity["outcome"], { badge: string; tone: Tone }> = {
-  added: { badge: "Sent", tone: "muted" },
-  duplicate: { badge: "In Downpipe", tone: "muted" },
-  failed: { badge: "Not sent", tone: "danger" },
-  kept: { badge: "In browser", tone: "warning" },
+const OUTCOME_VIEW: Record<Activity["outcome"], { badge: MessageKey; tone: Tone }> = {
+  added: { badge: "popup.outcome.added", tone: "muted" },
+  duplicate: { badge: "popup.outcome.duplicate", tone: "muted" },
+  failed: { badge: "popup.outcome.failed", tone: "danger" },
+  kept: { badge: "popup.outcome.kept", tone: "warning" },
 };
 
 function sizeLine(task: TaskStatus): string {
@@ -66,24 +68,25 @@ function sizeLine(task: TaskStatus): string {
 export function itemView(activity: Activity, task: TaskStatus | undefined): ItemView {
   if (!task) {
     const { badge, tone } = OUTCOME_VIEW[activity.outcome];
-    return { label: activity.label, badge, tone, detail: activity.message, progress: null };
+    return { label: activity.label, badge: t(badge), tone, detail: activity.message, progress: null };
   }
   const label = task.fileName || activity.label;
   if (isAwaitingConfirmation(task)) {
     // Not "Paused": nothing stopped it, the app is asking where to save it.
     // The detail is short because the long badge leaves it little room.
-    return { label, badge: "Waiting in Downpipe", tone: "warning", detail: "Needs your answer", progress: null };
+    return { label, badge: t("popup.waitingBadge"), tone: "warning", detail: t("popup.needsAnswer"), progress: null };
   }
-  const { badge, tone } = STATE_VIEW[task.state];
+  const badge = t(STATE_VIEW[task.state].badge);
+  const tone = STATE_VIEW[task.state].tone;
   const pct = percent(task.downloaded, task.total);
   const pctText = pct === null ? "" : `${Math.floor(pct)}% · `;
   switch (task.state) {
     case "completed":
       return { label, badge, tone, detail: formatBytes(task.total ?? task.downloaded), progress: null };
     case "failed":
-      return { label, badge, tone, detail: task.error ? sentence(task.error) : "The download failed", progress: null };
+      return { label, badge, tone, detail: task.error ? sentence(task.error) : t("popup.downloadFailed"), progress: null };
     case "canceled":
-      return { label, badge, tone, detail: "Canceled in Downpipe", progress: null };
+      return { label, badge, tone, detail: t("popup.canceledInApp"), progress: null };
     case "paused":
       return { label, badge, tone, detail: `${pctText}${sizeLine(task)}`, progress: null };
     default: {
@@ -109,28 +112,28 @@ export function statusView(
   extension: { id: string; firefox: boolean },
 ): StatusView {
   if (!status) {
-    return { tone: "muted", title: "Checking the connection", detail: "", guide: false };
+    return { tone: "muted", title: t("status.checking"), detail: "", guide: false };
   }
   switch (status.state) {
     case "connected":
       return {
         tone: "positive",
-        title: "Connected to Downpipe",
-        detail: `App ${status.appVersion}, browser bridge ${status.hostVersion}`,
+        title: t("status.connected"),
+        detail: t("status.connectedDetail", { app: status.appVersion, bridge: status.hostVersion }),
         guide: false,
       };
     case "app_not_running":
       return {
         tone: "warning",
-        title: "Downpipe is not running",
-        detail: "Open the Downpipe app. Links sent while it is closed are not queued.",
+        title: t("status.appNotRunning"),
+        detail: t("status.appNotRunningDetail"),
         guide: false,
       };
     case "host_missing":
       return {
         tone: "danger",
-        title: "Browser bridge not installed",
-        detail: "Open the Downpipe app once; it registers the bridge when it starts. For a build from source, run:",
+        title: t("status.hostMissing"),
+        detail: t("status.hostMissingDetail"),
         command: "downpipe-native-host install",
         guide: true,
       };
@@ -138,14 +141,14 @@ export function statusView(
       const flag = extension.firefox ? "--firefox-extension-id" : "--extension-id";
       return {
         tone: "danger",
-        title: "Bridge does not allow this extension",
-        detail: "Register it for this extension's id, then restart the browser:",
+        title: t("status.hostForbidden"),
+        detail: t("status.hostForbiddenDetail"),
         command: `downpipe-native-host install ${flag} ${extension.id}`,
         guide: true,
       };
     }
     case "error":
-      return { tone: "danger", title: "Bridge error", detail: status.message, guide: true };
+      return { tone: "danger", title: t("status.error"), detail: status.message, guide: true };
   }
 }
 
@@ -173,7 +176,7 @@ export function mediaRowView(c: MediaCandidate, streams: boolean, label = mediaN
   const sendable = c.kind === "direct" || streams;
   return {
     label,
-    detail: sendable ? parts.join(" · ") : "Update Downpipe to download streams",
+    detail: sendable ? parts.join(" · ") : t("media.updateForStreams"),
     sendable,
   };
 }
@@ -184,16 +187,16 @@ export function mediaRowView(c: MediaCandidate, streams: boolean, label = mediaN
  */
 export function pageRowView(page: PageItem, pages: boolean): MediaRowView {
   return {
-    label: page.title ?? `This ${page.site} video`,
+    label: page.title ?? t("media.thisSiteVideo", { site: page.site }),
     // Short: the row leaves the detail little room. The quality is chosen in the app.
-    detail: pages ? `${page.site} video` : "Update Downpipe to download videos from pages",
+    detail: pages ? t("media.siteVideo", { site: page.site }) : t("media.updateForPages"),
     sendable: pages,
   };
 }
 
 /** What the media list says when it has no rows. */
 export function mediaEmptyText(enabled: boolean, excludedBy?: string): string {
-  if (!enabled) return "Turn on to list the videos and audio pages play. The browser asks for access to all sites first.";
-  if (excludedBy) return `Not listed here: ${excludedBy} is an excluded site in Filters.`;
-  return "Nothing yet. Play the video; if it was already playing, reload the page.";
+  if (!enabled) return t("media.emptyOff");
+  if (excludedBy) return t("media.emptyExcluded", { site: excludedBy });
+  return t("media.emptyNothing");
 }

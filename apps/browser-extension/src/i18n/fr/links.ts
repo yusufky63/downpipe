@@ -1,0 +1,51 @@
+// The links page: links collected from a page, to pick and send.
+import type { Messages } from "../core";
+
+export const links: Messages["links"] = {
+  pageTitle: "Liens · Downpipe",
+  headLabel: "Liens d'une page",
+  title: "Liens de cette page",
+  titleHost: "Liens de {host}",
+  found: { one: "{count} lien trouvé.", many: "{count} liens trouvés.", other: "{count} liens trouvés." },
+  foundTruncated: {
+    one: "{count} lien trouvé. Seuls les {max} premiers sont listés.",
+    many: "{count} liens trouvés. Seuls les {max} premiers sont listés.",
+    other: "{count} liens trouvés. Seuls les {max} premiers sont listés.",
+  },
+  pickerLabel: "Liens",
+  filterPlaceholder: "Filtrer par texte ou adresse",
+  filterLabel: "Filtrer les liens par texte ou adresse",
+  hidePages: "Masquer les pages web",
+  fileTypes: "Types de fichiers",
+  allTypes: "Tous les types",
+  otherTypes: "Autres",
+  selectAll: "Tout sélectionner",
+  selectNone: "Ne rien sélectionner",
+  selected: "{chosen} sur {total} sélectionnés",
+  emptyOnlyPages: "Tous les liens ici sont des pages web. Désactivez Masquer les pages web pour les voir.",
+  emptyNoMatch: "Aucun lien ne correspond au filtre.",
+  stop: "Arrêter",
+  downloadCount: { one: "Télécharger {count} lien", many: "Télécharger {count} liens", other: "Télécharger {count} liens" },
+  checkingApp: "Vérification de Downpipe…",
+  sendingProgress: "Envoi de {done} sur {total}…",
+  nothingSentBecause: "Rien n'a été envoyé : {reason}.",
+  stoppedBecause: "Arrêté : {reason}",
+  stopped: "Arrêté. {summary}",
+  added: { one: "{count} ajouté", many: "{count} ajoutés", other: "{count} ajoutés" },
+  duplicate: { one: "{count} déjà dans Downpipe", many: "{count} déjà dans Downpipe", other: "{count} déjà dans Downpipe" },
+  failed: { one: "{count} en échec", many: "{count} en échec", other: "{count} en échec" },
+  separator: ", ",
+  summary: "{parts}.",
+  nothingSent: "Rien n'a été envoyé.",
+  row: {
+    sending: "Envoi",
+    added: "Ajouté",
+    duplicate: "Dans Downpipe",
+    failed: "Échec",
+  },
+  // Quotes menus.pageLinks.
+  gone: "Ces liens ne sont plus disponibles. Revenez sur la page et choisissez de nouveau Télécharger les liens de cette page avec Downpipe.",
+  unreadable:
+    "Le navigateur ne permet pas aux extensions de lire cette page. Ses propres pages, les boutiques d'extensions et certaines visionneuses intégrées ne peuvent pas être lues.",
+  noLinks: "Aucun lien http ou https n'a été trouvé sur cette page.",
+};

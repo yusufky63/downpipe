@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type { BridgeFailure, HostResult } from "./host";
 
 export type BridgeStatus =
@@ -11,35 +12,31 @@ export type BridgeStatus =
   | { state: "host_forbidden" }
   | { state: "error"; message: string };
 
-const FAILURE_TEXT: Record<BridgeFailure, string> = {
-  host_missing: "The Downpipe browser bridge is not installed.",
-  host_forbidden: "The browser bridge is installed but does not allow this extension.",
-  host_error: "The browser bridge stopped unexpectedly.",
-  timeout: "Downpipe did not answer in time.",
-  bad_response: "The browser bridge sent an answer this extension does not understand.",
-};
-
 // Error codes from crates/native-host/src/protocol.rs (`code`) and from the
-// app's download queue.
-const ERROR_TEXT: Record<string, string> = {
-  app_not_running: "Downpipe is not running. Open the Downpipe app and try again.",
-  app_unavailable: "Downpipe did not answer. Restart the app and try again.",
-  duplicate: "Already in Downpipe.",
-  invalid_url: "This link cannot be downloaded. Only http and https links work.",
-  version_mismatch:
-    "Downpipe and its browser bridge are different versions. Restart Downpipe so it registers its own bridge.",
-  unsupported_version: "This extension is newer than the installed Downpipe. Update Downpipe.",
-  message_too_large: "The link is too long to hand over.",
-  unsupported_page: "Downpipe does not download videos from this site.",
-};
+// app's download queue that the extension words itself.
+const ERROR_CODES = [
+  "app_not_running",
+  "app_unavailable",
+  "duplicate",
+  "invalid_url",
+  "version_mismatch",
+  "unsupported_version",
+  "message_too_large",
+  "unsupported_page",
+] as const;
+
+type KnownCode = (typeof ERROR_CODES)[number];
+
+const isKnownCode = (code: string): code is KnownCode => (ERROR_CODES as readonly string[]).includes(code);
 
 export function failureText(failure: BridgeFailure): string {
-  return FAILURE_TEXT[failure];
+  return t(`errors.bridge.${failure}`);
 }
 
 /** Known codes get our wording; anything else falls back to the host's message. */
 export function errorText(code: string, message: string): string {
-  return ERROR_TEXT[code] ?? (message || `Downpipe refused the download (${code}).`);
+  if (isKnownCode(code)) return t(`errors.code.${code}`);
+  return message || t("errors.refused", { code });
 }
 
 export function bridgeStatus(result: HostResult): BridgeStatus {
@@ -61,12 +58,10 @@ export function bridgeStatus(result: HostResult): BridgeStatus {
       : { state: "app_not_running", hostVersion: r.hostVersion };
   }
   if (r.type === "error") return { state: "error", message: errorText(r.code, r.message) };
-  return { state: "error", message: FAILURE_TEXT.bad_response };
+  return { state: "error", message: failureText("bad_response") };
 }
 
 export type Outcome = "added" | "duplicate" | "failed";
-
-export const WAITING_MESSAGE = "Waiting for your answer in Downpipe";
 
 /** What happened to one download, in words for the popup and the badge. */
 export interface HandOver {
@@ -82,36 +77,36 @@ export function downloadOutcome(result: HostResult): HandOver {
   if (!result.ok) return { outcome: "failed", message: failureText(result.failure) };
   const r = result.response;
   if (r.type === "accepted" && r.awaitingConfirmation) {
-    return { outcome: "added", message: WAITING_MESSAGE, fileName: r.fileName, taskId: r.taskId, awaitingConfirmation: true };
+    return { outcome: "added", message: t("results.waiting"), fileName: r.fileName, taskId: r.taskId, awaitingConfirmation: true };
   }
   if (r.type === "accepted") {
-    return { outcome: "added", message: "Added to Downpipe", fileName: r.fileName, taskId: r.taskId };
+    return { outcome: "added", message: t("results.added"), fileName: r.fileName, taskId: r.taskId };
   }
   if (r.type === "error" && r.code === "duplicate") {
-    return { outcome: "duplicate", message: ERROR_TEXT.duplicate ?? "", taskId: r.taskId };
+    return { outcome: "duplicate", message: t("errors.code.duplicate"), taskId: r.taskId };
   }
   if (r.type === "error") return { outcome: "failed", message: errorText(r.code, r.message) };
-  return { outcome: "failed", message: FAILURE_TEXT.bad_response };
+  return { outcome: "failed", message: failureText("bad_response") };
 }
 
-/** An app or bridge from before streams were supported refuses the message type. */
-export const STREAMS_UNSUPPORTED = "This version of Downpipe cannot download streams. Update Downpipe.";
-
-/** Like `downloadOutcome`, for a `media` message. */
+/**
+ * Like `downloadOutcome`, for a `media` message. An app or bridge from
+ * before streams were supported refuses the message type.
+ */
 export function streamOutcome(result: HostResult): HandOver {
   if (result.ok && result.response.type === "error" && result.response.code === "invalid_message") {
-    return { outcome: "failed", message: STREAMS_UNSUPPORTED };
+    return { outcome: "failed", message: t("errors.streamsUnsupported") };
   }
   return downloadOutcome(result);
 }
 
-/** An app or bridge from before the site provider refuses the message type. */
-export const PAGES_UNSUPPORTED = "This version of Downpipe cannot download videos from pages. Update Downpipe.";
-
-/** Like `downloadOutcome`, for a `page` message. */
+/**
+ * Like `downloadOutcome`, for a `page` message. An app or bridge from
+ * before the site provider refuses the message type.
+ */
 export function pageOutcome(result: HostResult): HandOver {
   if (result.ok && result.response.type === "error" && result.response.code === "invalid_message") {
-    return { outcome: "failed", message: PAGES_UNSUPPORTED };
+    return { outcome: "failed", message: t("errors.pagesUnsupported") };
   }
   return downloadOutcome(result);
 }
@@ -132,6 +127,6 @@ export function bridgeDown(result: HostResult): boolean {
 /** For a captured download the browser kept because Downpipe could not take it. */
 export function keptMessage(result: HostResult): string {
   const closed = result.ok && result.response.type === "error" && result.response.code === "app_not_running";
-  if (closed) return "Downpipe was not running, so the browser downloaded it.";
-  return `${downloadOutcome(result).message} The browser downloaded it instead.`;
+  if (closed) return t("errors.keptClosed");
+  return t("errors.keptInstead", { reason: downloadOutcome(result).message });
 }

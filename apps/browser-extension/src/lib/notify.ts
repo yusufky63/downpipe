@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type { Activity } from "./messages";
 
 export interface NotificationText {
@@ -15,22 +16,22 @@ export function notificationFor(activity: Activity): NotificationText {
       // a notification left behind would outlive the answer.
       return activity.awaitingConfirmation
         ? {
-            title: "Waiting for your answer in Downpipe",
-            message: `${activity.label}\nConfirm its name and folder in Downpipe to start the download.`,
+            title: t("notifications.waitingTitle"),
+            message: `${activity.label}\n${t("notifications.waitingBody")}`,
             sticky: false,
           }
-        : { title: "Downloading in Downpipe", message: activity.label, sticky: false };
+        : { title: t("notifications.downloading"), message: activity.label, sticky: false };
     case "duplicate":
-      return { title: "Already in Downpipe", message: activity.label, sticky: false };
+      return { title: t("notifications.duplicate"), message: activity.label, sticky: false };
     case "kept":
       return {
-        title: "Downloaded by the browser",
+        title: t("notifications.kept"),
         message: `${activity.label}\n${activity.message}`,
         sticky: true,
       };
     case "failed":
       return {
-        title: "Not sent to Downpipe",
+        title: t("notifications.failed"),
         message: `${activity.label}\n${activity.message}`,
         sticky: true,
       };

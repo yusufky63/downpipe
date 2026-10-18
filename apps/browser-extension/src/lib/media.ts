@@ -6,6 +6,7 @@
 // (cat-catch, Stream Detector) take: classify each response by its
 // Content-Type and URL, keep what the page's own request sent as Referer
 // and Origin, and list the result per tab. No code is taken from them.
+import { t } from "../i18n";
 import { normalizeType, parseTypeList, type ListParse } from "./filters";
 import { mimeEssence } from "./protocol";
 import { isSiteMedia } from "./sites";
@@ -123,11 +124,8 @@ export function validMediaFilters(value: unknown): MediaFilters | null {
 
 /** The options page's media type field. Unlike capture, an empty list is allowed: only streams are listed then. */
 export function parseMediaTypeList(text: string): ListParse {
-  const { values, errors } = parseTypeList(text);
   // The capture list's own limit does not apply here; this one does.
-  const own = errors.filter((e) => !e.startsWith("List at most"));
-  if (values.length > MAX_MEDIA_TYPES) own.push(`List at most ${MAX_MEDIA_TYPES} file types.`);
-  return { values, errors: own };
+  return parseTypeList(text, MAX_MEDIA_TYPES);
 }
 
 // ---------- Classification ----------
@@ -643,21 +641,21 @@ export function tabPartsKey(tabId: number): string {
   return `media:${tabId}:parts`;
 }
 
-const KIND_WORDS: Record<Exclude<MediaKind, "direct">, string> = {
-  hls: "HLS stream",
-  dash: "DASH stream",
-};
+const KIND_WORDS = {
+  hls: "media.hls",
+  dash: "media.dash",
+} as const satisfies Record<Exclude<MediaKind, "direct">, string>;
 
 const AUDIO_EXTENSIONS = new Set(["mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "weba"]);
 
 /** "HLS · 3 qualities" (a master that was read), "HLS stream", "MP4 video", "MP3 audio", "Video". */
 export function kindLabel(c: Pick<MediaCandidate, "kind" | "mime" | "url" | "qualities">): string {
-  if (c.kind === "hls" && c.qualities) return `HLS · ${c.qualities} ${c.qualities === 1 ? "quality" : "qualities"}`;
-  if (c.kind !== "direct") return KIND_WORDS[c.kind];
+  if (c.kind === "hls" && c.qualities) return t("media.hlsQualities", { count: c.qualities });
+  if (c.kind !== "direct") return t(KIND_WORDS[c.kind]);
   const ext = mediaExtension(c.url, c.mime) ?? "";
   const audio = c.mime ? c.mime.startsWith("audio/") : AUDIO_EXTENSIONS.has(ext);
-  const word = audio ? "audio" : "video";
-  return ext ? `${ext.toUpperCase()} ${word}` : audio ? "Audio" : "Video";
+  if (ext) return t(audio ? "media.fileAudio" : "media.fileVideo", { format: ext.toUpperCase() });
+  return t(audio ? "media.audio" : "media.video");
 }
 
 /** The file name in the URL, decoded, or the host. */

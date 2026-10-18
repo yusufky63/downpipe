@@ -2,6 +2,7 @@
 // leave alone and a minimum size, like IDM's "File types" settings. Pure
 // functions, shared by the service worker (matching) and the options page
 // (parsing what the user typed).
+import { t } from "../i18n";
 import { baseName, webUrl } from "./url";
 
 export interface CaptureFilters {
@@ -74,20 +75,23 @@ export interface ListParse {
   errors: string[];
 }
 
-/** The options page's file type field: separated by spaces, commas or semicolons. */
-export function parseTypeList(text: string): ListParse {
+/**
+ * The options page's file type field: separated by spaces, commas or
+ * semicolons. `max` is the list's limit (the media list has its own).
+ */
+export function parseTypeList(text: string, max = MAX_CAPTURE_TYPES): ListParse {
   const values: string[] = [];
   const errors: string[] = [];
   for (const token of text.split(/[\s,;]+/)) {
     if (!token) continue;
     const type = normalizeType(token);
     if (!type) {
-      errors.push(`"${token.slice(0, 40)}" is not a file extension.`);
+      errors.push(t("options.errors.notExtension", { value: token.slice(0, 40) }));
       continue;
     }
     if (!values.includes(type)) values.push(type);
   }
-  if (values.length > MAX_CAPTURE_TYPES) errors.push(`List at most ${MAX_CAPTURE_TYPES} file types.`);
+  if (values.length > max) errors.push(t("options.errors.tooManyTypes", { count: max }));
   return { values, errors };
 }
 
@@ -176,12 +180,13 @@ export function parseSiteList(text: string): ListParse {
     if (!line.trim()) return;
     const site = normalizeSitePattern(line);
     if (!site) {
-      errors.push(`Line ${index + 1}: "${line.trim().slice(0, 60)}" is not a site. Use a host such as example.com or *.example.com.`);
+      // A string, so a line number is not written with a thousands separator.
+      errors.push(t("options.errors.notSite", { line: String(index + 1), value: line.trim().slice(0, 60) }));
       return;
     }
     if (!values.includes(site)) values.push(site);
   });
-  if (values.length > MAX_EXCLUDED_SITES) errors.push(`List at most ${MAX_EXCLUDED_SITES} sites.`);
+  if (values.length > MAX_EXCLUDED_SITES) errors.push(t("options.errors.tooManySites", { count: MAX_EXCLUDED_SITES }));
   return { values, errors };
 }
 
@@ -200,11 +205,11 @@ export type SizeParse = { ok: true; bytes: number } | { ok: false; error: string
 
 /** The options page's minimum size: empty or 0 is off; decimals are fine. */
 export function parseMinSize(text: string, unit: SizeUnit): SizeParse {
-  const t = text.trim();
-  if (!t) return { ok: true, bytes: 0 };
-  if (!/^\d+(?:\.\d+)?$/.test(t)) return { ok: false, error: "Enter a number such as 2 or 1.5, or 0 to turn this off." };
-  const bytes = Math.round(Number(t) * SIZE_UNITS[unit]);
-  if (bytes > MAX_MIN_SIZE_BYTES) return { ok: false, error: "Enter a size under 1 TiB." };
+  const value = text.trim();
+  if (!value) return { ok: true, bytes: 0 };
+  if (!/^\d+(?:\.\d+)?$/.test(value)) return { ok: false, error: t("options.errors.sizeNotNumber") };
+  const bytes = Math.round(Number(value) * SIZE_UNITS[unit]);
+  if (bytes > MAX_MIN_SIZE_BYTES) return { ok: false, error: t("options.errors.sizeTooBig") };
   return { ok: true, bytes };
 }
 
@@ -320,7 +325,7 @@ export function filtersFromForm(form: FilterForm): FormResult {
   };
   // An empty list would quietly mean "everything"; say so instead.
   if (!form.captureAll && !types.errors.length && !types.values.length) {
-    errors.types.push("Add at least one file type, or turn on Capture all file types.");
+    errors.types.push(t("options.errors.noTypes"));
   }
   if (errors.types.length || errors.sites.length || !size.ok) return { ok: false, errors };
   return {

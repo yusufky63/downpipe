@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { ext } from "../lib/browser";
 import { hostOf, matchingSite } from "../lib/filters";
 import { WEB_ORIGINS, mediaLabels, type MediaCandidate } from "../lib/media";
@@ -13,7 +14,9 @@ import {
 } from "../lib/messages";
 import type { TaskStatus } from "../lib/protocol";
 import { itemView, mayChange, mediaEmptyText, mediaRowView, pageRowView, statusView } from "../lib/view";
-import { byId, extensionInfo, paintStatus, span } from "../ui/dom";
+import { byId, extensionInfo, paintStatus, span, startPage } from "../ui/dom";
+
+startPage();
 
 const DOWNLOADS_PERMISSION: chrome.permissions.Permissions = { permissions: ["downloads"] };
 const MEDIA_PERMISSIONS: chrome.permissions.Permissions = { permissions: ["webRequest"], origins: WEB_ORIGINS };
@@ -106,7 +109,7 @@ function renderStatus(reply: StatusReply | null): void {
   const connected = view.tone === "positive";
   els.statusBlock.hidden = connected;
   els.connected.hidden = !connected;
-  els.connected.title = connected ? `${view.title}. ${view.detail}` : "";
+  els.connected.title = connected ? t("popup.connectedTitle", { title: view.title, detail: view.detail }) : "";
   els.actions.hidden = connected;
 }
 
@@ -123,12 +126,10 @@ function renderSite(): void {
   if (!host) return;
   const paused = by === host;
   // "this site" keeps the row on one line; the host is in the tooltip.
-  els.siteAction.textContent = paused ? "Resume capture on this site" : "Pause capture on this site";
-  els.siteAction.title = paused
-    ? `Downloads from ${host} go to Downpipe again`
-    : `Downloads from ${host}, or started on its pages, stay in the browser`;
+  els.siteAction.textContent = t(paused ? "popup.resumeSite" : "popup.pauseSite");
+  els.siteAction.title = t(paused ? "popup.resumeSiteTitle" : "popup.pauseSiteTitle", { host });
   els.siteAction.dataset.paused = String(paused);
-  els.siteNote.textContent = by ? `Paused here by ${by}` : "";
+  els.siteNote.textContent = by ? t("popup.pausedBy", { site: by }) : "";
   els.siteNote.title = els.siteNote.textContent;
 }
 
@@ -150,7 +151,7 @@ function activityItem(entry: Activity, now: number): HTMLLIElement {
     const bar = document.createElement("div");
     bar.className = "bar";
     bar.setAttribute("role", "progressbar");
-    bar.setAttribute("aria-label", `${view.label} progress`);
+    bar.setAttribute("aria-label", t("popup.progress", { label: view.label }));
     bar.setAttribute("aria-valuemin", "0");
     bar.setAttribute("aria-valuemax", "100");
     bar.setAttribute("aria-valuenow", String(Math.floor(view.progress)));
@@ -176,9 +177,9 @@ function mediaRow(c: MediaCandidate, name: string | undefined): HTMLLIElement {
   const send = document.createElement("button");
   send.type = "button";
   send.className = "btn btn-small";
-  send.textContent = result === "sending" ? "Sending…" : "Download";
+  send.textContent = t(result === "sending" ? "common.sending" : "common.download");
   send.disabled = !view.sendable || result === "sending";
-  send.setAttribute("aria-label", `Download ${view.label} with Downpipe`);
+  send.setAttribute("aria-label", t("popup.downloadItem", { label: view.label }));
   send.addEventListener("click", () => void sendMedia(c.id));
   li.append(label, send, detail);
   return li;
@@ -201,9 +202,9 @@ function pageRow(page: PageItem): HTMLLIElement {
   const send = document.createElement("button");
   send.type = "button";
   send.className = "btn btn-small";
-  send.textContent = result === "sending" ? "Sending…" : "Download";
+  send.textContent = t(result === "sending" ? "common.sending" : "common.download");
   send.disabled = !view.sendable || result === "sending";
-  send.setAttribute("aria-label", `Download ${view.label} with Downpipe`);
+  send.setAttribute("aria-label", t("popup.downloadItem", { label: view.label }));
   send.addEventListener("click", () => void sendPage());
   li.append(label, send, detail);
   return li;
@@ -299,7 +300,7 @@ async function refresh(): Promise<void> {
     }
     renderStatus(
       status ?? {
-        bridge: { state: "error", message: "The extension did not answer." },
+        bridge: { state: "error", message: t("common.extensionNoAnswer") },
         capture: false,
         notify: true,
         excludedSites: [],

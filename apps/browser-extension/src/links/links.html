@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Links · Downpipe</title>
+    <title data-i18n="links.pageTitle">Downpipe</title>
     <link rel="stylesheet" href="base.css" />
     <link rel="stylesheet" href="page.css" />
     <link rel="stylesheet" href="links.css" />
@@ -14,13 +14,13 @@
       <div class="frame head-row">
         <img class="logo" src="icons/icon-32.png" alt="" width="20" height="20" />
         <span class="brand">Downpipe</span>
-        <span class="label head-label">Links on a page</span>
+        <span class="label head-label" data-i18n="links.headLabel"></span>
       </div>
     </header>
 
     <main class="frame main">
       <div class="intro">
-        <h1 class="title" id="title">Links on this page</h1>
+        <h1 class="title" id="title" data-i18n="links.title"></h1>
         <p class="page-url" id="page-url" hidden></p>
         <p class="lede" id="found" hidden></p>
       </div>
@@ -29,48 +29,48 @@
         <div class="status" id="status" data-tone="muted" role="status" aria-live="polite">
           <span class="dot" aria-hidden="true"></span>
           <div class="status-text">
-            <p class="status-title" id="status-title">Checking the connection</p>
+            <p class="status-title" id="status-title" data-i18n="status.checking"></p>
             <p class="status-detail" id="status-detail" hidden></p>
             <code class="command" id="status-command" hidden></code>
           </div>
         </div>
         <div class="actions">
-          <button type="button" class="btn" id="recheck">Check again</button>
+          <button type="button" class="btn" id="recheck" data-i18n="common.checkAgain"></button>
           <a
             class="link"
             id="guide"
             href="https://github.com/yusufky63/downpipe/blob/main/docs/BROWSER_BRIDGE.md"
             target="_blank"
             rel="noopener noreferrer"
+            data-i18n="common.setupGuide"
             hidden
-            >Setup guide</a
-          >
+          ></a>
         </div>
       </div>
 
       <p class="notice" id="notice" data-tone="muted" hidden></p>
 
-      <section class="card" id="picker" aria-label="Links" hidden>
+      <section class="card" id="picker" data-i18n-aria-label="links.pickerLabel" hidden>
         <div class="tools">
           <input
             class="input"
             id="query"
             type="search"
-            placeholder="Filter by text or address"
-            aria-label="Filter links by text or address"
+            data-i18n-placeholder="links.filterPlaceholder"
+            data-i18n-aria-label="links.filterLabel"
             autocomplete="off"
             spellcheck="false"
           />
           <label class="switch-row tools-switch" for="hide-pages">
-            <span class="row-title">Hide web pages</span>
+            <span class="row-title" data-i18n="links.hidePages"></span>
             <input type="checkbox" role="switch" class="switch" id="hide-pages" checked />
           </label>
         </div>
-        <div class="chips" id="chips" role="group" aria-label="File types"></div>
+        <div class="chips" id="chips" role="group" data-i18n-aria-label="links.fileTypes"></div>
         <div class="list-head">
           <div class="select-actions">
-            <button type="button" class="link" id="select-all">Select all</button>
-            <button type="button" class="link" id="select-none">Select none</button>
+            <button type="button" class="link" id="select-all" data-i18n="links.selectAll"></button>
+            <button type="button" class="link" id="select-none" data-i18n="links.selectNone"></button>
           </div>
           <span class="label num" id="count"></span>
         </div>
@@ -83,8 +83,8 @@
       <div class="frame dock-row">
         <p class="dock-note" id="summary" role="status" aria-live="polite"></p>
         <div class="dock-actions">
-          <button type="button" class="btn" id="stop" hidden>Stop</button>
-          <button type="button" class="btn btn-primary" id="download" disabled>Download 0 links</button>
+          <button type="button" class="btn" id="stop" data-i18n="links.stop" hidden></button>
+          <button type="button" class="btn btn-primary" id="download" disabled></button>
         </div>
       </div>
     </div>

@@ -2,6 +2,7 @@
 // are checked, grouped and filtered. The page's DOM is untrusted, so
 // everything that comes out of it is validated here before it is stored
 // or shown.
+import { t } from "../i18n";
 import type { CollectedPage } from "./collect";
 import { MAX_URL_LENGTH, baseName, webUrl } from "./url";
 
@@ -216,7 +217,7 @@ export function extensionChips(views: readonly LinkView[], max = 12): Chip[] {
   const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const chips = sorted.slice(0, max).map(([key, count]) => ({ key, label: key, count }));
   for (const [, count] of sorted.slice(max)) other += count;
-  if (other > 0) chips.push({ key: OTHER, label: "Other", count: other });
+  if (other > 0) chips.push({ key: OTHER, label: t("links.otherTypes"), count: other });
   return chips;
 }
 
@@ -261,13 +262,13 @@ export function summarize(outcomes: readonly LinkOutcome[]): string {
   const added = count("added");
   const duplicate = count("duplicate");
   const failed = count("failed");
-  if (added) parts.push(`${added} added`);
-  if (duplicate) parts.push(`${duplicate} already in Downpipe`);
-  if (failed) parts.push(`${failed} failed`);
-  return parts.length ? `${parts.join(", ")}.` : "Nothing sent.";
+  if (added) parts.push(t("links.added", { count: added }));
+  if (duplicate) parts.push(t("links.duplicate", { count: duplicate }));
+  if (failed) parts.push(t("links.failed", { count: failed }));
+  return parts.length ? t("links.summary", { parts: parts.join(t("links.separator")) }) : t("links.nothingSent");
 }
 
 /** "Download 1 link", "Download 12 links". */
 export function downloadLabel(n: number): string {
-  return `Download ${n.toLocaleString("en-US")} ${n === 1 ? "link" : "links"}`;
+  return t("links.downloadCount", { count: n });
 }

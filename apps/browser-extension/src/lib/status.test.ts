@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HostResult } from "./host";
 import {
-  PAGES_UNSUPPORTED,
-  STREAMS_UNSUPPORTED,
   bridgeDown,
   bridgeStatus,
   downloadOutcome,
@@ -151,7 +149,7 @@ describe("statusView", () => {
 describe("streamOutcome", () => {
   it("tells an outdated Downpipe from a broken stream", () => {
     const old = ok({ type: "error", code: "invalid_message", message: "unknown message type" });
-    expect(streamOutcome(old)).toEqual({ outcome: "failed", message: STREAMS_UNSUPPORTED });
+    expect(streamOutcome(old)).toEqual({ outcome: "failed", message: "This version of Downpipe cannot download streams. Update Downpipe." });
     const taken = ok({ type: "accepted", taskId: "t", fileName: "Clip.mp4", awaitingConfirmation: true });
     expect(streamOutcome(taken)).toMatchObject({ outcome: "added", taskId: "t", awaitingConfirmation: true });
   });
@@ -160,7 +158,7 @@ describe("streamOutcome", () => {
 describe("pageOutcome", () => {
   it("tells an outdated Downpipe from a refused page", () => {
     const old = ok({ type: "error", code: "invalid_message", message: "unknown variant `page`" });
-    expect(pageOutcome(old)).toEqual({ outcome: "failed", message: PAGES_UNSUPPORTED });
+    expect(pageOutcome(old)).toEqual({ outcome: "failed", message: "This version of Downpipe cannot download videos from pages. Update Downpipe." });
     const other = ok({ type: "error", code: "unsupported_page", message: "raw" });
     expect(pageOutcome(other)).toEqual({ outcome: "failed", message: "Downpipe does not download videos from this site." });
     const held = ok({ type: "accepted", taskId: "y", fileName: "Me at the zoo.mp4", awaitingConfirmation: true });

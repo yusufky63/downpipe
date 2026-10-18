@@ -1,6 +1,7 @@
 // Capture filters and media detection settings. Changes are saved only with
 // the Save button, through the service worker, which writes the settings one
 // change at a time.
+import { t } from "../i18n";
 import { ext } from "../lib/browser";
 import {
   DEFAULT_CAPTURE_TYPES,
@@ -12,7 +13,9 @@ import {
 } from "../lib/filters";
 import { DEFAULT_MEDIA_TYPES, MAX_MEDIA_MIN_BYTES, parseMediaTypeList, type MediaFilters } from "../lib/media";
 import { isSettings, type Settings } from "../lib/messages";
-import { byId } from "../ui/dom";
+import { byId, startPage } from "../ui/dom";
+
+startPage();
 
 const DOWNLOADS_PERMISSION: chrome.permissions.Permissions = { permissions: ["downloads"] };
 /** Longer lists end in "and N more" so one bad paste does not fill the page. */
@@ -59,7 +62,7 @@ function showErrors(list: HTMLUListElement, field: HTMLElement, errors: readonly
   });
   if (errors.length > MAX_SHOWN_ERRORS) {
     const li = document.createElement("li");
-    li.textContent = `And ${errors.length - MAX_SHOWN_ERRORS} more.`;
+    li.textContent = t("options.moreErrors", { count: errors.length - MAX_SHOWN_ERRORS });
     shown.push(li);
   }
   list.replaceChildren(...shown);
@@ -83,7 +86,7 @@ function paintMediaErrors(types: readonly string[], size: readonly string[]): vo
 function mediaFromForm(): { ok: true; media: MediaFilters } | { ok: false; types: string[]; size: string[] } {
   const types = parseMediaTypeList(els.mediaTypes.value);
   const size = parseMinSize(els.mediaSize.value, els.mediaUnit.value as SizeUnit);
-  const sizeErrors = size.ok ? (size.bytes > MAX_MEDIA_MIN_BYTES ? ["Enter a size under 1 TiB."] : []) : [size.error];
+  const sizeErrors = size.ok ? (size.bytes > MAX_MEDIA_MIN_BYTES ? [t("options.errors.sizeTooBig")] : []) : [size.error];
   if (types.errors.length || !size.ok || sizeErrors.length) return { ok: false, types: types.errors, size: sizeErrors };
   return { ok: true, media: { mediaOverlay: els.mediaOverlay.checked, mediaTypes: types.values, mediaMinBytes: size.bytes } };
 }
@@ -127,7 +130,7 @@ async function loadCapture(): Promise<void> {
 
 function edited(): void {
   dirty = true;
-  setState("Unsaved changes");
+  setState(t("options.unsaved"));
 }
 
 els.form.addEventListener("input", edited);
@@ -167,7 +170,7 @@ els.form.addEventListener("submit", (event) => {
   paintErrors(result.ok ? NO_ERRORS : result.errors);
   paintMediaErrors(media.ok ? [] : media.types, media.ok ? [] : media.size);
   if (!result.ok || !media.ok) {
-    setState("Not saved. Fix the fields marked in red.", "danger");
+    setState(t("options.notSavedFix"), "danger");
     if (!result.ok) {
       const { types, sites } = result.errors;
       (types.length ? els.types : sites.length ? els.sites : els.size).focus();
@@ -177,7 +180,7 @@ els.form.addEventListener("submit", (event) => {
     return;
   }
   els.save.disabled = true;
-  setState("Saving…");
+  setState(t("options.saving"));
   // Two writes, one after the other: the service worker chains them anyway.
   void ext.runtime
     .sendMessage({ kind: "save_filters", filters: result.filters })
@@ -185,12 +188,12 @@ els.form.addEventListener("submit", (event) => {
     .catch(() => null)
     .then((reply: unknown) => {
       if (!isSettings(reply)) {
-        setState("Not saved. The extension did not answer; try again.", "danger");
+        setState(t("options.notSavedNoAnswer"), "danger");
         return;
       }
       // Shows the lists as stored: deduplicated, lower case, hosts in ASCII.
       fill(reply);
-      setState("Saved", "positive");
+      setState(t("options.saved"), "positive");
     })
     .finally(() => {
       els.save.disabled = false;

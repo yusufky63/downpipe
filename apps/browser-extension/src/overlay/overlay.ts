@@ -4,8 +4,10 @@
 // (detected from the page's network requests), and sending one is a second
 // request, again only after a click. The page cannot see into the button
 // (a closed shadow root) and synthetic clicks from page scripts are ignored.
+import { t } from "../i18n/core";
 import { ext } from "../lib/browser";
 import { PAGE_ITEM_ID, isOverlayItems, overlayResultText, type OverlayItem } from "../lib/messages";
+import { activateOverlayLanguage } from "./texts";
 
 /** Thumbnails and decorative loops stay without a button. */
 const MIN_WIDTH = 200;
@@ -108,8 +110,8 @@ function build(): Ui {
   main.type = "button";
   main.className = "main";
   main.setAttribute("aria-haspopup", "menu");
-  main.title = "Download this video with Downpipe";
-  main.append(icon(), document.createTextNode("Download"));
+  main.title = t("overlay.buttonTitle");
+  main.append(icon(), document.createTextNode(t("common.download")));
   const menu = document.createElement("div");
   menu.className = "menu";
   menu.setAttribute("role", "menu");
@@ -215,7 +217,7 @@ function start(): void {
       const result = overlayResultText(reply);
       noteText(result.text, result.failed ? "danger" : "muted");
     } catch {
-      noteText("Downpipe's extension did not answer. Reload the page and try again.", "danger");
+      noteText(t("overlay.noAnswer"), "danger");
     } finally {
       ui.main.disabled = false;
     }
@@ -261,14 +263,14 @@ function start(): void {
       .then((reply: unknown) => {
         ui.main.disabled = false;
         const items = isOverlayItems(reply) ? reply.items : null;
-        if (!items) noteText("Downpipe's extension did not answer. Reload the page and try again.", "danger");
-        else if (items.length === 0) noteText("Nothing to download yet. Let the video play a moment, then try again.", "muted");
+        if (!items) noteText(t("overlay.noAnswer"), "danger");
+        else if (items.length === 0) noteText(t("overlay.nothingYet"), "muted");
         else if (items.length === 1 && items[0]) void send(items[0]);
         else openMenu(items);
       })
       .catch(() => {
         ui.main.disabled = false;
-        noteText("Downpipe's extension did not answer. Reload the page and try again.", "danger");
+        noteText(t("overlay.noAnswer"), "danger");
       });
   });
 
@@ -324,5 +326,7 @@ function start(): void {
 const flag = globalThis as { __downpipeOverlay?: boolean };
 if (!flag.__downpipeOverlay) {
   flag.__downpipeOverlay = true;
+  // The page's own `lang` is left alone: the button speaks the browser's language.
+  activateOverlayLanguage();
   start();
 }
