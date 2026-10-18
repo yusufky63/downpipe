@@ -1,17 +1,26 @@
 import { FileText, FolderOpen } from "lucide-react";
 import { useRef, useState, type DragEvent, type FormEvent } from "react";
 
-import { MAIN_QUEUE, api, errorMessage, isCommandError, type Settings, type Task } from "../lib/api";
+import { useI18n } from "../i18n";
+import type { Translate } from "../i18n/core";
+import { MAIN_QUEUE, api, errorMessage, isCommandError, type AddOptions, type Settings, type Task } from "../lib/api";
+
+/** A link that was already in the list, and how it was to be added. */
+export interface Duplicate {
+  options: AddOptions;
+  /** The download already in the list. */
+  existing: string;
+}
 import { parseUrls } from "../lib/format";
 import { MAX_EXPANDED, expandPatterns, linksFromList } from "../lib/patterns";
 import { sitePage } from "../lib/sites";
 import { Button, Dialog, Field, inputClass } from "./primitives";
 
 /** The Links hint's word on the video pages among several links. */
-function pagesNote(pages: number, files: number): string {
+function pagesNote(t: Translate, pages: number, files: number): string {
   if (pages === 0) return "";
-  if (files === 0) return " You choose the quality of each video next.";
-  return pages === 1 ? " One of them is a video: you choose its quality next." : ` ${pages} of them are videos: you choose their quality next.`;
+  if (files === 0) return t("add.links.allVideos");
+  return t("add.links.someVideos", { count: pages });
 }
 
 export function AddDialog({
@@ -20,7 +29,7 @@ export function AddDialog({
   settings,
   onClose,
   onAdded,
-  onDuplicate,
+  onDuplicates,
 }: {
   /** Kept by the app, so a link copied while the dialog is open joins the list. */
   text: string;
@@ -28,8 +37,10 @@ export function AddDialog({
   settings: Settings;
   onClose: () => void;
   onAdded: (tasks: Task[]) => void;
-  onDuplicate: (id: string) => void;
+  /** Links already in the list, with what was asked, so the app can ask what to do. */
+  onDuplicates: (items: Duplicate[]) => void;
 }) {
+  const { t } = useI18n();
   // Empty means automatic: the default folder, or the category's folder.
   const [dir, setDir] = useState("");
   const [fileName, setFileName] = useState("");
@@ -51,7 +62,7 @@ export function AddDialog({
   // A dropped or chosen list file is appended, so several lists can be combined.
   const appendList = async (file: File) => {
     if (file.size > 2 * 1024 * 1024) {
-      setError("That file is too large for a list of links.");
+      setError(t("add.errors.listTooLarge"));
       return;
     }
     const links = linksFromList(await file.text());
@@ -79,7 +90,7 @@ export function AddDialog({
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
     if (urls.length === 0) {
-      setError("Paste at least one http or https link.");
+      setError(t("add.errors.noLinks"));
       return;
     }
     const conns = Number.parseInt(connections, 10);
@@ -87,33 +98,34 @@ export function AddDialog({
     setError(null);
     const added: Task[] = [];
     const problems: string[] = [];
+    const duplicates: Duplicate[] = [];
     for (const url of urls) {
       const page = sitePage(url) !== null;
+      const options: AddOptions = {
+        url,
+        dir: dir.trim() || null,
+        file_name: single && fileName.trim() ? fileName.trim() : null,
+        checksum: single && !page && checksum.trim() ? checksum.trim() : null,
+        max_connections: Number.isFinite(conns) && !page ? conns : null,
+        paused,
+        queue,
+        confirm: page,
+        // A video page then asks for its quality here, not in the confirmation window.
+        from_app: true,
+      };
       try {
-        added.push(
-          await api.add({
-            url,
-            dir: dir.trim() || null,
-            file_name: single && fileName.trim() ? fileName.trim() : null,
-            checksum: single && !page && checksum.trim() ? checksum.trim() : null,
-            max_connections: Number.isFinite(conns) && !page ? conns : null,
-            paused,
-            queue,
-            confirm: page,
-            // A video page then asks for its quality here, not in the confirmation window.
-            from_app: true,
-          }),
-        );
+        added.push(await api.add(options));
       } catch (err) {
-        if (isCommandError(err) && err.code === "duplicate" && err.id && urls.length === 1) {
-          onDuplicate(err.id);
-          return;
+        if (isCommandError(err) && err.code === "duplicate" && err.id) {
+          duplicates.push({ options, existing: err.id });
+          continue;
         }
-        problems.push(urls.length > 1 ? `${url}: ${errorMessage(err)}` : errorMessage(err));
+        problems.push(urls.length > 1 ? t("add.errors.forLink", { url, error: errorMessage(err) }) : errorMessage(err));
       }
     }
     setBusy(false);
     if (added.length > 0) onAdded(added);
+    if (duplicates.length > 0) onDuplicates(duplicates);
     if (problems.length > 0) setError(problems.join("\n"));
     else onClose();
   };
@@ -121,17 +133,19 @@ export function AddDialog({
   const files = urls.length - pages;
   const linksHint =
     expansion.dropped > 0
-      ? `Only the first ${MAX_EXPANDED} links of the pattern are used.`
+      ? t("add.links.patternCapped", { count: MAX_EXPANDED })
       : expansion.expanded
-        ? `${urls.length} links from the pattern. One download each.`
+        ? t("add.links.fromPattern", { count: urls.length })
         : urls.length > 1
-          ? `${urls.length} links found. One download each.`
-          : "One link per line, or a pattern like file[001-100].zip. Only http and https are supported.";
+          ? t("add.links.found", { count: urls.length })
+          : t("add.links.hint");
+  // A sentence of its own, joined here so neither text has to carry the space.
+  const note = pagesNote(t, pages, files);
 
   return (
     <Dialog
-      eyebrow="New download"
-      title={urls.length > 1 ? `Add ${urls.length} links` : "Add a link"}
+      eyebrow={t("add.eyebrow")}
+      title={urls.length > 1 ? t("add.titleMany", { count: urls.length }) : t("add.title")}
       onClose={onClose}
       footer={
         <>
@@ -139,20 +153,30 @@ export function AddDialog({
           {!onlyPages && (
             <label className="mr-auto flex items-center gap-2 text-[13px] text-ink-secondary">
               <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} className="size-4 accent-primary" />
-              Add paused
+              {t("add.addPaused")}
             </label>
           )}
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button variant="primary" onClick={() => void submit()} disabled={busy || urls.length === 0}>
-            {onlyPages ? "Next" : paused ? "Add to list" : files > 1 ? `Download ${files} files` : "Download"}
+            {onlyPages
+              ? t("add.submit.next")
+              : paused
+                ? t("add.submit.addToList")
+                : files > 1
+                  ? t("add.submit.downloadMany", { count: files })
+                  : t("add.submit.download")}
           </Button>
         </>
       }
     >
       <form onSubmit={submit} className="flex flex-col gap-5">
-        <Field label="Links" error={error} hint={firstPage ? `A ${firstPage.site} video. You choose its quality next.` : linksHint + pagesNote(pages, files)}>
+        <Field
+          label={t("add.links.label")}
+          error={error}
+          hint={firstPage ? t("add.links.video", { site: firstPage.site }) : note ? `${linksHint} ${note}` : linksHint}
+        >
           {(id) => (
             <textarea
               id={id}
@@ -173,9 +197,9 @@ export function AddDialog({
         <div className="-mt-3 flex items-center gap-2">
           <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>
             <FileText size={16} strokeWidth={1.75} />
-            Import a list
+            {t("add.links.importList")}
           </Button>
-          <span className="text-[12px] text-ink-muted">A .txt file with one link per line. You can also drop it here.</span>
+          <span className="text-[12px] text-ink-muted">{t("add.links.importHint")}</span>
           <input
             ref={fileInput}
             type="file"
@@ -190,8 +214,8 @@ export function AddDialog({
         </div>
 
         <Field
-          label="Save to"
-          hint={dir.trim() ? undefined : settings.use_categories ? "Automatic: the folder of the file's category." : undefined}
+          label={t("add.saveTo.label")}
+          hint={dir.trim() ? undefined : settings.use_categories ? t("add.saveTo.automatic") : undefined}
         >
           {(id) => (
             <div className="flex gap-2">
@@ -205,7 +229,7 @@ export function AddDialog({
               />
               <Button onClick={() => void browse()}>
                 <FolderOpen size={16} strokeWidth={1.75} />
-                Browse
+                {t("common.browse")}
               </Button>
             </div>
           )}
@@ -213,8 +237,8 @@ export function AddDialog({
 
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-[1fr_120px]">
           <Field
-            label="File name"
-            hint={video ? "Leave empty to use the video's title." : single ? "Leave empty to use the name the server sends." : "Only for a single link."}
+            label={t("add.fileName.label")}
+            hint={video ? t("add.fileName.videoHint") : single ? t("add.fileName.hint") : t("add.fileName.singleOnly")}
           >
             {(id) => (
               <input
@@ -223,12 +247,12 @@ export function AddDialog({
                 disabled={!single}
                 onChange={(e) => setFileName(e.target.value)}
                 spellCheck={false}
-                placeholder="Automatic"
+                placeholder={t("add.fileName.placeholder")}
                 className={`${inputClass} h-9 disabled:opacity-50`}
               />
             )}
           </Field>
-          <Field label="Connections" hint={video ? "Not for videos" : "Upper limit"}>
+          <Field label={t("add.connections.label")} hint={video ? t("add.connections.videoHint") : t("add.connections.hint")}>
             {(id) => (
               <input
                 id={id}
@@ -245,7 +269,7 @@ export function AddDialog({
         </div>
 
         {settings.queues.length > 1 && (
-          <Field label="Queue" hint="Each queue runs its own downloads at once.">
+          <Field label={t("add.queue.label")} hint={t("add.queue.hint")}>
             {(id) => (
               <select id={id} value={queue} onChange={(e) => setQueue(e.target.value)} className={`${inputClass} h-9`}>
                 {settings.queues.map((q) => (
@@ -259,12 +283,8 @@ export function AddDialog({
         )}
 
         <Field
-          label="Checksum"
-          hint={
-            video
-              ? "Only for files: yt-dlp puts a video's file together from the site's formats."
-              : "Optional, e.g. sha256:9f86d0… The file is only renamed into place if it matches."
-          }
+          label={t("add.checksum.label")}
+          hint={video ? t("add.checksum.videoHint") : t("add.checksum.hint")}
         >
           {(id) => (
             <input

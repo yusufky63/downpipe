@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type DragEvent } from "react";
 
-import { AddDialog } from "./components/AddDialog";
-import { EmptyState, FilterBar, Header, StatusBar, Toasts, WhenDoneDialog, type Toast } from "./components/Chrome";
+import { AddDialog, type Duplicate } from "./components/AddDialog";
+import { EmptyState, FilterBar, Header, SelectionBar, StatusBar, Toasts, WhenDoneDialog, type Toast } from "./components/Chrome";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ContextMenu } from "./components/ContextMenu";
 import { DetailsDialog } from "./components/DetailsDialog";
 import { DownloadList, rowSelector, type RowActions } from "./components/DownloadList";
+import { DuplicateDialog, type DuplicateChoice } from "./components/DuplicateDialog";
 import { Banner } from "./components/primitives";
 import { RedownloadDialog } from "./components/RedownloadDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
 import { SettingsDialog, type SettingsTab } from "./components/SettingsDialog";
+import { LocaleProvider, t, useLocale } from "./i18n";
 import {
   api,
   errorMessage,
@@ -87,6 +89,7 @@ export function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const [removingIds, setRemovingIds] = useState<string[]>([]);
   const [redownloadId, setRedownloadId] = useState<string | null>(null);
+  const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [theme, setTheme] = useState<Theme>(currentTheme);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -98,6 +101,8 @@ export function App() {
   const [dropping, setDropping] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const native = inTauri();
+  // Before any text below is made.
+  const locale = useLocale(settings?.language ?? "");
 
   const whenDone = whenDoneState.view;
   const setWhenDone = useCallback((view: WhenDoneView) => setWhenDoneState({ view, at: Date.now() }), []);
@@ -221,7 +226,7 @@ export function App() {
     if (text) parts.push(linksFromList(text));
     const joined = parts.filter(Boolean).join("\n");
     if (parseUrls(joined).length > 0) setAddText(joined);
-    else toast("Drop links, or a .txt file with one link per line.", "neutral");
+    else toast(t("app.dropNothing"), "neutral");
   };
 
   const queues = useMemo(() => settings?.queues ?? [], [settings]);
@@ -265,7 +270,9 @@ export function App() {
   const redownloading = tasks.find((t) => t.id === redownloadId);
   const counted = countdown !== null && whenDone.action !== "nothing";
   // One dialog at a time; the others wait their turn.
-  const busyDialog = counted || settingsTab !== null || detailsTask !== undefined || removing.length > 0 || redownloading !== undefined;
+  const duplicateOf = duplicates.length > 0 ? tasks.find((t) => t.id === duplicates[0]?.existing) : undefined;
+  const busyDialog =
+    counted || settingsTab !== null || detailsTask !== undefined || removing.length > 0 || redownloading !== undefined || duplicateOf !== undefined;
   const showAdd = addText !== null && settings !== null && !busyDialog;
   // What the browser sent is asked in the confirmation window, over the browser.
   const awaiting = useMemo(() => awaitingIn(tasks, "main"), [tasks]);
@@ -274,10 +281,10 @@ export function App() {
   const showMenu = menu !== null && menuEntries.length > 0;
   const closeMenu = useCallback(() => setMenu(null), []);
 
-  const copy = (text: string, what: string) =>
+  const copy = (text: string, done: string) =>
     navigator.clipboard.writeText(text).then(
-      () => toast(`Copied ${what}.`, "neutral"),
-      () => toast("Could not copy to the clipboard."),
+      () => toast(done, "neutral"),
+      () => toast(t("app.copyFailed")),
     );
 
   const moveSelected = (to: QueueMove) => {
@@ -329,10 +336,10 @@ export function App() {
         moveSelected("bottom");
         break;
       case "copy_link":
-        void copy(linksText(selectedTasks), selectedTasks.length === 1 ? "the link" : `${selectedTasks.length} links`);
+        void copy(linksText(selectedTasks), selectedTasks.length === 1 ? t("app.copied.link") : t("app.copied.links", { count: selectedTasks.length }));
         break;
       case "copy_path":
-        if (one?.path) void copy(one.path, "the file path");
+        if (one?.path) void copy(one.path, t("app.copied.path"));
         break;
       case "properties":
         if (one) setDetails({ id: one.id, relink: false });
@@ -418,6 +425,7 @@ export function App() {
 
   const rowActions: RowActions = {
     onSelect: (id, mods) => setSelection(clickSelect(current, id, order, mods)),
+    onToggle: (id, shift) => setSelection(clickSelect(current, id, order, { ctrl: true, shift })),
     onProperties: (id) => {
       setSelection({ ids: [id], anchor: id });
       setDetails({ id, relink: false });
@@ -436,9 +444,36 @@ export function App() {
     run(async () => {
       setWhenDone(await api.setWhenDone(action));
       if (action !== "nothing" && sum.active + sum.queued === 0) {
-        toast("Nothing is downloading yet. It applies once the next downloads finish.", "neutral");
+        toast(t("app.whenDoneIdle"), "neutral");
       }
     });
+
+  /** IDM's answers: a numbered copy, the old file replaced, or the existing download shown or resumed. */
+  const answerDuplicates = (items: Duplicate[], choice: DuplicateChoice) => {
+    setFilter("all");
+    setQueue("");
+    const ids = items.map((d) => d.existing);
+    for (const { options, existing } of items) {
+      const task = tasks.find((x) => x.id === existing);
+      if (choice === "copy") {
+        run(() => api.add({ ...options, on_duplicate: "add_copy" }));
+      } else if (choice === "overwrite" && task?.state === "completed") {
+        run(() => api.redownload(existing, true));
+      } else if (task && canResume(task)) {
+        run(() => api.resume(existing));
+      } else if (task?.state === "completed" && choice === "existing") {
+        // The finished download's window, with Open and Open folder.
+        run(() => api.watchDownload(existing));
+      }
+    }
+    if (choice !== "copy") {
+      const first = ids[0];
+      if (first) {
+        setSelection({ ids, anchor: first });
+        focusRow(first);
+      }
+    }
+  };
 
   const chooseQueue = (id: string) => {
     setQueue(id);
@@ -446,7 +481,10 @@ export function App() {
     if (id !== "") changeSort(QUEUE_ORDER);
   };
 
+  const allShown = order.length > 0 && order.every((id) => selectedSet.has(id));
+
   return (
+    <LocaleProvider locale={locale}>
     <div
       className="relative flex h-full flex-col"
       onDragOver={(e) => {
@@ -486,7 +524,7 @@ export function App() {
         onExport={() =>
           run(async () => {
             const count = await api.exportLinks();
-            if (count !== null) toast(`Saved ${count} ${count === 1 ? "link" : "links"}.`, "neutral");
+            if (count !== null) toast(t("app.exported", { count }), "neutral");
           })
         }
         canExport={tasks.length > 0}
@@ -501,12 +539,12 @@ export function App() {
       <main className="flex min-h-0 flex-1 flex-col">
         {!native && (
           <div className="p-4">
-            <Banner tone="warning">This window is the Downpipe interface without its engine. Start the desktop app with pnpm desktop to download.</Banner>
+            <Banner tone="warning">{t("app.noEngine")}</Banner>
           </div>
         )}
         {loadError && (
           <div className="p-4">
-            <Banner tone="danger">Could not load downloads: {loadError}</Banner>
+            <Banner tone="danger">{t("app.loadFailed", { error: loadError })}</Banner>
           </div>
         )}
         <div
@@ -523,6 +561,7 @@ export function App() {
               actions={rowActions}
               sort={sort}
               onSort={(key: SortKey) => changeSort(nextSort(sort, key))}
+              onToggleAll={() => setSelection(allShown ? EMPTY_SELECTION : selectAll(order))}
               queueNames={queueNames}
             />
           ) : (
@@ -543,8 +582,21 @@ export function App() {
 
       {dropping && (
         <div className="pointer-events-none absolute inset-2 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary-soft">
-          <p className="display-medium text-[18px] text-ink">Drop links or a .txt list to add them</p>
+          <p className="display-medium text-[18px] text-ink">{t("app.dropHere")}</p>
         </div>
+      )}
+
+      {selectedTasks.length > 1 && !showMenu && (
+        <SelectionBar
+          count={selectedTasks.length}
+          canResume={selectedTasks.some(canResume)}
+          canPause={selectedTasks.some(canPause)}
+          onResume={() => onMenuAction("resume")}
+          onPause={() => onMenuAction("pause")}
+          onRemove={() => onMenuAction("remove")}
+          onMore={(x, y, keyboard) => setMenu({ x, y, keyboard })}
+          onClear={() => setSelection(EMPTY_SELECTION)}
+        />
       )}
 
       {showMenu && (
@@ -552,7 +604,7 @@ export function App() {
           x={menu.x}
           y={menu.y}
           entries={menuEntries}
-          label={selectedTasks.length === 1 ? "Download actions" : `Actions for ${selectedTasks.length} downloads`}
+          label={selectedTasks.length === 1 ? t("list.menu.label") : t("list.menu.labelMany", { count: selectedTasks.length })}
           focusFirst={menu.keyboard}
           onAction={onMenuAction}
           onClose={closeMenu}
@@ -605,14 +657,7 @@ export function App() {
               if (!added.some((t) => t.awaiting_confirmation)) focusRow(first.id);
             }
           }}
-          onDuplicate={(id) => {
-            setAddText(null);
-            setFilter("all");
-            setQueue("");
-            setSelection({ ids: [id], anchor: id });
-            focusRow(id);
-            toast("That link is already in the list.", "neutral");
-          }}
+          onDuplicates={setDuplicates}
         />
       )}
       {asking && settings && (
@@ -651,6 +696,18 @@ export function App() {
           }}
         />
       )}
+      {duplicateOf && (
+        <DuplicateDialog
+          existing={duplicateOf}
+          count={duplicates.length}
+          onCancel={() => setDuplicates([])}
+          onChoose={(choice) => {
+            const items = duplicates;
+            setDuplicates([]);
+            answerDuplicates(items, choice);
+          }}
+        />
+      )}
       {redownloading && (
         <RedownloadDialog
           task={redownloading}
@@ -670,7 +727,8 @@ export function App() {
           onNow={() => run(api.whenDoneNow)}
         />
       )}
-      <Toasts toasts={toasts} onDismiss={(id) => setToasts((list) => list.filter((t) => t.id !== id))} />
+      <Toasts toasts={toasts} onDismiss={(id) => setToasts((list) => list.filter((toast) => toast.id !== id))} />
     </div>
+    </LocaleProvider>
   );
 }

@@ -1,0 +1,52 @@
+// The details dialog: progress, live numbers, the new-link form and the file's facts.
+import type { Messages } from "../core";
+
+export const details: Messages["details"] = {
+  eyebrow: "Detalles de la descarga",
+  openFile: "Abrir archivo",
+  remove: "Quitar…",
+  cancelAndDelete: "Cancelar y eliminar",
+  cancelAndDeleteTitle: "Detiene la descarga y elimina el archivo parcial",
+  downloadAgain: "Volver a descargar",
+  redownload: "Volver a descargar…",
+  progress: "Progreso",
+  progressOf: "{downloaded} de {total}",
+  progressOfAbout: "{downloaded} de aprox. {total}",
+  legend: {
+    downloaded: "Descargado",
+    connection: "Conexión",
+    remaining: "Restante",
+  },
+  stats: {
+    speed: "Velocidad",
+    timeLeft: "Tiempo restante",
+    connections: "Conexiones",
+    target: "objetivo {count}",
+    resume: "Reanudación",
+    supported: "Compatible",
+    notSupported: "No compatible",
+    size: "Tamaño",
+    downloaded: "Descargado",
+  },
+  rows: {
+    savedTo: "Guardado en",
+    folder: "Carpeta",
+    source: "Origen",
+    video: "Video",
+    stream: "Transmisión",
+    bestQuality: "Mejor calidad",
+    fragments: { one: "{done} de {count} fragmento", many: "{done} de {count} fragmentos", other: "{done} de {count} fragmentos" },
+    queue: "Cola",
+    checksum: "Suma de comprobación",
+    added: "Agregada",
+    finished: "Terminada",
+  },
+  relink: {
+    button: "Usar un enlace nuevo…",
+    label: "Enlace nuevo para este archivo",
+    submit: "Continuar",
+    hint: "Para un enlace expirado o roto. La descarga continúa donde se detuvo solo si el enlace nuevo ofrece el mismo archivo; de lo contrario, no se sobrescribe nada.",
+  },
+  copy: "Copiar",
+  copied: "Copiado",
+};

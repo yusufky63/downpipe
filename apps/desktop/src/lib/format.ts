@@ -1,3 +1,5 @@
+import { currentLocale } from "../i18n/core";
+
 const UNITS = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
 
 /** Binary units with one decimal: `12.3 MiB`. */
@@ -40,18 +42,21 @@ export function formatDuration(totalSeconds: number | null): string {
   return `${sec}s`;
 }
 
-const DATE_FORMAT = new Intl.DateTimeFormat("en-GB", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-/** Unix seconds as `17 Oct 2026, 15:42` in the local time zone. */
+/**
+ * Unix seconds in the active language and the local time zone. English
+ * keeps the day-first, 24-hour `17 Oct 2026, 15:42` it always had rather
+ * than the US order `en` alone would give.
+ */
 export function formatDate(unixSeconds: number | null): string {
   if (unixSeconds === null || !Number.isFinite(unixSeconds) || unixSeconds <= 0) return "–";
-  return DATE_FORMAT.format(new Date(unixSeconds * 1000));
+  const locale = currentLocale();
+  return new Intl.DateTimeFormat(locale === "en" ? "en-GB" : locale, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(unixSeconds * 1000));
 }
 
 /** 0–100, or null when the size is unknown. */

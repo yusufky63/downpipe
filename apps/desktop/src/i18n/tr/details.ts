@@ -1,0 +1,52 @@
+// The details dialog: progress, live numbers, the new-link form and the file's facts.
+import type { Messages } from "../core";
+
+export const details: Messages["details"] = {
+  eyebrow: "İndirme ayrıntıları",
+  openFile: "Dosyayı aç",
+  remove: "Kaldır…",
+  cancelAndDelete: "İptal et ve sil",
+  cancelAndDeleteTitle: "İndirmeyi durdurur ve kısmi dosyayı siler",
+  downloadAgain: "Yeniden indir",
+  redownload: "Yeniden indir…",
+  progress: "İlerleme",
+  progressOf: "{downloaded} / {total}",
+  progressOfAbout: "{downloaded} / yaklaşık {total}",
+  legend: {
+    downloaded: "İndirilen",
+    connection: "Bağlantı",
+    remaining: "Kalan",
+  },
+  stats: {
+    speed: "Hız",
+    timeLeft: "Kalan süre",
+    connections: "Bağlantı sayısı",
+    target: "hedef {count}",
+    resume: "Sürdürme",
+    supported: "Destekleniyor",
+    notSupported: "Desteklenmiyor",
+    size: "Boyut",
+    downloaded: "İndirilen",
+  },
+  rows: {
+    savedTo: "Kaydedildiği yer",
+    folder: "Klasör",
+    source: "Kaynak",
+    video: "Video",
+    stream: "Akış",
+    bestQuality: "En iyi kalite",
+    fragments: { one: "{done} / {count} parça", other: "{done} / {count} parça" },
+    queue: "Kuyruk",
+    checksum: "Sağlama toplamı",
+    added: "Eklenme",
+    finished: "Bitiş",
+  },
+  relink: {
+    button: "Yeni bağlantı kullan…",
+    label: "Bu dosya için yeni bağlantı",
+    submit: "Devam",
+    hint: "Süresi dolmuş ya da bozuk bir bağlantı için. İndirme yalnızca yeni bağlantı aynı dosyayı sunuyorsa kaldığı yerden devam eder; aksi hâlde hiçbir şeyin üzerine yazılmaz.",
+  },
+  copy: "Kopyala",
+  copied: "Kopyalandı",
+};

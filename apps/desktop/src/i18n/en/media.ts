@@ -1,0 +1,35 @@
+// Stream and video page qualities, their audio tracks, and the site tools
+// (yt-dlp, Deno or Node, FFmpeg) in the settings. Codec, tool and site names,
+// resolutions and units stay as they are in every language.
+export const media = {
+  /** A quality with sound and no picture; also what the engine calls it. */
+  audioOnly: "Audio only",
+  /** A quality the manifest gives neither a height nor a bit rate. */
+  defaultQuality: "Default",
+  /** The estimated size in a quality's details, e.g. "about 10.0 MiB". */
+  aboutSize: "about {size}",
+  /** An audio track with neither a name nor a language. */
+  audio: "Audio",
+  tools: {
+    found: "Found",
+    notFound: "Not found",
+    problem: "Problem",
+    /** After the tool's path, e.g. "version 2026.08.19". */
+    version: "version {version}",
+    /** Where the tool was found, after its path and version. */
+    sources: {
+      settings: "set in Settings",
+      managed: "downloaded by Downpipe",
+      path: "on PATH",
+    },
+    /** Why a tool that is not found matters. */
+    missing: {
+      ytDlp: "Needed for videos on pages.",
+      runtime: "Without Deno (or Node) yt-dlp misses some YouTube qualities.",
+      ffmpeg: "Without it only Audio only and qualities with their own sound work.",
+    },
+    /** The button; {tools} is a list such as "yt-dlp and Deno". */
+    download: "Download {tools}",
+    update: "Update {tools}",
+  },
+};

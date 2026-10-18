@@ -1,0 +1,152 @@
+// The settings dialog, one group per tab, and the browser bridge's states.
+// {placeholders} that hold an element (a path, a command) are put in by the dialog.
+import type { Messages } from "../core";
+
+export const settings: Messages["settings"] = {
+  eyebrow: "Configuración",
+  title: "Preferencias",
+  tabsLabel: "Secciones de configuración",
+  tabs: {
+    downloads: "Descargas",
+    queues: "Colas",
+    categories: "Categorías",
+    network: "Red",
+    media: "Multimedia",
+    schedule: "Programación",
+    app: "Aplicación",
+  },
+  downloads: {
+    folder: "Carpeta predeterminada",
+    folderHint: "Las categorías de abajo crean sus carpetas dentro de esta.",
+    concurrent: "Descargas simultáneas",
+    concurrentHint: "Las demás esperan en la cola. De 1 a 16.",
+    connections: "Conexiones por descarga",
+    connectionsHint: "Límite máximo. Downpipe empieza con 2 y agrega más solo mientras ayuden. De 1 a 32.",
+    speedLimit: "Límite de velocidad",
+    speedLimitHint: "Compartido por todas las descargas. Déjalo vacío para no tener límite. Se aplica de inmediato.",
+    noLimit: "Sin límite",
+    unit: "Unidad del límite de velocidad",
+  },
+  queues: {
+    intro:
+      "Cada cola ejecuta su propio número de descargas a la vez, junto a las demás; dentro de una cola, las descargas empiezan de arriba abajo. Mueve descargas entre colas y cambia su orden desde el menú contextual. Las descargas de una cola eliminada pasan a la cola principal.",
+    label: "Colas",
+    name: "Nombre de la cola",
+    namePlaceholder: "Nombre",
+    mainLimit: { one: "{count} a la vez", many: "{count} a la vez", other: "{count} a la vez" },
+    mainLimitTitle: "Se define en Descargas, Descargas simultáneas",
+    limit: "Descargas simultáneas de {name}",
+    limitUnnamed: "Descargas simultáneas de la cola",
+    limitTitle: "Descargas simultáneas, de 1 a 16",
+    remove: "Quitar {name}",
+    removeUnnamed: "Quitar cola",
+    newName: "Cola {number}",
+    add: "Agregar cola",
+  },
+  categories: {
+    use: "Ordenar las descargas en carpetas por categoría",
+    useHint:
+      "Cada descarga nueva va a la carpeta de su categoría según el tipo de archivo. Si el nombre de archivo que envía el servidor indica otro tipo, el archivo terminado se mueve a la carpeta adecuada. Las carpetas que eliges tú nunca se cambian.",
+    label: "Categorías",
+    name: "Nombre de la categoría",
+    namePlaceholder: "Nombre",
+    types: "Tipos de archivo de {name}",
+    typesUnnamed: "Tipos de archivo de la categoría",
+    remove: "Quitar {name}",
+    removeUnnamed: "Quitar categoría",
+    folder: "Carpeta de {name}",
+    folderUnnamed: "Carpeta de la categoría",
+    folderPlaceholder: "Carpeta: {name} dentro de la carpeta predeterminada",
+    folderPlaceholderUnnamed: "Carpeta: nombre dentro de la carpeta predeterminada",
+    add: "Agregar categoría",
+  },
+  network: {
+    proxy: "Proxy",
+    proxyHint:
+      "http://, https:// o socks5://host:port. Si está vacío, se usa el proxy del sistema. Lo usan las descargas que se inician después de guardar.",
+    proxyPlaceholder: "Proxy del sistema",
+    userAgent: "Agente de usuario",
+    userAgentHint: "Algunos servidores solo responden a navegadores. Si está vacío, se envía el de Downpipe.",
+  },
+  media: {
+    ffmpegHint:
+      "Une el video y el sonido separados de una transmisión en un solo archivo, sin volver a codificar. Si está vacío, se usa ffmpeg de PATH. Downpipe no incluye FFmpeg.",
+    ffmpegPlaceholder: "ffmpeg en PATH",
+    found: "Encontrado",
+    notFound: "No encontrado",
+    ffmpegMissing:
+      "Las transmisiones cuyo video y sonido llegan por separado se guardan como dos archivos. Instala FFmpeg y agrégalo a PATH, o escribe arriba la ruta de ffmpeg, y luego guarda.",
+    streams:
+      "Las transmisiones provienen de la detección multimedia de la extensión del navegador, o de enlaces .m3u8 y .mpd agregados aquí. No se descargan transmisiones protegidas con DRM ni en vivo.",
+  },
+  siteTools: {
+    heading: "Videos en páginas",
+    intro:
+      "En una página de YouTube, “Descargar con Downpipe” pasa la página a yt-dlp, que extrae el video. yt-dlp necesita Deno para YouTube y FFmpeg para unir video y sonido por encima de 360p.",
+    ytDlpHint: "Si está vacío, se usa la copia descargada abajo; si no, yt-dlp de PATH.",
+    ytDlpPlaceholder: "Copia descargada; si no, yt-dlp en PATH",
+    denoHint:
+      "Versión 2.3.0 o posterior. Si está vacío, se usa la copia descargada abajo; si no, deno de PATH, y si no, Node 22 o posterior.",
+    denoPlaceholder: "Copia descargada; si no, deno en PATH",
+    looking: "Buscando yt-dlp y Deno…",
+    listLabel: "Herramientas para videos en páginas",
+    downloading: "Descargando…",
+    installNote:
+      "Solo cuando haces clic: las compilaciones oficiales de github.com/yt-dlp/yt-dlp y github.com/denoland/deno, cada una comprobada con el SHA-256 que publica su versión, se guardan en {folder}. YouTube cambia a menudo; vuelve a hacer clic para obtener el yt-dlp más reciente.",
+    toolsFolder: "la carpeta de herramientas de Downpipe",
+    cookies:
+      "Downpipe no envía cookies a yt-dlp, por lo que no se descargan videos privados, exclusivos para miembros ni con restricción de edad, ni tampoco los protegidos (DRM) o en vivo. Cumplir los términos de YouTube es tu responsabilidad.",
+  },
+  schedule: {
+    enable: "Iniciar y detener descargas según una programación",
+    enableHint:
+      "A la hora de inicio, las descargas en pausa y fallidas se reanudan. A la hora de detención, se pausan. Downpipe tiene que estar en ejecución, en la ventana o en la bandeja del sistema.",
+    queue: "Cola",
+    queueHint: "Las demás colas no se modifican.",
+    everyQueue: "Todas las colas",
+    start: "Hora de inicio",
+    stop: "Hora de detención",
+    stopHint: "Opcional",
+    days: "Días",
+  },
+  app: {
+    language: "Idioma",
+    languageHint: "Se aplica al momento a la ventana, al menú de la bandeja y a las notificaciones.",
+    systemDefault: "Predeterminado del sistema ({language})",
+    notify: "Notificar cuando termine una descarga",
+    notifyHint: "Una notificación del sistema cuando una descarga se completa o falla mientras la ventana no está en primer plano.",
+    tray: "Seguir en ejecución en la bandeja del sistema al cerrar la ventana",
+    trayHint: "Las descargas continúan y la extensión del navegador aún puede enviar enlaces. Sal desde el icono de la bandeja.",
+    startup: "Abrir Downpipe al iniciar sesión",
+    startupHint: "Se inicia en la bandeja del sistema, así que las descargas capturadas siempre tienen adónde ir.",
+    clipboard: "Ofrecer la descarga de enlaces copiados",
+    clipboardHint:
+      "Cuando copias un enlace a un tipo de archivo de los que aparecen en Categorías, o a un video de YouTube, Downpipe abre con él el cuadro de diálogo Agregar. Se omiten los enlaces que ya están en la lista.",
+    awake: "Mantener el equipo activo durante las descargas",
+    awakeHint: "La suspensión espera a que las descargas dejen de ejecutarse. La pantalla sí puede apagarse.",
+    confirmBrowser: "Preguntar antes de que empiecen las descargas del navegador",
+    confirmBrowserHint:
+      "Elige primero el nombre de archivo, la carpeta y la cola en una pequeña ventana sobre el navegador. Desactivado: empiezan de inmediato con la carpeta automática.",
+  },
+  bridge: {
+    heading: "Puente con el navegador",
+    register: "Registrar en los navegadores al iniciar",
+    registerHint:
+      "Permite que la extensión de Downpipe en Chrome, Edge, Chromium y Firefox se comunique con esta copia de la aplicación. Solo modifica tu cuenta de usuario. Desactívalo para administrar tú mismo el registro con downpipe-native-host.",
+    checking: "Comprobando el registro…",
+    noHost: "Esta copia de Downpipe no tiene puente con el navegador en {host}. Reinstala Downpipe; en una compilación de desarrollo, ejecuta {command}.",
+    listLabel: "Registro por navegador",
+    registering: "Registrando…",
+    registerNow: "Registrar ahora",
+    pickUp: "Los navegadores abiertos lo detectan la próxima vez que la extensión hace una comprobación.",
+    states: {
+      registered: "Registrado",
+      notInstalled: "No instalado",
+      missing: "No registrado",
+      invalid: "Ilegible",
+      otherHost: "Otra copia",
+      extensionNotAllowed: "Otra extensión",
+      failed: "Error",
+    },
+  },
+};

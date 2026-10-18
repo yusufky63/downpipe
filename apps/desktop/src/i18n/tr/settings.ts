@@ -1,0 +1,150 @@
+// The settings dialog, one group per tab, and the browser bridge's states.
+// {placeholders} that hold an element (a path, a command) are put in by the dialog.
+import type { Messages } from "../core";
+
+export const settings: Messages["settings"] = {
+  eyebrow: "Ayarlar",
+  title: "Tercihler",
+  tabsLabel: "Ayar bölümleri",
+  tabs: {
+    downloads: "İndirmeler",
+    queues: "Kuyruklar",
+    categories: "Kategoriler",
+    network: "Ağ",
+    media: "Medya",
+    schedule: "Zamanlama",
+    app: "Uygulama",
+  },
+  downloads: {
+    folder: "Varsayılan klasör",
+    folderHint: "Aşağıdaki kategoriler klasörlerini bunun içinde oluşturur.",
+    concurrent: "Aynı anda indirme sayısı",
+    concurrentHint: "Diğerleri kuyrukta bekler. 1 ile 16 arası.",
+    connections: "İndirme başına bağlantı sayısı",
+    connectionsHint: "Üst sınır. Downpipe 2 ile başlar ve yalnızca yararlı oldukları sürece daha fazlasını ekler. 1 ile 32 arası.",
+    speedLimit: "Hız sınırı",
+    speedLimitHint: "Tüm indirmeler arasında paylaşılır. Sınır olmaması için boş bırakın. Hemen uygulanır.",
+    noLimit: "Sınır yok",
+    unit: "Hız sınırı birimi",
+  },
+  queues: {
+    intro:
+      "Her kuyruk, diğerleriyle yan yana kendi belirlediği sayıda indirmeyi aynı anda çalıştırır; bir kuyruğun içinde indirmeler yukarıdan aşağıya başlar. İndirmeleri kuyruklar arasında taşımak ve sıralarını değiştirmek için sağ tık menüsünü kullanın. Kaldırılan bir kuyruktaki indirmeler ana kuyruğa taşınır.",
+    label: "Kuyruklar",
+    name: "Kuyruk adı",
+    namePlaceholder: "Ad",
+    mainLimit: { one: "Aynı anda {count}", other: "Aynı anda {count}" },
+    mainLimitTitle: "İndirmeler sekmesinde, Aynı anda indirme sayısı ile ayarlanır",
+    limit: "{name} için aynı anda indirme sayısı",
+    limitUnnamed: "Kuyruğun aynı anda indirme sayısı",
+    limitTitle: "Aynı anda indirme sayısı, 1 ile 16 arası",
+    remove: "{name} öğesini kaldır",
+    removeUnnamed: "Kuyruğu kaldır",
+    newName: "Kuyruk {number}",
+    add: "Kuyruk ekle",
+  },
+  categories: {
+    use: "İndirmeleri kategori klasörlerine ayır",
+    useHint:
+      "Yeni bir indirme, dosya türüne göre kategorisinin klasörüne gider. Sunucunun gönderdiği dosya adı farklı bir tür gösterdiğinde, biten dosya doğru klasöre taşınır. Kendiniz seçtiğiniz klasörler hiçbir zaman değiştirilmez.",
+    label: "Kategoriler",
+    name: "Kategori adı",
+    namePlaceholder: "Ad",
+    types: "{name} dosya türleri",
+    typesUnnamed: "Kategori dosya türleri",
+    remove: "{name} öğesini kaldır",
+    removeUnnamed: "Kategoriyi kaldır",
+    folder: "{name} klasörü",
+    folderUnnamed: "Kategori klasörü",
+    folderPlaceholder: "Klasör: varsayılan klasörün içinde {name}",
+    folderPlaceholderUnnamed: "Klasör: varsayılan klasörün içinde ad",
+    add: "Kategori ekle",
+  },
+  network: {
+    proxy: "Proxy",
+    proxyHint: "http://, https:// ya da socks5://host:port. Boşsa sistem proxy'si kullanılır. Kaydettikten sonra başlayan indirmeler kullanır.",
+    proxyPlaceholder: "Sistem proxy'si",
+    userAgent: "Kullanıcı aracısı",
+    userAgentHint: "Bazı sunucular yalnızca tarayıcılara yanıt verir. Boşsa Downpipe kendi kullanıcı aracısını gönderir.",
+  },
+  media: {
+    ffmpegHint:
+      "Bir akışın ayrı gelen videosunu ve sesini yeniden kodlamadan tek bir dosyada birleştirir. Boşsa PATH'teki ffmpeg kullanılır. Downpipe, FFmpeg içermez.",
+    ffmpegPlaceholder: "PATH'teki ffmpeg",
+    found: "Bulundu",
+    notFound: "Bulunamadı",
+    ffmpegMissing:
+      "Videosu ve sesi ayrı gelen akışlar iki dosya olarak kaydedilir. FFmpeg'i yükleyip PATH'e ekleyin ya da yukarıya ffmpeg'in yolunu girin, sonra kaydedin.",
+    streams:
+      "Akışlar, tarayıcı eklentisinin medya algılamasından ya da buraya eklenen .m3u8 ve .mpd bağlantılarından gelir. DRM korumalı ve canlı akışlar indirilmez.",
+  },
+  siteTools: {
+    heading: "Sayfalardaki videolar",
+    intro:
+      "Bir YouTube sayfasında “Downpipe ile indir” komutu, sayfayı yt-dlp'ye verir; o da videoyu ayıklar. yt-dlp, YouTube için Deno'ya ve 360p üzerinde video ile sesi birleştirmek için FFmpeg'e ihtiyaç duyar.",
+    ytDlpHint: "Boşsa aşağıda indirilen kopya, o da yoksa PATH'teki yt-dlp kullanılır.",
+    ytDlpPlaceholder: "İndirilen kopya, yoksa PATH'teki yt-dlp",
+    denoHint: "Sürüm 2.3.0 veya üstü. Boşsa aşağıda indirilen kopya, o da yoksa PATH'teki deno, o da yoksa Node 22 veya üstü kullanılır.",
+    denoPlaceholder: "İndirilen kopya, yoksa PATH'teki deno",
+    looking: "yt-dlp ve Deno aranıyor…",
+    listLabel: "Sayfalardaki videolar için araçlar",
+    downloading: "İndiriliyor…",
+    installNote:
+      "Yalnızca düğmeye bastığınızda: github.com/yt-dlp/yt-dlp ve github.com/denoland/deno adreslerindeki resmi derlemeler, her biri kendi sürümünün yayımladığı SHA-256 ile doğrulanarak {folder} içine konur. YouTube sık değişir; en son yt-dlp için düğmeye yeniden basın.",
+    toolsFolder: "Downpipe'ın araçlar klasörü",
+    cookies:
+      "Downpipe, yt-dlp'ye çerez göndermez; bu nedenle özel, yalnızca üyelere açık ve yaş sınırlı videolar indirilmez, korumalı (DRM) ve canlı olanlar da indirilmez. YouTube'un koşullarına uymak size kalmıştır.",
+  },
+  schedule: {
+    enable: "İndirmeleri zamanlamaya göre başlat ve durdur",
+    enableHint:
+      "Başlama saatinde duraklatılmış ve başarısız indirmeler sürdürülür. Durdurma saatinde duraklatılırlar. Downpipe'ın pencerede ya da tepside çalışıyor olması gerekir.",
+    queue: "Kuyruk",
+    queueHint: "Diğer kuyruklara dokunulmaz.",
+    everyQueue: "Tüm kuyruklar",
+    start: "Başlama saati",
+    stop: "Durdurma saati",
+    stopHint: "İsteğe bağlı",
+    days: "Günler",
+  },
+  app: {
+    language: "Dil",
+    languageHint: "Hemen uygulanır: pencereye, tepsi menüsüne ve bildirimlere.",
+    systemDefault: "Sistem varsayılanı ({language})",
+    notify: "Bir indirme bittiğinde bildir",
+    notifyHint: "Pencere önde değilken bir indirme tamamlandığında ya da başarısız olduğunda bir sistem bildirimi.",
+    tray: "Pencere kapandığında tepside çalışmaya devam et",
+    trayHint: "İndirmeler devam eder ve tarayıcı eklentisi yine bağlantı gönderebilir. Tepsi simgesinden çıkın.",
+    startup: "Oturum açtığınızda Downpipe'ı başlat",
+    startupHint: "Tepside başlar; böylece yakalanan indirmelerin her zaman gidecek bir yeri olur.",
+    clipboard: "Kopyalanan bağlantıları indirmeyi öner",
+    clipboardHint:
+      "Kategoriler altında listelenen bir dosya türüne ya da bir YouTube videosuna giden bir bağlantıyı kopyaladığınızda, Downpipe Ekle penceresini bu bağlantıyla açar. Listede zaten olan bağlantılar atlanır.",
+    awake: "İndirme sırasında bilgisayarı uyanık tut",
+    awakeHint: "Uyku, indirmeler durana kadar bekler. Ekran yine de kapanabilir.",
+    confirmBrowser: "Tarayıcıdan gelen indirmeler başlamadan önce sor",
+    confirmBrowserHint:
+      "Önce dosya adını, klasörü ve kuyruğu tarayıcının üzerindeki küçük bir pencerede seçin. Kapalı: otomatik klasörle hemen başlarlar.",
+  },
+  bridge: {
+    heading: "Tarayıcı köprüsü",
+    register: "Başlangıçta tarayıcılara kaydet",
+    registerHint:
+      "Chrome, Edge, Chromium ve Firefox'taki Downpipe eklentisinin uygulamanın bu kopyasına ulaşmasını sağlar. Yalnızca kullanıcı hesabınızı değiştirir. Kaydı downpipe-native-host ile kendiniz yönetmek için kapatın.",
+    checking: "Kayıt denetleniyor…",
+    noHost: "Downpipe'ın bu kopyasında {host} konumunda tarayıcı köprüsü yok. Downpipe'ı yeniden yükleyin; geliştirme derlemesinde {command} komutunu çalıştırın.",
+    listLabel: "Tarayıcı başına kayıt",
+    registering: "Kaydediliyor…",
+    registerNow: "Şimdi kaydet",
+    pickUp: "Açık tarayıcılar bunu eklentinin bir sonraki denetiminde algılar.",
+    states: {
+      registered: "Kayıtlı",
+      notInstalled: "Yüklü değil",
+      missing: "Kayıtlı değil",
+      invalid: "Okunamıyor",
+      otherHost: "Başka kopya",
+      extensionNotAllowed: "Başka eklenti",
+      failed: "Hata",
+    },
+  },
+};

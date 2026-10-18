@@ -1,0 +1,113 @@
+// The confirmation window (IDM's "Download File Info") and a download's
+// progress window. Tool names (yt-dlp, FFmpeg) and stream kinds (HLS, DASH)
+// stay as they are.
+import type { Messages } from "../core";
+
+export const confirm: Messages["confirm"] = {
+  stream: "Поток {kind}",
+  newDownload: "Новая загрузка",
+  fromBrowser: "Из браузера",
+  fromBrowserWhat: "Из браузера · {what}",
+  // "еще {count} в ожидании" needs no agreement with the number.
+  moreWaiting: {
+    one: "{from} · еще {count} в ожидании",
+    few: "{from} · еще {count} в ожидании",
+    many: "{from} · еще {count} в ожидании",
+    other: "{from} · еще {count} в ожидании",
+  },
+  titleVideo: "Загрузить это видео?",
+  titleFile: "Загрузить этот файл?",
+  stopAsking: "Больше не спрашивать",
+  stopAskingTitle:
+    "Загрузки из браузера будут начинаться сразу. Снова включить вопрос можно в разделе «Приложение» настроек.",
+  later: "Загрузить позже",
+  start: "Начать загрузку",
+  url: "URL",
+  name: "Имя",
+  nameHint: {
+    site: "Расширение выбирает yt-dlp: чаще всего .mp4, для некоторых форматов .mkv или .webm, для звука без видео .m4a.",
+    stream: "Расширение определяется потоком: чаще всего .mp4, в некоторых случаях .ts или .webm.",
+    file: "Сервер может предложить другое имя; сохраняется это.",
+  },
+  saveTo: "Сохранить в",
+  quality: "Качество",
+  queue: "Очередь",
+  audio: "Звук",
+  qualityBest: "Лучшее",
+  askingYtDlp: "Запрос к yt-dlp…",
+  readingStream: "Чтение потока…",
+  openMediaSettings: "Открыть настройки, раздел «Медиа»",
+  readFailedPage: "Не удалось прочитать страницу: {message} При запуске загрузка пойдет в лучшем качестве.",
+  readFailedStream: "Не удалось прочитать поток: {message} При запуске загрузка пойдет в лучшем качестве.",
+  noFfmpegStream: "FFmpeg не найден, поэтому видео и звук сохраняются двумя файлами.",
+  setUpFfmpeg: "Настроить FFmpeg",
+  noFfmpegSite:
+    "Для этого качества нужен FFmpeg, чтобы объединить видео и звук, но он не найден. Выберите «Только звук» или качество H.264 + AAC либо {link}.",
+  setUpFfmpegLink: "настройте FFmpeg",
+  unknownError: "Что-то пошло не так",
+
+  progress: {
+    download: "Загрузка",
+    eyebrow: {
+      queued: "В очереди",
+      downloading: "Загрузка",
+      paused: "Приостановлено",
+      done: "Загрузка завершена",
+      failed: "Ошибка загрузки",
+      canceled: "Отменено",
+      removed: "Удалено",
+    },
+    status: {
+      queued: "Ожидание свободного места в очереди",
+      connecting: "Подключение",
+      receiving: "Получение данных",
+      // "из 21 фрагмента", "из 22 фрагментов": the genitive after "из".
+      fragments: {
+        one: "Получение данных · {done} из {count} фрагмента",
+        few: "Получение данных · {done} из {count} фрагментов",
+        many: "Получение данных · {done} из {count} фрагментов",
+        other: "Получение данных · {done} из {count} фрагмента",
+      },
+      connections: {
+        one: "Получение данных · {count} подключение",
+        few: "Получение данных · {count} подключения",
+        many: "Получение данных · {count} подключений",
+        other: "Получение данных · {count} подключения",
+      },
+      waiting: "Соединение потеряно, повторная попытка",
+      verifying: "Проверка файла",
+      paused: "Приостановлено",
+      finished: "Завершено",
+      failed: "Ошибка",
+      canceled: "Отменено; загруженные данные удалены",
+    },
+    size: "{downloaded} из {approx}{total} · {percent}%",
+    timeLeft: "{speed} · осталось {time}",
+    resumeYes: "Да",
+    resumeNo: "Нет: после паузы загрузка начнется сначала",
+    labels: {
+      url: "URL",
+      status: "Состояние",
+      size: "Размер",
+      speed: "Скорость",
+      resume: "Докачка",
+      savedTo: "Сохранено в",
+    },
+    hide: "Скрыть",
+    hideTitle: "Закрывает это окно; загрузка продолжается.",
+    openFolder: "Открыть папку",
+    cancelTitle: "Останавливает загрузку и удаляет загруженные данные.",
+    startAgain: "Начать заново",
+    gone: "Этой загрузки больше нет в списке.",
+    title: {
+      queued: "В очереди · {name}",
+      percent: "{percent}% {name}",
+      paused: "Приостановлено · {name}",
+      done: "Готово · {name}",
+      failed: "Ошибка · {name}",
+      canceled: "Отменено · {name}",
+      removed: "Удалено",
+      window: "{title} - Downpipe",
+    },
+  },
+};

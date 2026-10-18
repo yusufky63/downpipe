@@ -1,0 +1,56 @@
+// The details dialog: progress, live numbers, the new-link form and the file's facts.
+import type { Messages } from "../core";
+
+export const details: Messages["details"] = {
+  eyebrow: "Dettagli del download",
+  openFile: "Apri file",
+  remove: "Rimuovi…",
+  cancelAndDelete: "Annulla ed elimina",
+  cancelAndDeleteTitle: "Interrompe il download ed elimina il file parziale",
+  downloadAgain: "Scarica di nuovo",
+  redownload: "Scarica di nuovo…",
+  progress: "Avanzamento",
+  progressOf: "{downloaded} di {total}",
+  progressOfAbout: "{downloaded} di circa {total}",
+  legend: {
+    downloaded: "Scaricato",
+    connection: "Connessione",
+    remaining: "Rimanente",
+  },
+  stats: {
+    speed: "Velocità",
+    timeLeft: "Tempo rimanente",
+    connections: "Connessioni",
+    target: "obiettivo {count}",
+    resume: "Ripresa",
+    supported: "Supportata",
+    notSupported: "Non supportata",
+    size: "Dimensione",
+    downloaded: "Scaricato",
+  },
+  rows: {
+    savedTo: "Salvato in",
+    folder: "Cartella",
+    source: "Origine",
+    video: "Video",
+    stream: "Flusso",
+    bestQuality: "Qualità migliore",
+    fragments: {
+      one: "{done} di {count} frammento",
+      many: "{done} di {count} frammenti",
+      other: "{done} di {count} frammenti",
+    },
+    queue: "Coda",
+    checksum: "Checksum",
+    added: "Aggiunto",
+    finished: "Completato",
+  },
+  relink: {
+    button: "Usa un nuovo link…",
+    label: "Nuovo link per questo file",
+    submit: "Continua",
+    hint: "Per un link scaduto o non funzionante. Il download riprende da dove si era fermato solo se il nuovo link fornisce lo stesso file; altrimenti non viene sovrascritto nulla.",
+  },
+  copy: "Copia",
+  copied: "Copiato",
+};

@@ -1,0 +1,86 @@
+// The download list, its selection bar and right-click menu.
+import type { Messages } from "../core";
+
+export const list: Messages["list"] = {
+  label: "Загрузки",
+  columns: {
+    name: "Имя",
+    size: "Размер",
+    progress: "Прогресс",
+    speed: "Скорость",
+    left: "Осталось",
+    date: "Дата",
+    actions: "Действия",
+  },
+  selectAll: "Выбрать все показанные загрузки",
+  selectRow: "Выбрать {name}",
+  dragOut: "Перетащите файл в другое приложение",
+  dateAdded: "Добавлено: {date}",
+  dateFinished: "Завершено: {date}",
+  dateLastTry: "Последняя попытка: {date}",
+  bar: {
+    label: "Выбранные загрузки",
+    // The number alone, so every form reads the same.
+    count: { one: "Выбрано: {count}", few: "Выбрано: {count}", many: "Выбрано: {count}", other: "Выбрано: {count}" },
+    resume: "Возобновить",
+    pause: "Приостановить",
+    remove: "Удалить…",
+    more: "Еще",
+    clear: "Снять выделение",
+  },
+  menu: {
+    label: "Действия с загрузкой",
+    labelMany: "Действия с загрузками: {count}",
+    open: "Открыть",
+    reveal: "Показать в папке",
+    resume: "Возобновить",
+    retry: "Повторить",
+    pause: "Приостановить",
+    redownload: "Загрузить заново…",
+    relink: "Указать новую ссылку…",
+    moveToQueue: "Переместить в очередь",
+    newQueue: "Новая очередь…",
+    order: "Порядок в очереди",
+    moveTop: "Переместить в начало",
+    moveUp: "Переместить вверх",
+    moveDown: "Переместить вниз",
+    moveBottom: "Переместить в конец",
+    copyLink: "Копировать ссылку",
+    copyLinks: "Копировать ссылки",
+    copyPath: "Копировать путь к файлу",
+    properties: "Свойства",
+    remove: "Удалить…",
+    removeMany: {
+      one: "Удалить {count} загрузку…",
+      few: "Удалить {count} загрузки…",
+      many: "Удалить {count} загрузок…",
+      other: "Удалить {count} загрузки…",
+    },
+  },
+};
+
+export const app: Messages["app"] = {
+  noEngine: "Это окно — интерфейс Downpipe без движка. Чтобы загружать файлы, запустите настольное приложение командой pnpm desktop.",
+  loadFailed: "Не удалось получить список загрузок: {error}",
+  dropHere: "Отпустите ссылки или список .txt, чтобы добавить их",
+  dropNothing: "Перетащите ссылки или файл .txt, в котором по одной ссылке в строке.",
+  copied: {
+    link: "Ссылка скопирована.",
+    links: {
+      one: "Скопирована {count} ссылка.",
+      few: "Скопированы {count} ссылки.",
+      many: "Скопировано {count} ссылок.",
+      other: "Скопировано {count} ссылки.",
+    },
+    path: "Путь к файлу скопирован.",
+  },
+  copyFailed: "Не удалось скопировать в буфер обмена.",
+  exported: {
+    one: "Сохранена {count} ссылка.",
+    few: "Сохранены {count} ссылки.",
+    many: "Сохранено {count} ссылок.",
+    other: "Сохранено {count} ссылки.",
+  },
+  duplicate: "Эта ссылка уже есть в списке.",
+  whenDoneIdle: "Сейчас ничего не загружается. Действие выполнится, когда завершатся следующие загрузки.",
+};

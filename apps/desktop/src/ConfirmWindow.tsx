@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Toasts, type Toast } from "./components/Chrome";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { DuplicateDialog } from "./components/DuplicateDialog";
+import { LocaleProvider, useLocale } from "./i18n";
 import { api, errorMessage, inTauri, onConfirmAgain, onManagerEvent, onResync, type Settings, type Task } from "./lib/api";
-import { applyEvent, awaitingIn } from "./lib/tasks";
+import { applyEvent, awaitingIn, canResume } from "./lib/tasks";
 import { useAppWindow, useThemeFromOtherWindows } from "./lib/window";
 
 let toastSeq = 0;
@@ -20,7 +22,10 @@ export function ConfirmWindow() {
   // Bumped when the question comes back from Settings: read it again.
   const [round, setRound] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  // Duplicates the user chose to add as a copy: their usual question follows.
+  const [copies, setCopies] = useState<ReadonlySet<string>>(() => new Set());
   const native = inTauri();
+  const locale = useLocale(settings?.language ?? "");
   useAppWindow();
   useThemeFromOtherWindows();
 
@@ -89,9 +94,33 @@ export function ConfirmWindow() {
     [question],
   );
 
+  // The browser sent a link already in the list: ask about that first, as IDM does.
+  const existing = asking?.duplicate_of ? tasks.find((t) => t.id === asking.duplicate_of) : undefined;
+
   return (
-    <>
-      {asking && settings && (
+    <LocaleProvider locale={locale}>
+      {asking && existing && !copies.has(asking.id) ? (
+        <DuplicateDialog
+          key={`duplicate-${question}`}
+          existing={existing}
+          inWindow
+          onFit={fit}
+          onCancel={() => run(() => api.remove(asking.id, true))}
+          onChoose={(choice) => {
+            if (choice === "copy") {
+              setCopies((ids) => new Set(ids).add(asking.id));
+              return;
+            }
+            run(async () => {
+              await api.remove(asking.id, true);
+              if (choice === "overwrite" && existing.state === "completed") await api.redownload(existing.id, true);
+              else if (canResume(existing)) await api.resume(existing.id);
+              // Its window: progress while it runs, Open and Open folder once done.
+              await api.watchDownload(existing.id);
+            });
+          }}
+        />
+      ) : asking && settings && (
         <ConfirmDialog
           key={question}
           task={asking}
@@ -114,6 +143,6 @@ export function ConfirmWindow() {
         />
       )}
       <Toasts toasts={toasts} onDismiss={(id) => setToasts((list) => list.filter((t) => t.id !== id))} />
-    </>
+    </LocaleProvider>
   );
 }

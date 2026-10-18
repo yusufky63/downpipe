@@ -1,6 +1,7 @@
 // Streams (HLS, DASH) and video pages (YouTube, through yt-dlp) in the UI:
 // how qualities are named, which audio goes with which quality, and what a
 // row says about such a download.
+import { currentLocale, t } from "../i18n/core";
 import type { AudioOption, ChoiceOptions, Choices, MediaKind, MediaSelection, Task, VideoOption } from "./api";
 import { formatBytes } from "./format";
 
@@ -19,12 +20,23 @@ export function sourceName(task: Task): string | null {
 
 /** "1080p", "720p 60", "Audio only" or "2.5 Mbit/s". Same rules as the engine's labels. */
 export function qualityName(v: VideoOption): string {
-  if (v.audio_only) return "Audio only";
+  if (v.audio_only) return t("media.audioOnly");
   const fps = Number.parseFloat(v.frame_rate ?? "");
   const rate = Number.isFinite(fps) && fps > 30.5 ? ` ${Math.round(fps)}` : "";
   if (v.height) return `${v.height}p${rate}`;
   if (v.bandwidth) return `${(v.bandwidth / 1_000_000).toFixed(1)} Mbit/s`;
-  return "Default";
+  return t("media.defaultQuality");
+}
+
+/**
+ * A quality as the engine stored it for a download ("1080p", "Audio only"),
+ * in the active language. The engine names qualities in English, and only
+ * these two are words; the rest are numbers and units.
+ */
+export function engineQuality(label: string): string {
+  if (label === "Audio only") return t("media.audioOnly");
+  if (label === "Default") return t("media.defaultQuality");
+  return label;
 }
 
 const CODEC_NAMES: [prefix: string, name: string][] = [
@@ -76,7 +88,7 @@ export function qualityDetail(v: VideoOption): string {
   if (v.bandwidth) {
     parts.push(v.audio_only ? `${Math.round(v.bandwidth / 1000)} kbit/s` : `${(v.bandwidth / 1_000_000).toFixed(1)} Mbit/s`);
   }
-  if (v.estimated_size) parts.push(`about ${formatBytes(v.estimated_size)}`);
+  if (v.estimated_size) parts.push(t("media.aboutSize", { size: formatBytes(v.estimated_size) }));
   return parts.join(" · ");
 }
 
@@ -86,18 +98,29 @@ export function qualityOption(v: VideoOption): string {
   return detail ? `${qualityName(v)} · ${detail}` : qualityName(v);
 }
 
-const LANGUAGES = new Intl.DisplayNames(["en"], { type: "language" });
+// Made on first use in each language, so a switch in Settings applies.
+let languages: { locale: string; names: Intl.DisplayNames } | null = null;
 
 function languageName(code: string): string {
+  const locale = currentLocale();
+  if (languages?.locale !== locale) {
+    languages = { locale, names: new Intl.DisplayNames([locale], { type: "language", fallback: "none" }) };
+  }
+  let name: string | undefined;
   try {
-    return LANGUAGES.of(code) ?? code;
+    name = languages.names.of(code);
   } catch {
     return code;
   }
+  if (!name) return code;
+  // French, Spanish, Russian and others write language names in lowercase
+  // within a sentence; standing alone as a track's name, they start with a
+  // capital as menu entries do.
+  return name.charAt(0).toLocaleUpperCase(locale) + name.slice(1);
 }
 
 export function audioName(a: AudioOption): string {
-  const name = a.name ?? (a.language ? languageName(a.language) : "Audio");
+  const name = a.name ?? (a.language ? languageName(a.language) : t("media.audio"));
   const codec = codecName(a.codecs);
   const rate = a.bandwidth ? ` · ${Math.round(a.bandwidth / 1000)} kbit/s` : "";
   return `${name}${codec ? ` · ${codec}` : ""}${rate}`;
@@ -156,7 +179,7 @@ export function streamLabel(task: Task): string | null {
   const source = sourceName(task);
   if (!source) return null;
   const quality = task.site?.quality ?? task.media?.quality;
-  return quality ? `${source} · ${quality}` : source;
+  return quality ? `${source} · ${engineQuality(quality)}` : source;
 }
 
 /**

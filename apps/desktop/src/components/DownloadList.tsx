@@ -1,12 +1,14 @@
 import { ArrowDown, ArrowUp, FolderOpen, MoreHorizontal, Pause, Play, RotateCw } from "lucide-react";
 import type { DragEvent, MouseEvent } from "react";
 
+import { useI18n, type MessageKey } from "../i18n";
+import { longDate, shortDate } from "../i18n/format";
 import { MAIN_QUEUE, type Task } from "../lib/api";
 import { formatBytes, formatDuration, formatSpeed, hostOf, percent, sentence } from "../lib/format";
 import { sizeIsEstimate, streamLabel } from "../lib/media";
 import type { Modifiers } from "../lib/selection";
 import type { Sort, SortKey } from "../lib/sort";
-import { canPause, canResume, displayName, isRunning, stateInfo } from "../lib/tasks";
+import { canPause, canResume, displayName, isRunning, lastActivity, stateInfo } from "../lib/tasks";
 import { Badge, IconButton } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
 
@@ -14,11 +16,15 @@ import { SegmentBar } from "./SegmentBar";
 // The actions column has a fixed width (three 32px buttons) because every
 // row is its own grid: an `auto` column would size differently per row.
 const COLUMNS =
-  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 md:grid-cols-[minmax(0,1fr)_88px_minmax(120px,220px)_96px_100px] lg:grid-cols-[minmax(0,1fr)_96px_minmax(160px,260px)_104px_72px_100px]";
+  "grid grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-x-4 md:grid-cols-[16px_minmax(0,1fr)_88px_minmax(120px,220px)_96px_100px] lg:grid-cols-[16px_minmax(0,1fr)_96px_minmax(140px,240px)_104px_72px_104px_100px]";
+
+const CHECKBOX = "size-4 cursor-pointer accent-primary";
 
 export interface RowActions {
   /** Click: select, with Ctrl or Shift for several. */
   onSelect: (id: string, mods: Modifiers) => void;
+  /** The row's checkbox: add or remove it, with Shift for a range. */
+  onToggle: (id: string, shift: boolean) => void;
   /** Double click: the details dialog. */
   onProperties: (id: string) => void;
   /** Right click or the More button; `keyboard` starts on the first entry. */
@@ -39,6 +45,7 @@ export function DownloadList({
   actions,
   sort,
   onSort,
+  onToggleAll,
   queueNames,
 }: {
   tasks: Task[];
@@ -46,22 +53,43 @@ export function DownloadList({
   actions: RowActions;
   sort: Sort;
   onSort: (key: SortKey) => void;
+  /** The header checkbox: select every row shown, or none. */
+  onToggleAll: () => void;
   /** Shown on rows outside the main queue. */
   queueNames: ReadonlyMap<string, string>;
 }) {
-  const header = (key: SortKey, label: string, className: string, align: "left" | "right" = "left") => (
-    <SortHeader sortKey={key} label={label} sort={sort} onSort={onSort} className={className} align={align} />
+  const { t } = useI18n();
+  const header = (key: SortKey, label: MessageKey, className: string, align: "left" | "right" = "left") => (
+    <SortHeader sortKey={key} label={t(label)} sort={sort} onSort={onSort} className={className} align={align} />
   );
+  const shown = tasks.filter((task) => selected.has(task.id)).length;
+  const all = shown > 0 && shown === tasks.length;
+  const now = new Date();
   return (
-    <div role="grid" aria-label="Downloads" aria-multiselectable="true" className="min-w-0">
+    <div role="grid" aria-label={t("list.label")} aria-multiselectable="true" className="min-w-0">
       <div role="row" className={`${COLUMNS} sticky top-0 z-20 border-b border-line bg-canvas px-4 py-1.5`}>
-        {header("name", "Name", "")}
-        {header("size", "Size", "hidden md:flex", "right")}
-        {header("progress", "Progress", "hidden md:flex")}
-        {header("speed", "Speed", "hidden md:flex", "right")}
-        {header("left", "Left", "hidden lg:flex", "right")}
+        <span role="columnheader" className="flex items-center">
+          <input
+            type="checkbox"
+            aria-label={t("list.selectAll")}
+            title={t("list.selectAll")}
+            checked={all}
+            ref={(el) => {
+              // Some, not all: a dash in the box.
+              if (el) el.indeterminate = shown > 0 && !all;
+            }}
+            onChange={onToggleAll}
+            className={CHECKBOX}
+          />
+        </span>
+        {header("name", "list.columns.name", "")}
+        {header("size", "list.columns.size", "hidden md:flex", "right")}
+        {header("progress", "list.columns.progress", "hidden md:flex")}
+        {header("speed", "list.columns.speed", "hidden md:flex", "right")}
+        {header("left", "list.columns.left", "hidden lg:flex", "right")}
+        {header("date", "list.columns.date", "hidden lg:flex", "right")}
         <span role="columnheader" className="label text-right">
-          <span className="sr-only">Actions</span>
+          <span className="sr-only">{t("list.columns.actions")}</span>
         </span>
       </div>
       <div className="divide-y divide-line">
@@ -69,6 +97,7 @@ export function DownloadList({
           <DownloadRow
             key={task.id}
             task={task}
+            now={now}
             selected={selected.has(task.id)}
             actions={actions}
             queueName={task.queue === MAIN_QUEUE ? null : (queueNames.get(task.queue) ?? null)}
@@ -116,15 +145,18 @@ function SortHeader({
 
 function DownloadRow({
   task,
+  now,
   selected,
   actions,
   queueName,
 }: {
   task: Task;
+  now: Date;
   selected: boolean;
   actions: RowActions;
   queueName: string | null;
 }) {
+  const { t } = useI18n();
   const info = stateInfo(task);
   const pct = percent(task.downloaded, task.total);
   const running = isRunning(task.state);
@@ -141,6 +173,11 @@ function DownloadRow({
       ? sentence(task.error)
       : [hostOf(task.url), streamLabel(task), task.category, queueName].filter(Boolean).join(" · ");
   const done = task.state === "completed";
+  const name = displayName(task);
+  const dateTitle = [
+    t("list.dateAdded", { date: longDate(task.created_at) }),
+    task.completed_at !== null ? t("list.dateFinished", { date: longDate(task.completed_at) }) : t("list.dateLastTry", { date: longDate(task.updated_at) }),
+  ].join("\n");
 
   // A native drag needs the mouse button still down, so it starts from the
   // HTML drag event and hands over to the system right away.
@@ -161,8 +198,8 @@ function DownloadRow({
       tabIndex={0}
       data-row-id={task.id}
       aria-selected={selected}
-      aria-label={`${displayName(task)}, ${info.label}`}
-      title={done ? "Drag the file into another app" : undefined}
+      aria-label={`${name}, ${info.label}`}
+      title={done ? t("list.dragOut") : undefined}
       draggable={done}
       onDragStart={done ? onDragStart : undefined}
       onClick={(e) => actions.onSelect(task.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}
@@ -173,10 +210,24 @@ function DownloadRow({
       }}
       className={`${COLUMNS} rail cursor-default px-4 py-3 ${selected ? "rail-active bg-primary-soft" : "hover:bg-surface"}`}
     >
+      <div role="gridcell" className="flex items-center" onDoubleClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          aria-label={t("list.selectRow", { name })}
+          checked={selected}
+          readOnly
+          onClick={(e) => {
+            // The row's own click would select only this one.
+            e.stopPropagation();
+            actions.onToggle(task.id, e.shiftKey);
+          }}
+          className={CHECKBOX}
+        />
+      </div>
       <div role="gridcell" className="flex min-w-0 flex-col gap-1">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-[14px] font-medium text-ink" title={displayName(task)}>
-            {displayName(task)}
+          <span className="truncate text-[14px] font-medium text-ink" title={name}>
+            {name}
           </span>
           <Badge tone={info.tone}>{info.label}</Badge>
         </div>
@@ -207,6 +258,9 @@ function DownloadRow({
       <span role="gridcell" className="num hidden text-right font-mono text-[13px] text-ink-secondary lg:block">
         {running ? formatDuration(task.eta_secs) : "–"}
       </span>
+      <span role="gridcell" className="num hidden truncate text-right font-mono text-[12px] text-ink-secondary lg:block" title={dateTitle}>
+        {shortDate(lastActivity(task), now)}
+      </span>
       <div
         role="gridcell"
         className="flex items-center justify-end gap-0.5"
@@ -214,19 +268,19 @@ function DownloadRow({
         onDoubleClick={(e) => e.stopPropagation()}
       >
         {canPause(task) && (
-          <IconButton label="Pause" onClick={() => actions.onPause(task.id)}>
+          <IconButton label={t("common.pause")} onClick={() => actions.onPause(task.id)}>
             <Pause size={16} strokeWidth={1.75} />
           </IconButton>
         )}
         {canResume(task) && (
-          <IconButton label={task.state === "paused" ? "Resume" : "Retry"} onClick={() => actions.onResume(task.id)}>
+          <IconButton label={task.state === "paused" ? t("common.resume") : t("common.retry")} onClick={() => actions.onResume(task.id)}>
             {task.state === "paused" ? <Play size={16} strokeWidth={1.75} /> : <RotateCw size={16} strokeWidth={1.75} />}
           </IconButton>
         )}
-        <IconButton label="Show in folder" onClick={() => actions.onReveal(task.id)}>
+        <IconButton label={t("common.showInFolder")} onClick={() => actions.onReveal(task.id)}>
           <FolderOpen size={16} strokeWidth={1.75} />
         </IconButton>
-        <IconButton label="More actions" aria-haspopup="menu" onClick={onMore}>
+        <IconButton label={t("common.moreActions")} aria-haspopup="menu" onClick={onMore}>
           <MoreHorizontal size={16} strokeWidth={1.75} />
         </IconButton>
       </div>

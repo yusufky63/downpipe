@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
+import { useI18n } from "../i18n";
 import type { Tone } from "../lib/tasks";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
@@ -188,6 +189,7 @@ export function Dialog({
   /** `window` frame: the height in CSS pixels the dialog needs, to size its window to. */
   onFit?: (height: number) => void;
 }) {
+  const { t } = useI18n();
   const panel = useRef<HTMLDivElement>(null);
   const header = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -258,7 +260,7 @@ export function Dialog({
           </div>
         </div>
         {frame === "modal" && (
-          <IconButton label="Close" data-close onClick={onClose}>
+          <IconButton label={t("common.close")} data-close onClick={onClose}>
             <X size={18} strokeWidth={1.75} />
           </IconButton>
         )}

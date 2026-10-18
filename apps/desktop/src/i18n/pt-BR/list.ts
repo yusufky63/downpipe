@@ -1,0 +1,71 @@
+// The download list, its selection bar and right-click menu.
+import type { Messages } from "../core";
+
+export const list: Messages["list"] = {
+  label: "Downloads",
+  columns: {
+    name: "Nome",
+    size: "Tamanho",
+    progress: "Progresso",
+    speed: "Velocidade",
+    left: "Restante",
+    date: "Data",
+    actions: "Ações",
+  },
+  selectAll: "Selecionar todos os downloads exibidos",
+  selectRow: "Selecionar {name}",
+  dragOut: "Arraste o arquivo para outro aplicativo",
+  dateAdded: "Adicionado em {date}",
+  dateFinished: "Concluído em {date}",
+  dateLastTry: "Última tentativa em {date}",
+  bar: {
+    label: "Downloads selecionados",
+    count: { one: "{count} selecionado", many: "{count} selecionados", other: "{count} selecionados" },
+    resume: "Retomar",
+    pause: "Pausar",
+    remove: "Remover…",
+    more: "Mais",
+    clear: "Limpar seleção",
+  },
+  menu: {
+    label: "Ações do download",
+    labelMany: "Ações para {count} downloads",
+    open: "Abrir",
+    reveal: "Mostrar na pasta",
+    resume: "Retomar",
+    retry: "Tentar novamente",
+    pause: "Pausar",
+    redownload: "Baixar novamente…",
+    relink: "Usar um novo link…",
+    moveToQueue: "Mover para a fila",
+    newQueue: "Nova fila…",
+    order: "Ordem na fila",
+    moveTop: "Mover para o topo",
+    moveUp: "Mover para cima",
+    moveDown: "Mover para baixo",
+    moveBottom: "Mover para o final",
+    copyLink: "Copiar link",
+    copyLinks: "Copiar links",
+    copyPath: "Copiar caminho do arquivo",
+    properties: "Propriedades",
+    remove: "Remover…",
+    removeMany: { one: "Remover {count} download…", many: "Remover {count} downloads…", other: "Remover {count} downloads…" },
+  },
+};
+
+export const app: Messages["app"] = {
+  noEngine:
+    "Esta janela é a interface do Downpipe sem o mecanismo de download. Inicie o aplicativo da área de trabalho com pnpm desktop para baixar.",
+  loadFailed: "Não foi possível carregar os downloads: {error}",
+  dropHere: "Solte links ou uma lista .txt para adicioná-los",
+  dropNothing: "Solte links ou um arquivo .txt com um link por linha.",
+  copied: {
+    link: "Link copiado.",
+    links: { one: "{count} link copiado.", many: "{count} links copiados.", other: "{count} links copiados." },
+    path: "Caminho do arquivo copiado.",
+  },
+  copyFailed: "Não foi possível copiar para a área de transferência.",
+  exported: { one: "{count} link salvo.", many: "{count} links salvos.", other: "{count} links salvos." },
+  duplicate: "Esse link já está na lista.",
+  whenDoneIdle: "Nada está sendo baixado ainda. A opção vale quando os próximos downloads terminarem.",
+};

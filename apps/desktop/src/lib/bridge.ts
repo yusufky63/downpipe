@@ -1,3 +1,4 @@
+import { t } from "../i18n/core";
 import type { BridgeBrowser, BridgeRegistration, BridgeState } from "./api";
 import type { Tone } from "./tasks";
 
@@ -11,19 +12,19 @@ export const BROWSER_NAMES: Record<BridgeBrowser, string> = {
 export function bridgeStateInfo(state: BridgeState): { label: string; tone: Tone } {
   switch (state) {
     case "registered":
-      return { label: "Registered", tone: "positive" };
+      return { label: t("settings.bridge.states.registered"), tone: "positive" };
     case "not_installed":
-      return { label: "Not installed", tone: "neutral" };
+      return { label: t("settings.bridge.states.notInstalled"), tone: "neutral" };
     case "missing":
-      return { label: "Not registered", tone: "warning" };
+      return { label: t("settings.bridge.states.missing"), tone: "warning" };
     case "invalid":
-      return { label: "Unreadable", tone: "warning" };
+      return { label: t("settings.bridge.states.invalid"), tone: "warning" };
     case "other_host":
-      return { label: "Other copy", tone: "warning" };
+      return { label: t("settings.bridge.states.otherHost"), tone: "warning" };
     case "extension_not_allowed":
-      return { label: "Other extension", tone: "warning" };
+      return { label: t("settings.bridge.states.extensionNotAllowed"), tone: "warning" };
     case "failed":
-      return { label: "Error", tone: "danger" };
+      return { label: t("settings.bridge.states.failed"), tone: "danger" };
   }
 }
 

@@ -1,5 +1,6 @@
 // The site provider's tools (yt-dlp, Deno or Node, FFmpeg) in the settings:
 // what each row says and what the download button fetches.
+import { currentLocale, t } from "../i18n/core";
 import type { SiteTool, ToolStatus, ToolsStatus } from "./api";
 import type { Tone } from "./tasks";
 
@@ -12,25 +13,24 @@ export interface ToolRow {
   problem: string | null;
 }
 
-const SOURCES = { settings: "set in Settings", managed: "downloaded by Downpipe", path: "on PATH" } as const;
-
 function row(name: string, tool: ToolStatus, missing: string): ToolRow {
   if (!tool.path) {
-    return { name, badge: "Not found", tone: "warning", detail: null, problem: tool.problem ?? missing };
+    return { name, badge: t("media.tools.notFound"), tone: "warning", detail: null, problem: tool.problem ?? missing };
   }
-  const where = tool.source ? SOURCES[tool.source] : null;
-  const detail = [tool.path, tool.version ? `version ${tool.version}` : null, where].filter(Boolean).join(" · ");
+  const where = tool.source ? t(`media.tools.sources.${tool.source}`) : null;
+  const version = tool.version ? t("media.tools.version", { version: tool.version }) : null;
+  const detail = [tool.path, version, where].filter(Boolean).join(" · ");
   return tool.problem
-    ? { name, badge: "Problem", tone: "warning", detail, problem: tool.problem }
-    : { name, badge: "Found", tone: "positive", detail, problem: null };
+    ? { name, badge: t("media.tools.problem"), tone: "warning", detail, problem: tool.problem }
+    : { name, badge: t("media.tools.found"), tone: "positive", detail, problem: null };
 }
 
 export function toolRows(status: ToolsStatus): ToolRow[] {
   const runtime = status.js_kind === "node" ? "Node" : "Deno";
   return [
-    row("yt-dlp", status.yt_dlp, "Needed for videos on pages."),
-    row(runtime, status.js, "Without Deno (or Node) yt-dlp misses some YouTube qualities."),
-    row("FFmpeg", status.ffmpeg, "Without it only Audio only and qualities with their own sound work."),
+    row("yt-dlp", status.yt_dlp, t("media.tools.missing.ytDlp")),
+    row(runtime, status.js, t("media.tools.missing.runtime")),
+    row("FFmpeg", status.ffmpeg, t("media.tools.missing.ffmpeg")),
   ];
 }
 
@@ -50,7 +50,10 @@ export function toolsToInstall(status: ToolsStatus, denoConfigured: boolean): Si
 
 /** "Download yt-dlp and Deno", or "Update yt-dlp" when Downpipe's own copy is there. */
 export function installButtonLabel(status: ToolsStatus, tools: SiteTool[]): string {
-  const update = tools.every((t) => (t === "yt_dlp" ? status.yt_dlp : status.js).source === "managed");
-  const names = tools.map((t) => (t === "yt_dlp" ? "yt-dlp" : "Deno")).join(" and ");
-  return `${update ? "Update" : "Download"} ${names}`;
+  const update = tools.every((tool) => (tool === "yt_dlp" ? status.yt_dlp : status.js).source === "managed");
+  // The language's own "a and b", so no list words need translating.
+  const names = new Intl.ListFormat(currentLocale(), { type: "conjunction" }).format(
+    tools.map((tool) => (tool === "yt_dlp" ? "yt-dlp" : "Deno")),
+  );
+  return t(update ? "media.tools.update" : "media.tools.download", { tools: names });
 }

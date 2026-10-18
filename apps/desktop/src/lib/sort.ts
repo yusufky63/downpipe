@@ -1,9 +1,10 @@
+import { currentLocale } from "../i18n/core";
 import type { Task } from "./api";
 import { percent } from "./format";
-import { displayName, isRunning } from "./tasks";
+import { displayName, isRunning, lastActivity } from "./tasks";
 
-/** `order` is the order downloads start in: queue position. */
-export type SortKey = "added" | "name" | "size" | "progress" | "speed" | "left" | "order";
+/** `order` is the order downloads start in: queue position. `date` is the last activity. */
+export type SortKey = "added" | "name" | "size" | "progress" | "speed" | "left" | "order" | "date";
 export type SortDir = "asc" | "desc";
 
 export interface Sort {
@@ -20,7 +21,6 @@ export function nextSort(current: Sort, key: SortKey): Sort {
   return { key, dir: key === "name" || key === "left" || key === "order" ? "asc" : "desc" };
 }
 
-const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 
 /** Unknown values (no size yet, not running) sort last in either direction. */
 function value(task: Task, key: SortKey): number | string | null {
@@ -39,11 +39,15 @@ function value(task: Task, key: SortKey): number | string | null {
       return isRunning(task.state) ? task.eta_secs : null;
     case "order":
       return task.position;
+    case "date":
+      return lastActivity(task);
   }
 }
 
 export function sortTasks(tasks: readonly Task[], sort: Sort): Task[] {
   const sign = sort.dir === "asc" ? 1 : -1;
+  // Names sort as the reader's language expects.
+  const collator = new Intl.Collator(currentLocale(), { numeric: true, sensitivity: "base" });
   return tasks.slice().sort((a, b) => {
     const va = value(a, sort.key);
     const vb = value(b, sort.key);
@@ -66,7 +70,7 @@ export function matchesSearch(task: Task, query: string): boolean {
 export function parseSort(raw: string | null): Sort {
   if (!raw) return DEFAULT_SORT;
   const [key, dir] = raw.split(":");
-  const keys: SortKey[] = ["added", "name", "size", "progress", "speed", "left", "order"];
+  const keys: SortKey[] = ["added", "name", "size", "progress", "speed", "left", "order", "date"];
   if (keys.includes(key as SortKey) && (dir === "asc" || dir === "desc")) return { key: key as SortKey, dir };
   return DEFAULT_SORT;
 }

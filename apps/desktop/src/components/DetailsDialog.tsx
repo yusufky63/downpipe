@@ -1,10 +1,12 @@
 import { Check, Copy, ExternalLink, FolderOpen, Link2, Pause, Play, RefreshCcw, RotateCw } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 
+import { useI18n } from "../i18n";
+import { longDate } from "../i18n/format";
 import { errorMessage, type Task } from "../lib/api";
 import { canRelink } from "../lib/menu";
-import { formatBytes, formatDate, formatDuration, formatSpeed, percent, sentence } from "../lib/format";
-import { kindName, sizeIsEstimate } from "../lib/media";
+import { formatBytes, formatDuration, formatSpeed, percent, sentence } from "../lib/format";
+import { engineQuality, kindName, sizeIsEstimate } from "../lib/media";
 import { canCancel, canPause, canResume, displayName, isRunning, stateInfo } from "../lib/tasks";
 import { Badge, Banner, Button, Dialog, IconButton, inputClass } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
@@ -35,6 +37,7 @@ export function DetailsDialog({
   /** Opened from "Use a new link…": the form is already open. */
   startRelink?: boolean;
 }) {
+  const { t } = useI18n();
   const info = stateInfo(task);
   const pct = percent(task.downloaded, task.total);
   const running = isRunning(task.state);
@@ -43,7 +46,7 @@ export function DetailsDialog({
   return (
     <Dialog
       size="lg"
-      eyebrow="Download details"
+      eyebrow={t("details.eyebrow")}
       title={displayName(task)}
       aside={<Badge tone={info.tone}>{info.label}</Badge>}
       onClose={actions.onClose}
@@ -53,21 +56,21 @@ export function DetailsDialog({
           <div className="mr-auto flex flex-wrap items-center gap-1">
             <Button size="sm" variant="ghost" onClick={() => actions.onReveal(task.id)}>
               <FolderOpen size={16} strokeWidth={1.75} />
-              Show in folder
+              {t("common.showInFolder")}
             </Button>
             {task.state === "completed" && (
               <Button size="sm" variant="ghost" onClick={() => actions.onOpen(task.id)}>
                 <ExternalLink size={16} strokeWidth={1.75} />
-                Open file
+                {t("details.openFile")}
               </Button>
             )}
           </div>
           <Button size="sm" variant="ghost" onClick={() => actions.onRemove(task.id)}>
-            Remove…
+            {t("details.remove")}
           </Button>
           {canCancel(task) && (
-            <Button size="sm" variant="danger" onClick={() => actions.onCancel(task.id)} title="Stops the download and deletes the partial file">
-              Cancel and delete
+            <Button size="sm" variant="danger" onClick={() => actions.onCancel(task.id)} title={t("details.cancelAndDeleteTitle")}>
+              {t("details.cancelAndDelete")}
             </Button>
           )}
           <PrimaryAction task={task} actions={actions} />
@@ -75,12 +78,16 @@ export function DetailsDialog({
       }
     >
       <div className="flex flex-col gap-5">
-        <section className="flex flex-col gap-2.5" aria-label="Progress">
+        <section className="flex flex-col gap-2.5" aria-label={t("details.progress")}>
           <div className="flex items-baseline justify-between gap-3">
-            <span className="label">Progress</span>
+            <span className="label">{t("details.progress")}</span>
             <span className="num font-mono text-[12px] text-ink-secondary">
-              {formatBytes(task.downloaded)}
-              {task.total !== null ? ` of ${sizeIsEstimate(task) ? "about " : ""}${formatBytes(task.total)}` : ""}
+              {task.total !== null
+                ? t(sizeIsEstimate(task) ? "details.progressOfAbout" : "details.progressOf", {
+                    downloaded: formatBytes(task.downloaded),
+                    total: formatBytes(task.total),
+                  })
+                : formatBytes(task.downloaded)}
               {pct !== null ? ` · ${pct.toFixed(1)}%` : ""}
             </span>
           </div>
@@ -88,13 +95,13 @@ export function DetailsDialog({
           {running && task.segments.length > 0 && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-ink-muted" aria-hidden="true">
               <span className="inline-flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-primary" /> Downloaded
+                <span className="size-2 rounded-full bg-primary" /> {t("details.legend.downloaded")}
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-2.5 w-0.5 bg-primary-strong" /> Connection
+                <span className="h-2.5 w-0.5 bg-primary-strong" /> {t("details.legend.connection")}
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-surface-muted ring-1 ring-line" /> Remaining
+                <span className="size-2 rounded-full bg-surface-muted ring-1 ring-line" /> {t("details.legend.remaining")}
               </span>
             </div>
           )}
@@ -115,46 +122,49 @@ export function DetailsDialog({
             numbers only while running; a finished download needs none. */}
         {running ? (
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line md:grid-cols-4">
-            <Stat label="Speed" value={formatSpeed(task.speed)} />
-            <Stat label="Time left" value={formatDuration(task.eta_secs)} />
+            <Stat label={t("details.stats.speed")} value={formatSpeed(task.speed)} />
+            <Stat label={t("details.stats.timeLeft")} value={formatDuration(task.eta_secs)} />
             <Stat
-              label="Connections"
+              label={t("details.stats.connections")}
               value={String(task.connections)}
-              note={task.target_connections > 0 ? `target ${task.target_connections}` : undefined}
+              note={task.target_connections > 0 ? t("details.stats.target", { count: task.target_connections }) : undefined}
             />
-            <Stat label="Resume" value={task.resumable ? "Supported" : "Not supported"} />
+            <Stat
+              label={t("details.stats.resume")}
+              value={task.resumable ? t("details.stats.supported") : t("details.stats.notSupported")}
+            />
           </div>
         ) : task.state !== "completed" ? (
           <div className="grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-line bg-line">
-            <Stat label="Size" value={task.total !== null ? formatBytes(task.total) : "Unknown"} />
-            <Stat label="Downloaded" value={formatBytes(task.downloaded)} />
-            <Stat label="Resume" value={task.resumable ? "Supported" : "Unknown"} />
+            <Stat label={t("details.stats.size")} value={task.total !== null ? formatBytes(task.total) : t("common.unknown")} />
+            <Stat label={t("details.stats.downloaded")} value={formatBytes(task.downloaded)} />
+            <Stat label={t("details.stats.resume")} value={task.resumable ? t("details.stats.supported") : t("common.unknown")} />
           </div>
         ) : null}
 
         {canRelink(task) && <ChangeLink task={task} startOpen={startRelink} onChangeUrl={actions.onChangeUrl} />}
 
         <dl className="divide-y divide-line rounded-lg border border-line">
-          <Row label={task.path ? "Saved to" : "Folder"}>
+          <Row label={task.path ? t("details.rows.savedTo") : t("details.rows.folder")}>
             <CopyValue value={task.path ?? task.dir} />
           </Row>
-          <Row label="Source">
+          <Row label={t("details.rows.source")}>
             <CopyValue value={task.url} />
           </Row>
           {task.site && (
-            <Row label="Video">
+            <Row label={t("details.rows.video")}>
               <span className="num font-mono text-[12px] text-ink-secondary">
-                {[task.site.site, task.site.quality ?? "Best quality", "yt-dlp"].join(" · ")}
+                {[task.site.site, task.site.quality ? engineQuality(task.site.quality) : t("details.rows.bestQuality"), "yt-dlp"].join(" · ")}
               </span>
             </Row>
           )}
           {task.media && (
-            <Row label="Stream">
+            <Row label={t("details.rows.stream")}>
               <span className="num font-mono text-[12px] text-ink-secondary">
                 {[
                   kindName(task.media.kind),
-                  task.media.quality ?? "Best quality",
-                  task.fragments ? `${task.fragments.done} of ${task.fragments.total} fragments` : null,
+                  task.media.quality ? engineQuality(task.media.quality) : t("details.rows.bestQuality"),
+                  task.fragments ? t("details.rows.fragments", { done: task.fragments.done, count: task.fragments.total }) : null,
                 ]
                   .filter(Boolean)
                   .join(" · ")}
@@ -162,21 +172,21 @@ export function DetailsDialog({
             </Row>
           )}
           {queueName && (
-            <Row label="Queue">
+            <Row label={t("details.rows.queue")}>
               <span className="text-[13px] text-ink-secondary">{queueName}</span>
             </Row>
           )}
           {task.checksum && (
-            <Row label="Checksum">
+            <Row label={t("details.rows.checksum")}>
               <CopyValue value={task.checksum} />
             </Row>
           )}
-          <Row label="Added">
-            <span className="num font-mono text-[12px] text-ink-secondary">{formatDate(task.created_at)}</span>
+          <Row label={t("details.rows.added")}>
+            <span className="num font-mono text-[12px] text-ink-secondary">{longDate(task.created_at)}</span>
           </Row>
           {task.completed_at !== null && (
-            <Row label="Finished">
-              <span className="num font-mono text-[12px] text-ink-secondary">{formatDate(task.completed_at)}</span>
+            <Row label={t("details.rows.finished")}>
+              <span className="num font-mono text-[12px] text-ink-secondary">{longDate(task.completed_at)}</span>
             </Row>
           )}
         </dl>
@@ -190,6 +200,7 @@ export function DetailsDialog({
  * Paste a fresh one and the download continues if it is the same file.
  */
 function ChangeLink({ task, startOpen, onChangeUrl }: { task: Task; startOpen: boolean; onChangeUrl: DetailActions["onChangeUrl"] }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(startOpen || task.error_kind === "forbidden" || task.error_kind === "not_found");
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -200,7 +211,7 @@ function ChangeLink({ task, startOpen, onChangeUrl }: { task: Task; startOpen: b
       <div>
         <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
           <Link2 size={16} strokeWidth={1.75} />
-          Use a new link…
+          {t("details.relink.button")}
         </Button>
       </div>
     );
@@ -225,7 +236,7 @@ function ChangeLink({ task, startOpen, onChangeUrl }: { task: Task; startOpen: b
   return (
     <form onSubmit={submit} className="flex flex-col gap-2 rounded-lg border border-line p-4">
       <label htmlFor={`relink-${task.id}`} className="label">
-        New link for this file
+        {t("details.relink.label")}
       </label>
       <div className="flex gap-2">
         <input
@@ -238,16 +249,13 @@ function ChangeLink({ task, startOpen, onChangeUrl }: { task: Task; startOpen: b
           className={`${inputClass} h-9 font-mono text-[13px]`}
         />
         <Button type="submit" variant="primary" disabled={busy || !url.trim()}>
-          Continue
+          {t("details.relink.submit")}
         </Button>
       </div>
       {error ? (
         <p className="text-[13px] text-danger-fg">{error}</p>
       ) : (
-        <p className="text-[12px] text-ink-muted">
-          For an expired or broken link. The download continues where it stopped only if the new link serves the same file; otherwise nothing is
-          overwritten.
-        </p>
+        <p className="text-[12px] text-ink-muted">{t("details.relink.hint")}</p>
       )}
     </form>
   );
@@ -275,11 +283,12 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function PrimaryAction({ task, actions }: { task: Task; actions: DetailActions }) {
+  const { t } = useI18n();
   if (canPause(task)) {
     return (
       <Button size="sm" onClick={() => actions.onPause(task.id)}>
         <Pause size={16} strokeWidth={1.75} />
-        Pause
+        {t("common.pause")}
       </Button>
     );
   }
@@ -287,7 +296,7 @@ function PrimaryAction({ task, actions }: { task: Task; actions: DetailActions }
     return (
       <Button size="sm" variant="primary" onClick={() => actions.onResume(task.id)}>
         {task.state === "paused" ? <Play size={16} strokeWidth={1.75} /> : <RotateCw size={16} strokeWidth={1.75} />}
-        {task.state === "paused" ? "Resume" : task.state === "canceled" ? "Download again" : "Retry"}
+        {task.state === "paused" ? t("common.resume") : task.state === "canceled" ? t("details.downloadAgain") : t("common.retry")}
       </Button>
     );
   }
@@ -295,7 +304,7 @@ function PrimaryAction({ task, actions }: { task: Task; actions: DetailActions }
     return (
       <Button size="sm" onClick={() => actions.onRedownload(task.id)}>
         <RefreshCcw size={16} strokeWidth={1.75} />
-        Download again…
+        {t("details.redownload")}
       </Button>
     );
   }
@@ -303,6 +312,7 @@ function PrimaryAction({ task, actions }: { task: Task; actions: DetailActions }
 }
 
 function CopyValue({ value }: { value: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -318,7 +328,7 @@ function CopyValue({ value }: { value: string }) {
       <span className="truncate font-mono text-[12px] text-ink-secondary select-text" title={value}>
         {value}
       </span>
-      <IconButton label={copied ? "Copied" : "Copy"} onClick={copy} className="size-7">
+      <IconButton label={copied ? t("details.copied") : t("details.copy")} onClick={copy} className="size-7">
         {copied ? <Check size={14} strokeWidth={1.75} /> : <Copy size={14} strokeWidth={1.75} />}
       </IconButton>
     </div>

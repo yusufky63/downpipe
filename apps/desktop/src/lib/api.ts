@@ -3,6 +3,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import { t } from "../i18n/core";
+
 export type TaskState =
   | "queued"
   | "starting"
@@ -56,6 +58,8 @@ export interface Task {
    * or a video page added here whose quality is still to be chosen.
    */
   awaiting_confirmation: boolean;
+  /** Held because its link is already in the list: that download's id. */
+  duplicate_of: string | null;
   /**
    * Added in this window (Add dialog, paste, drag, clipboard) rather than
    * sent by the browser. While it waits, the main window asks for it; the
@@ -208,6 +212,8 @@ export interface Settings {
   keep_awake: boolean;
   /** Ask for name, folder and queue before a download from the browser starts. */
   confirm_browser_downloads: boolean;
+  /** Interface language code such as "tr" or "pt-BR"; empty follows the system. */
+  language: string;
   /** The first is always the main queue, whose limit is `max_concurrent_downloads`. */
   queues: Queue[];
   /** FFmpeg for merging the video and sound of streams. Empty: `ffmpeg` on PATH. */
@@ -286,7 +292,11 @@ export interface AddOptions {
   confirm?: boolean;
   /** Added in the main window, which then asks itself (`Task.from_app`). */
   from_app?: boolean;
+  /** A link already in the list: refuse (the app then asks), add a copy, or ask in the confirmation window. */
+  on_duplicate?: OnDuplicate;
 }
+
+export type OnDuplicate = "refuse" | "add_copy" | "ask";
 
 /** What the user chose for a download from the browser. */
 export interface ConfirmOptions {
@@ -411,7 +421,7 @@ export function errorMessage(err: unknown): string {
   if (isCommandError(err)) return err.message;
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
-  return "Something went wrong";
+  return t("confirm.unknownError");
 }
 
 /** False when the UI is opened in a plain browser instead of the app. */

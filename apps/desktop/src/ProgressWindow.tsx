@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { Button, Dialog } from "./components/primitives";
 import { SegmentBar } from "./components/SegmentBar";
-import { api, errorMessage, inTauri, onManagerEvent, onResync, type Task } from "./lib/api";
+import { LocaleProvider, useI18n, useLocale } from "./i18n";
+import { api, errorMessage, inTauri, onManagerEvent, onResync, type Settings, type Task } from "./lib/api";
 import { progressEyebrow, progressPhase, resumeText, sizeText, speedText, statusText, windowTitle } from "./lib/progress";
 import { canPause, canResume, displayName } from "./lib/tasks";
 import { useAppWindow, useThemeFromOtherWindows } from "./lib/window";
@@ -19,7 +20,11 @@ export function ProgressWindow({ id }: { id: string }) {
   const [task, setTask] = useState<Task | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Only for the language; the window has no other settings of its own.
+  const [settings, setSettings] = useState<Settings | null>(null);
   const shown = useRef(false);
+  const locale = useLocale(settings?.language ?? "");
+  const { t } = useI18n();
   useAppWindow();
   useThemeFromOtherWindows();
 
@@ -37,15 +42,22 @@ export function ProgressWindow({ id }: { id: string }) {
     void onManagerEvent((event) => {
       if (event.type === "updated" && event.task.id === id) setTask(event.task);
       else if (event.type === "removed" && event.id === id) setTask(null);
+      else if (event.type === "settings") setSettings(event.settings);
     }).then(keep);
     void onResync(reload).then(keep);
     void reload();
+    api
+      .settings()
+      .then((s) => !disposed && setSettings(s))
+      // Without them the window follows the system's language, which is no reason to show an error.
+      .catch(() => undefined);
     return () => {
       disposed = true;
       unlisten.forEach((fn) => fn());
     };
   }, [id]);
 
+  // The language is part of the title, so it is made again when that changes.
   const title = task === undefined ? null : windowTitle(task);
   useEffect(() => {
     if (title !== null) api.setProgressTitle(title).catch(() => undefined);
@@ -84,105 +96,107 @@ export function ProgressWindow({ id }: { id: string }) {
   const tone = phase === "done" ? "positive" : phase === "failed" ? "danger" : phase === "active" ? "primary" : "neutral";
 
   return (
-    <Dialog
-      eyebrow={progressEyebrow(task)}
-      title={task ? displayName(task) : "Download"}
-      frame="window"
-      compact
-      onFit={fit}
-      focusFirstField={false}
-      // Escape and the window's own close button only hide it.
-      onClose={hide}
-      footer={
-        <>
-          {task === null || phase === "done" || phase === "failed" || phase === "canceled" ? (
-            <Button variant="ghost" size="sm" className="mr-auto" onClick={hide}>
-              Close
-            </Button>
-          ) : (
-            <Button variant="ghost" size="sm" className="mr-auto" onClick={hide} title="Closes this window; the download goes on.">
-              Hide
-            </Button>
-          )}
-          {task && phase === "done" && (
-            <>
-              <Button size="sm" disabled={busy} onClick={() => act(() => api.reveal(task.id), true)}>
-                <FolderOpen size={14} strokeWidth={1.75} />
-                Open folder
+    <LocaleProvider locale={locale}>
+      <Dialog
+        eyebrow={progressEyebrow(task)}
+        title={task ? displayName(task) : t("confirm.progress.download")}
+        frame="window"
+        compact
+        onFit={fit}
+        focusFirstField={false}
+        // Escape and the window's own close button only hide it.
+        onClose={hide}
+        footer={
+          <>
+            {task === null || phase === "done" || phase === "failed" || phase === "canceled" ? (
+              <Button variant="ghost" size="sm" className="mr-auto" onClick={hide}>
+                {t("common.close")}
               </Button>
-              <Button variant="primary" size="sm" disabled={busy} onClick={() => act(() => api.open(task.id), true)}>
-                <ExternalLink size={14} strokeWidth={1.75} />
-                Open
+            ) : (
+              <Button variant="ghost" size="sm" className="mr-auto" onClick={hide} title={t("confirm.progress.hideTitle")}>
+                {t("confirm.progress.hide")}
               </Button>
-            </>
-          )}
-          {task && (phase === "active" || phase === "paused") && (
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={busy}
-              title="Stops the download and deletes what was downloaded."
-              onClick={() => act(() => api.cancel(task.id), true)}
-            >
-              Cancel
-            </Button>
-          )}
-          {task && canPause(task) && (
-            <Button size="sm" disabled={busy} onClick={() => act(() => api.pause(task.id))}>
-              <Pause size={14} strokeWidth={1.75} />
-              Pause
-            </Button>
-          )}
-          {task && canResume(task) && (
-            <Button variant="primary" size="sm" disabled={busy} onClick={() => act(() => api.resume(task.id))}>
-              <Play size={14} strokeWidth={1.75} />
-              {phase === "failed" ? "Retry" : phase === "canceled" ? "Start again" : "Resume"}
-            </Button>
-          )}
-        </>
-      }
-    >
-      {task === null ? (
-        <p className="text-[13px] text-ink-secondary">This download is no longer in the list.</p>
-      ) : (
-        <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1.5">
-            <Row label="URL">
-              <span className="block truncate font-mono text-[12px] text-ink-secondary select-text" title={task.url}>
-                {task.url}
-              </span>
-            </Row>
-            <Row label="Status">
-              <span className={`block truncate ${phase === "failed" ? "text-danger-fg" : "text-ink"}`} title={statusText(task)}>
-                {statusText(task)}
-              </span>
-            </Row>
-            <Row label="Size">
-              <span className="num font-mono text-[12px] text-ink">{sizeText(task)}</span>
-            </Row>
-            {speedText(task) !== null && (
-              <Row label="Speed">
-                <span className="num font-mono text-[12px] text-ink">{speedText(task)}</span>
-              </Row>
             )}
-            {resumeText(task) !== null && (
-              <Row label="Resume">
-                <span className="text-ink-secondary">{resumeText(task)}</span>
-              </Row>
+            {task && phase === "done" && (
+              <>
+                <Button size="sm" disabled={busy} onClick={() => act(() => api.reveal(task.id), true)}>
+                  <FolderOpen size={14} strokeWidth={1.75} />
+                  {t("confirm.progress.openFolder")}
+                </Button>
+                <Button variant="primary" size="sm" disabled={busy} onClick={() => act(() => api.open(task.id), true)}>
+                  <ExternalLink size={14} strokeWidth={1.75} />
+                  {t("common.open")}
+                </Button>
+              </>
             )}
-            {phase === "done" && task.path && (
-              <Row label="Saved to">
-                <span className="block truncate font-mono text-[12px] text-ink-secondary select-text" title={task.path}>
-                  {task.path}
+            {task && (phase === "active" || phase === "paused") && (
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={busy}
+                title={t("confirm.progress.cancelTitle")}
+                onClick={() => act(() => api.cancel(task.id), true)}
+              >
+                {t("common.cancel")}
+              </Button>
+            )}
+            {task && canPause(task) && (
+              <Button size="sm" disabled={busy} onClick={() => act(() => api.pause(task.id))}>
+                <Pause size={14} strokeWidth={1.75} />
+                {t("common.pause")}
+              </Button>
+            )}
+            {task && canResume(task) && (
+              <Button variant="primary" size="sm" disabled={busy} onClick={() => act(() => api.resume(task.id))}>
+                <Play size={14} strokeWidth={1.75} />
+                {phase === "failed" ? t("common.retry") : phase === "canceled" ? t("confirm.progress.startAgain") : t("common.resume")}
+              </Button>
+            )}
+          </>
+        }
+      >
+        {task === null ? (
+          <p className="text-[13px] text-ink-secondary">{t("confirm.progress.gone")}</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1.5">
+              <Row label={t("confirm.progress.labels.url")}>
+                <span className="block truncate font-mono text-[12px] text-ink-secondary select-text" title={task.url}>
+                  {task.url}
                 </span>
               </Row>
-            )}
+              <Row label={t("confirm.progress.labels.status")}>
+                <span className={`block truncate ${phase === "failed" ? "text-danger-fg" : "text-ink"}`} title={statusText(task)}>
+                  {statusText(task)}
+                </span>
+              </Row>
+              <Row label={t("confirm.progress.labels.size")}>
+                <span className="num font-mono text-[12px] text-ink">{sizeText(task)}</span>
+              </Row>
+              {speedText(task) !== null && (
+                <Row label={t("confirm.progress.labels.speed")}>
+                  <span className="num font-mono text-[12px] text-ink">{speedText(task)}</span>
+                </Row>
+              )}
+              {resumeText(task) !== null && (
+                <Row label={t("confirm.progress.labels.resume")}>
+                  <span className="text-ink-secondary">{resumeText(task)}</span>
+                </Row>
+              )}
+              {phase === "done" && task.path && (
+                <Row label={t("confirm.progress.labels.savedTo")}>
+                  <span className="block truncate font-mono text-[12px] text-ink-secondary select-text" title={task.path}>
+                    {task.path}
+                  </span>
+                </Row>
+              )}
+            </div>
+            <SegmentBar segments={task.segments} total={task.total} downloaded={task.downloaded} height="h-2.5" tone={tone} />
+            {error && <p className="text-[12px] text-danger-fg">{error}</p>}
           </div>
-          <SegmentBar segments={task.segments} total={task.total} downloaded={task.downloaded} height="h-2.5" tone={tone} />
-          {error && <p className="text-[12px] text-danger-fg">{error}</p>}
-        </div>
-      )}
-    </Dialog>
+        )}
+      </Dialog>
+    </LocaleProvider>
   );
 }
 

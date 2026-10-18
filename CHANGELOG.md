@@ -33,6 +33,10 @@ Media detection: the videos and audio a web page plays, including HLS and DASH s
 - Test server: `/hls/` and `/dash/` streams with checkable fragments and options for encryption, separate audio, live, DRM and failing fragments; `flat=1` puts the quality and audio playlists beside the master (`/hls/v1.m3u8`); `--files DIR` serves a folder, for example FFmpeg output and a page that plays it.
 
 - **Download progress windows**, as in IDM: **Start download** in the confirmation window turns the question into a small window that follows the download, with its status, size, speed, time left, whether it can resume and the segment bar, and **Pause** / **Resume**, **Cancel** and **Hide**. Hiding only closes the window; the download goes on. When it finishes the window offers **Open**, **Open folder** and **Close**, and **Retry** when it failed. Several downloads get a window each, one step apart, and the taskbar shows each one's progress in its title. **Download later** still just closes the question.
+- **Ten languages:** English, Türkçe, Español, Deutsch, Français, Italiano, Português (Brasil), Русский, 简体中文 and 日本語, for the window, the confirmation and progress windows, the tray menu, notifications and the browser extension. **Settings → App → Language** picks one; by default Downpipe follows the system, and the extension follows the browser's language. Dates, plurals and name sorting follow the language too.
+- **Selecting several downloads** is visible now: a checkbox on every row and one in the header for everything shown (Shift selects a range). With two or more selected, a bar over the list offers **Resume**, **Pause**, **Remove…**, **More** (the right-click menu) and clearing the selection.
+- **Date** column: when a download finished, or when it was last tried. Today shows the time, this year the day and month. The tooltip has both the date added and finished, and the column sorts.
+- **Already in the list?** Adding a link that is already in the list, finished or not, asks as IDM does: add it again with a numbered file name, add it again and replace the existing file, or show the existing download if it is finished (its window with **Open** and **Open folder**) and otherwise resume it. Several such links get one answer. A link sent again from the browser asks the same question in the confirmation window before its usual question, and is never asked about twice at the same time.
 
 ### Changed
 
@@ -43,6 +47,11 @@ Media detection: the videos and audio a web page plays, including HLS and DASH s
 - Media detection no longer lists the requests YouTube's player makes to its video servers; the page itself is offered instead.
 - The Download button over a video on a page with several videos (an X timeline, a post with a quoted video) offers that video's stream only, matched by the id its poster image shares with its playlist, instead of every stream on the page.
 - A tab title of one or two characters (X shows "X" until a post has loaded) no longer names downloads, so videos from X are not all saved as `X.mp4`.
+- A link already in the list is no longer added silently when the first download has finished; the question above is asked instead. The bridge answers such a link from the browser with `accepted` and `awaiting_confirmation`, and a third copy while the question waits with `duplicate`.
+
+### Fixed
+
+- Page titles with a slash, such as X's "SpaceX (@SpaceX) / X", named the download after the part behind the last slash (`X.mp4`); slashes now become dashes.
 
 ### Not downloaded, on purpose
 

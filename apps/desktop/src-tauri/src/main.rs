@@ -4,6 +4,7 @@
 mod background;
 mod clipboard;
 mod confirm;
+mod i18n;
 mod power;
 mod progress;
 mod tray;

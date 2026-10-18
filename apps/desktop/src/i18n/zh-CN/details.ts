@@ -1,0 +1,52 @@
+// The details dialog: progress, live numbers, the new-link form and the file's facts.
+import type { Messages } from "../core";
+
+export const details: Messages["details"] = {
+  eyebrow: "下载详情",
+  openFile: "打开文件",
+  remove: "移除…",
+  cancelAndDelete: "取消并删除",
+  cancelAndDeleteTitle: "停止下载并删除未完成的文件",
+  downloadAgain: "重新下载",
+  redownload: "重新下载…",
+  progress: "进度",
+  progressOf: "{downloaded} / {total}",
+  progressOfAbout: "{downloaded} / 约 {total}",
+  legend: {
+    downloaded: "已下载",
+    connection: "连接",
+    remaining: "剩余",
+  },
+  stats: {
+    speed: "速度",
+    timeLeft: "剩余时间",
+    connections: "连接数",
+    target: "目标 {count}",
+    resume: "断点续传",
+    supported: "支持",
+    notSupported: "不支持",
+    size: "大小",
+    downloaded: "已下载",
+  },
+  rows: {
+    savedTo: "保存位置",
+    folder: "文件夹",
+    source: "来源",
+    video: "视频",
+    stream: "流",
+    bestQuality: "最佳画质",
+    fragments: { other: "{done} / {count} 个分片" },
+    queue: "队列",
+    checksum: "校验和",
+    added: "添加时间",
+    finished: "完成时间",
+  },
+  relink: {
+    button: "使用新链接…",
+    label: "此文件的新链接",
+    submit: "继续",
+    hint: "用于已过期或失效的链接。仅当新链接提供的是同一文件时，下载才会从中断处继续；否则不会覆盖任何内容。",
+  },
+  copy: "复制",
+  copied: "已复制",
+};

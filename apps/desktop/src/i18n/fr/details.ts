@@ -1,0 +1,56 @@
+// The details dialog: progress, live numbers, the new-link form and the file's facts.
+import type { Messages } from "../core";
+
+export const details: Messages["details"] = {
+  eyebrow: "Détails du téléchargement",
+  openFile: "Ouvrir le fichier",
+  remove: "Supprimer…",
+  cancelAndDelete: "Annuler et supprimer",
+  cancelAndDeleteTitle: "Arrête le téléchargement et supprime le fichier partiel",
+  downloadAgain: "Télécharger à nouveau",
+  redownload: "Télécharger à nouveau…",
+  progress: "Progression",
+  progressOf: "{downloaded} sur {total}",
+  progressOfAbout: "{downloaded} sur environ {total}",
+  legend: {
+    downloaded: "Téléchargé",
+    connection: "Connexion",
+    remaining: "Restant",
+  },
+  stats: {
+    speed: "Vitesse",
+    timeLeft: "Temps restant",
+    connections: "Connexions",
+    target: "objectif {count}",
+    resume: "Reprise",
+    supported: "Prise en charge",
+    notSupported: "Non prise en charge",
+    size: "Taille",
+    downloaded: "Téléchargé",
+  },
+  rows: {
+    savedTo: "Enregistré dans",
+    folder: "Dossier",
+    source: "Source",
+    video: "Vidéo",
+    stream: "Flux",
+    bestQuality: "Meilleure qualité",
+    fragments: {
+      one: "{done} sur {count} fragment",
+      many: "{done} sur {count} fragments",
+      other: "{done} sur {count} fragments",
+    },
+    queue: "File d'attente",
+    checksum: "Somme de contrôle",
+    added: "Ajouté",
+    finished: "Terminé",
+  },
+  relink: {
+    button: "Utiliser un nouveau lien…",
+    label: "Nouveau lien pour ce fichier",
+    submit: "Continuer",
+    hint: "Pour un lien expiré ou cassé. Le téléchargement reprend là où il s'est arrêté uniquement si le nouveau lien fournit le même fichier ; sinon, rien n'est écrasé.",
+  },
+  copy: "Copier",
+  copied: "Copié",
+};

@@ -1,5 +1,6 @@
 // What a download's progress window says (IDM's download dialog), from the
 // task alone. The window itself is ProgressWindow.tsx.
+import { t, type MessageKey } from "../i18n/core";
 import type { Task } from "./api";
 import { formatBytes, formatDuration, formatSpeed, percent, sentence } from "./format";
 import { displayName, isRunning } from "./tasks";
@@ -33,16 +34,17 @@ export function progressPhase(task: Task | null): ProgressPhase {
 
 /** The eyebrow: what is happening, and to what kind of download. */
 export function progressEyebrow(task: Task | null): string {
-  const what = task === null ? null : task.site ? task.site.site : task.media ? `${task.media.kind.toUpperCase()} stream` : null;
-  const phase: Record<ProgressPhase, string> = {
-    active: task?.state === "queued" ? "Queued" : "Downloading",
-    paused: "Paused",
-    done: "Download complete",
-    failed: "Download failed",
-    canceled: "Canceled",
-    removed: "Removed",
+  const what =
+    task === null ? null : task.site ? task.site.site : task.media ? t("confirm.stream", { kind: task.media.kind.toUpperCase() }) : null;
+  const phase: Record<ProgressPhase, MessageKey> = {
+    active: task?.state === "queued" ? "confirm.progress.eyebrow.queued" : "confirm.progress.eyebrow.downloading",
+    paused: "confirm.progress.eyebrow.paused",
+    done: "confirm.progress.eyebrow.done",
+    failed: "confirm.progress.eyebrow.failed",
+    canceled: "confirm.progress.eyebrow.canceled",
+    removed: "confirm.progress.eyebrow.removed",
   };
-  const head = phase[progressPhase(task)];
+  const head = t(phase[progressPhase(task)]);
   return what ? `${head} · ${what}` : head;
 }
 
@@ -50,25 +52,25 @@ export function progressEyebrow(task: Task | null): string {
 export function statusText(task: Task): string {
   switch (task.state) {
     case "queued":
-      return "Waiting for a free place in the queue";
+      return t("confirm.progress.status.queued");
     case "starting":
-      return "Connecting";
+      return t("confirm.progress.status.connecting");
     case "downloading":
-      if (task.fragments) return `Receiving data · ${task.fragments.done} of ${task.fragments.total} fragments`;
-      if (task.connections > 1) return `Receiving data · ${task.connections} connections`;
-      return "Receiving data";
+      if (task.fragments) return t("confirm.progress.status.fragments", { done: task.fragments.done, count: task.fragments.total });
+      if (task.connections > 1) return t("confirm.progress.status.connections", { count: task.connections });
+      return t("confirm.progress.status.receiving");
     case "waiting":
-      return "Connection lost, trying again";
+      return t("confirm.progress.status.waiting");
     case "verifying":
-      return "Checking the file";
+      return t("confirm.progress.status.verifying");
     case "paused":
-      return "Paused";
+      return t("confirm.progress.status.paused");
     case "completed":
-      return "Finished";
+      return t("confirm.progress.status.finished");
     case "failed":
-      return task.error ? sentence(task.error) : "Failed";
+      return task.error ? sentence(task.error) : t("confirm.progress.status.failed");
     case "canceled":
-      return "Canceled; what was downloaded is deleted";
+      return t("confirm.progress.status.canceled");
   }
 }
 
@@ -78,20 +80,25 @@ export function sizeText(task: Task): string {
   const pct = percent(task.downloaded, task.total);
   if (task.total === null || pct === null) return formatBytes(task.downloaded);
   const approx = (task.media !== null || task.site !== null) && task.total > 0 ? "~" : "";
-  return `${formatBytes(task.downloaded)} of ${approx}${formatBytes(task.total)} · ${pct.toFixed(1)}%`;
+  return t("confirm.progress.size", {
+    downloaded: formatBytes(task.downloaded),
+    approx,
+    total: formatBytes(task.total),
+    percent: pct.toFixed(1),
+  });
 }
 
 /** Speed and time left, while it runs. */
 export function speedText(task: Task): string | null {
   if (!isRunning(task.state)) return null;
   const speed = formatSpeed(task.speed);
-  return task.eta_secs === null ? speed : `${speed} · ${formatDuration(task.eta_secs)} left`;
+  return task.eta_secs === null ? speed : t("confirm.progress.timeLeft", { speed, time: formatDuration(task.eta_secs) });
 }
 
 /** IDM's "Resume capability", known once the server answered. */
 export function resumeText(task: Task): string | null {
   if (task.state !== "downloading" && task.state !== "verifying") return null;
-  return task.resumable ? "Yes" : "No: pausing starts it over";
+  return task.resumable ? t("confirm.progress.resumeYes") : t("confirm.progress.resumeNo");
 }
 
 /**
@@ -99,17 +106,21 @@ export function resumeText(task: Task): string | null {
  * running behind other windows, so it carries the progress.
  */
 export function windowTitle(task: Task | null): string {
-  if (task === null) return "Removed - Downpipe";
+  if (task === null) return t("confirm.progress.title.window", { title: t("confirm.progress.title.removed") });
   const name = displayName(task);
   const pct = percent(task.downloaded, task.total);
   const what: Record<ProgressPhase, string> = {
     active:
-      task.state === "queued" ? `Queued · ${name}` : pct !== null && task.total !== null && task.total > 0 ? `${Math.floor(pct)}% ${name}` : name,
-    paused: `Paused · ${name}`,
-    done: `Done · ${name}`,
-    failed: `Failed · ${name}`,
-    canceled: `Canceled · ${name}`,
+      task.state === "queued"
+        ? t("confirm.progress.title.queued", { name })
+        : pct !== null && task.total !== null && task.total > 0
+          ? t("confirm.progress.title.percent", { percent: Math.floor(pct), name })
+          : name,
+    paused: t("confirm.progress.title.paused", { name }),
+    done: t("confirm.progress.title.done", { name }),
+    failed: t("confirm.progress.title.failed", { name }),
+    canceled: t("confirm.progress.title.canceled", { name }),
     removed: name,
   };
-  return `${what[progressPhase(task)]} - Downpipe`;
+  return t("confirm.progress.title.window", { title: what[progressPhase(task)] });
 }

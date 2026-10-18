@@ -1,10 +1,11 @@
-// App frame: header, filter bar, status bar, empty state and toasts.
-import { Download, Moon, Pause, Play, Plus, Search, Settings as SettingsIcon, Sun, X } from "lucide-react";
-import type { RefObject } from "react";
+// App frame: header, filter bar, selection bar, status bar, empty state and toasts.
+import { Download, Moon, MoreHorizontal, Pause, Play, Plus, Search, Settings as SettingsIcon, Sun, Trash2, X } from "lucide-react";
+import type { MouseEvent, RefObject } from "react";
 
+import { useI18n } from "../i18n";
 import type { Queue, Settings, WhenDone } from "../lib/api";
 import { formatSpeed } from "../lib/format";
-import { FILTERS, type Filter } from "../lib/tasks";
+import { FILTERS, filterLabel, type Filter } from "../lib/tasks";
 import { Button, Dialog, IconButton } from "./primitives";
 
 export function Logo() {
@@ -40,33 +41,36 @@ export function Header({
   hasRunning: boolean;
   hasPaused: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-canvas px-4">
       <Logo />
-      <span className="display-medium text-[18px]">Downpipe</span>
+      <span className="display-medium text-[18px]">{t("common.appName")}</span>
       <div className="ml-auto flex items-center gap-1.5">
         <Button size="sm" variant="ghost" onClick={onPauseAll} disabled={!hasRunning} className="max-sm:px-2">
           <Pause size={16} strokeWidth={1.75} />
-          <span className="max-sm:sr-only">Pause all</span>
+          <span className="max-sm:sr-only">{t("chrome.pauseAll")}</span>
         </Button>
         <Button size="sm" variant="ghost" onClick={onResumeAll} disabled={!hasPaused} className="max-sm:px-2">
           <Play size={16} strokeWidth={1.75} />
-          <span className="max-sm:sr-only">Resume all</span>
+          <span className="max-sm:sr-only">{t("chrome.resumeAll")}</span>
         </Button>
-        <IconButton label={theme === "dark" ? "Use light theme" : "Use dark theme"} onClick={onToggleTheme}>
+        <IconButton label={theme === "dark" ? t("chrome.lightTheme") : t("chrome.darkTheme")} onClick={onToggleTheme}>
           {theme === "dark" ? <Sun size={18} strokeWidth={1.75} /> : <Moon size={18} strokeWidth={1.75} />}
         </IconButton>
-        <IconButton label="Settings" onClick={onSettings}>
+        <IconButton label={t("chrome.settings")} onClick={onSettings}>
           <SettingsIcon size={18} strokeWidth={1.75} />
         </IconButton>
         <Button variant="primary" onClick={onAdd} className="ml-1">
           <Plus size={16} strokeWidth={1.75} />
-          <span className="max-sm:sr-only">Add link</span>
+          <span className="max-sm:sr-only">{t("chrome.addLink")}</span>
         </Button>
       </div>
     </header>
   );
 }
+
+const SELECT = "h-8 max-w-28 rounded-md border border-line-strong bg-canvas px-2 text-[13px] text-ink transition-colors duration-150 focus:border-primary sm:max-w-36";
 
 export function FilterBar({
   filter,
@@ -114,10 +118,11 @@ export function FilterBar({
   onStartQueue: () => void;
   onStopQueue: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-1 gap-y-2 border-b border-line px-4 py-2">
-      <div role="tablist" aria-label="Filter downloads" className="scrollbar-none flex max-w-full min-w-0 items-center gap-1 overflow-x-auto">
-        {FILTERS.map(({ id, label }) => {
+      <div role="tablist" aria-label={t("chrome.filterLabel")} className="scrollbar-none flex max-w-full min-w-0 items-center gap-1 overflow-x-auto">
+        {FILTERS.map((id) => {
           const active = filter === id;
           return (
             <button
@@ -130,7 +135,7 @@ export function FilterBar({
                 active ? "border-primary bg-primary-soft text-ink" : "border-transparent text-ink-secondary hover:bg-surface-muted hover:text-ink"
               }`}
             >
-              {label}
+              {filterLabel(id)}
               <span className={`num font-mono text-[12px] ${active ? "text-primary" : "text-ink-muted"}`}>{counts[id]}</span>
             </button>
           );
@@ -138,7 +143,7 @@ export function FilterBar({
       </div>
       <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-none">
         <label className="relative min-w-36 flex-1 sm:w-56 sm:flex-none">
-          <span className="sr-only">Search downloads</span>
+          <span className="sr-only">{t("chrome.searchLabel")}</span>
           <Search size={14} strokeWidth={1.75} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
           <input
             ref={searchRef}
@@ -148,20 +153,15 @@ export function FilterBar({
             onKeyDown={(e) => {
               if (e.key === "Escape") onQuery("");
             }}
-            placeholder="Search"
-            title="Search (Ctrl+F)"
+            placeholder={t("chrome.search")}
+            title={t("chrome.searchTitle")}
             spellCheck={false}
             className="h-8 w-full rounded-md border border-line-strong bg-canvas pr-2 pl-8 text-[13px] text-ink placeholder:text-ink-muted transition-colors duration-150 focus:border-primary"
           />
         </label>
         {queues.length > 1 && (
-          <select
-            aria-label="Queue"
-            value={queue}
-            onChange={(e) => onQueue(e.target.value)}
-            className="h-8 max-w-28 rounded-md sm:max-w-36 border border-line-strong bg-canvas px-2 text-[13px] text-ink transition-colors duration-150 focus:border-primary"
-          >
-            <option value="">All queues</option>
+          <select aria-label={t("chrome.queue")} value={queue} onChange={(e) => onQueue(e.target.value)} className={SELECT}>
+            <option value="">{t("chrome.allQueues")}</option>
             {queues.map((q) => (
               <option key={q.id} value={q.id}>
                 {q.name}
@@ -171,65 +171,116 @@ export function FilterBar({
         )}
         {queue !== "" && (
           <>
-            <IconButton label="Start this queue" onClick={onStartQueue}>
+            <IconButton label={t("chrome.startQueue")} onClick={onStartQueue}>
               <Play size={16} strokeWidth={1.75} />
             </IconButton>
-            <IconButton label="Stop this queue" onClick={onStopQueue}>
+            <IconButton label={t("chrome.stopQueue")} onClick={onStopQueue}>
               <Pause size={16} strokeWidth={1.75} />
             </IconButton>
           </>
         )}
         {categories.length > 0 && (
-          <select
-            aria-label="Category"
-            value={category}
-            onChange={(e) => onCategory(e.target.value)}
-            className="h-8 max-w-28 rounded-md sm:max-w-36 border border-line-strong bg-canvas px-2 text-[13px] text-ink transition-colors duration-150 focus:border-primary"
-          >
-            <option value="">All types</option>
+          <select aria-label={t("chrome.category")} value={category} onChange={(e) => onCategory(e.target.value)} className={SELECT}>
+            <option value="">{t("chrome.allTypes")}</option>
             {categories.map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
             ))}
-            <option value="-">Uncategorized</option>
+            <option value="-">{t("chrome.uncategorized")}</option>
           </select>
         )}
         {!sortIsDefault && (
-          <Button size="sm" variant="ghost" onClick={onResetSort} title="Sort by date added, newest first">
-            Newest first
+          <Button size="sm" variant="ghost" onClick={onResetSort} title={t("chrome.newestFirstTitle")}>
+            {t("chrome.newestFirst")}
           </Button>
         )}
-        <IconButton label="Save all links to a text file" onClick={onExport} disabled={!canExport}>
+        <IconButton label={t("chrome.exportLinks")} onClick={onExport} disabled={!canExport}>
           <Download size={16} strokeWidth={1.75} />
         </IconButton>
         <Button size="sm" variant="ghost" onClick={onClearFinished} disabled={!canClear}>
-          Clear finished
+          {t("chrome.clearFinished")}
         </Button>
       </div>
     </div>
   );
 }
 
-const WHEN_DONE_LABELS: Record<WhenDone, string> = {
-  nothing: "Do nothing",
-  quit: "Quit Downpipe",
-  sleep: "Sleep",
-  shutdown: "Shut down",
-};
+/**
+ * Floats over the bottom of the list while several downloads are selected,
+ * so ticking boxes never moves the rows under the pointer.
+ */
+export function SelectionBar({
+  count,
+  canResume,
+  canPause,
+  onResume,
+  onPause,
+  onRemove,
+  onMore,
+  onClear,
+}: {
+  count: number;
+  canResume: boolean;
+  canPause: boolean;
+  onResume: () => void;
+  onPause: () => void;
+  onRemove: () => void;
+  /** Opens the right-click menu for the selection at this point. */
+  onMore: (x: number, y: number, keyboard: boolean) => void;
+  onClear: () => void;
+}) {
+  const { t } = useI18n();
+  const more = (e: MouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    onMore(r.left, r.top - 4, e.detail === 0);
+  };
+  return (
+    <div
+      role="toolbar"
+      aria-label={t("list.bar.label")}
+      className="anim-rise absolute bottom-11 left-1/2 z-50 flex max-w-[calc(100%-32px)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-lg border border-line bg-canvas px-2 py-1.5 shadow-popover scrollbar-none"
+    >
+      <span className="num shrink-0 px-2 font-mono text-[12px] text-primary">{t("list.bar.count", { count })}</span>
+      <span className="h-5 w-px shrink-0 bg-line" aria-hidden="true" />
+      <Button size="sm" variant="ghost" onClick={onResume} disabled={!canResume}>
+        <Play size={16} strokeWidth={1.75} />
+        <span className="max-sm:sr-only">{t("list.bar.resume")}</span>
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onPause} disabled={!canPause}>
+        <Pause size={16} strokeWidth={1.75} />
+        <span className="max-sm:sr-only">{t("list.bar.pause")}</span>
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onRemove} className="text-danger-fg hover:text-danger-fg">
+        <Trash2 size={16} strokeWidth={1.75} />
+        <span className="max-sm:sr-only">{t("list.bar.remove")}</span>
+      </Button>
+      <Button size="sm" variant="ghost" onClick={more} aria-haspopup="menu">
+        <MoreHorizontal size={16} strokeWidth={1.75} />
+        <span className="max-sm:sr-only">{t("list.bar.more")}</span>
+      </Button>
+      <IconButton label={t("list.bar.clear")} onClick={onClear}>
+        <X size={16} strokeWidth={1.75} />
+      </IconButton>
+    </div>
+  );
+}
+
+const WHEN_DONE: readonly WhenDone[] = ["nothing", "quit", "sleep", "shutdown"];
 
 export function WhenDoneSelect({ value, onChange }: { value: WhenDone; onChange: (w: WhenDone) => void }) {
+  const { t } = useI18n();
   return (
     <label className={`inline-flex shrink-0 items-center gap-1.5 ${value === "nothing" ? "" : "text-primary"}`}>
-      <span className="max-sm:sr-only">when done</span>
+      <span className="max-sm:sr-only">{t("chrome.whenDone.label")}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as WhenDone)}
         className="h-6 rounded-sm border border-line bg-canvas px-1 font-mono text-[12px] text-ink focus:border-primary"
       >
-        {(Object.keys(WHEN_DONE_LABELS) as WhenDone[]).map((w) => (
+        {WHEN_DONE.map((w) => (
           <option key={w} value={w}>
-            {WHEN_DONE_LABELS[w]}
+            {t(`chrome.whenDone.${w}`)}
           </option>
         ))}
       </select>
@@ -248,26 +299,26 @@ export function WhenDoneDialog({
   onCancel: () => void;
   onNow: () => void;
 }) {
-  const what = action === "shutdown" ? "shut down this computer" : action === "sleep" ? "put this computer to sleep" : "quit";
+  const { t } = useI18n();
+  const title =
+    action === "shutdown" ? t("chrome.whenDone.titleShutdown") : action === "sleep" ? t("chrome.whenDone.titleSleep") : t("chrome.whenDone.titleQuit");
   return (
     <Dialog
-      eyebrow="All downloads finished"
-      title={`Downpipe will ${what}`}
+      eyebrow={t("chrome.whenDone.eyebrow")}
+      title={title}
       onClose={onCancel}
       footer={
         <>
           <Button variant="ghost" onClick={onNow}>
-            Do it now
+            {t("chrome.whenDone.now")}
           </Button>
           <Button variant="primary" onClick={onCancel}>
-            Cancel
+            {t("common.cancel")}
           </Button>
         </>
       }
     >
-      <p className="text-[15px] text-ink-secondary">
-        In <span className="num font-mono text-ink">{secondsLeft}</span> seconds. Cancel to keep everything as it is; the choice resets to Do nothing.
-      </p>
+      <p className="num text-[15px] text-ink-secondary">{t("chrome.whenDone.countdown", { count: secondsLeft })}</p>
     </Dialog>
   );
 }
@@ -290,25 +341,18 @@ export function StatusBar({
   whenDone: WhenDone;
   onWhenDone: (w: WhenDone) => void;
 }) {
+  const { t } = useI18n();
   return (
     <footer className="flex h-8 shrink-0 items-center gap-4 overflow-hidden border-t border-line bg-surface px-4 font-mono text-[12px] text-ink-muted">
-      <span className="num shrink-0">
-        <span className="text-ink-secondary">{active}</span> downloading
-      </span>
-      <span className="num shrink-0 max-sm:hidden">
-        <span className="text-ink-secondary">{queued}</span> queued
-      </span>
-      <span className="num shrink-0 text-ink-secondary">{speed > 0 ? formatSpeed(speed) : "idle"}</span>
+      <span className="num shrink-0">{t("chrome.status.downloading", { count: active })}</span>
+      <span className="num shrink-0 max-sm:hidden">{t("chrome.status.queued", { count: queued })}</span>
+      <span className="num shrink-0 text-ink-secondary">{speed > 0 ? formatSpeed(speed) : t("chrome.status.idle")}</span>
       <WhenDoneSelect value={whenDone} onChange={onWhenDone} />
-      {selected > 1 && (
-        <span className="num shrink-0 text-primary max-sm:hidden">
-          {selected} selected
-        </span>
-      )}
+      {selected > 1 && <span className="num shrink-0 text-primary max-sm:hidden">{t("chrome.status.selected", { count: selected })}</span>}
       {settings && (
         <span className="ml-auto hidden truncate sm:inline">
-          {settings.speed_limit > 0 ? `limit ${formatSpeed(settings.speed_limit)}` : "no speed limit"} · {settings.max_concurrent_downloads} at a time ·{" "}
-          {settings.download_dir}
+          {settings.speed_limit > 0 ? t("chrome.status.limit", { speed: formatSpeed(settings.speed_limit) }) : t("chrome.status.noLimit")} ·{" "}
+          {t("chrome.status.atATime", { count: settings.max_concurrent_downloads })} · {settings.download_dir}
         </span>
       )}
     </footer>
@@ -316,23 +360,21 @@ export function StatusBar({
 }
 
 export function EmptyState({ filtered, onAdd }: { filtered: boolean; onAdd: () => void }) {
+  const { t } = useI18n();
   if (filtered) {
-    return <p className="px-4 py-10 text-center text-[14px] text-ink-muted">Nothing here with this filter.</p>;
+    return <p className="px-4 py-10 text-center text-[14px] text-ink-muted">{t("chrome.empty.filtered")}</p>;
   }
   return (
     <div className="anim-rise mx-auto flex max-w-[520px] flex-col items-start gap-4 px-6 py-16">
-      <span className="eyebrow">01 — Queue</span>
-      <h1 className="display-medium text-[24px] leading-tight">Nothing downloading yet</h1>
-      <p className="text-[15px] text-ink-secondary">
-        Paste a link anywhere in this window, or add one with the button. Downpipe splits large files across several connections only while that makes them
-        faster, and picks up where it left off after a pause, a restart or a crash.
-      </p>
+      <span className="eyebrow">{t("chrome.empty.eyebrow")}</span>
+      <h1 className="display-medium text-[24px] leading-tight">{t("chrome.empty.title")}</h1>
+      <p className="text-[15px] text-ink-secondary">{t("chrome.empty.body")}</p>
       <div className="flex items-center gap-3">
         <Button variant="primary" onClick={onAdd}>
           <Plus size={16} strokeWidth={1.75} />
-          Add a link
+          {t("chrome.empty.add")}
         </Button>
-        <span className="font-mono text-[12px] text-ink-muted">or Ctrl+V</span>
+        <span className="font-mono text-[12px] text-ink-muted">{t("chrome.empty.orPaste")}</span>
       </div>
     </div>
   );
@@ -345,18 +387,19 @@ export interface Toast {
 }
 
 export function Toasts({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
+  const { t } = useI18n();
   return (
     <div className="pointer-events-none fixed right-4 bottom-12 z-1200 flex w-[min(380px,calc(100vw-32px))] flex-col gap-2" aria-live="polite">
-      {toasts.map((t) => (
+      {toasts.map((toast) => (
         <div
-          key={t.id}
+          key={toast.id}
           role="status"
           className={`anim-rise pointer-events-auto flex items-start gap-2 rounded-md border bg-canvas px-3 py-2.5 text-[13px] shadow-popover ${
-            t.tone === "danger" ? "border-danger text-danger-fg" : "border-line text-ink"
+            toast.tone === "danger" ? "border-danger text-danger-fg" : "border-line text-ink"
           }`}
         >
-          <span className="flex-1 whitespace-pre-line">{t.text}</span>
-          <IconButton label="Dismiss" className="size-6" onClick={() => onDismiss(t.id)}>
+          <span className="flex-1 whitespace-pre-line">{toast.text}</span>
+          <IconButton label={t("common.dismiss")} className="size-6" onClick={() => onDismiss(toast.id)}>
             <X size={14} strokeWidth={1.75} />
           </IconButton>
         </div>

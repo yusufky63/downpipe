@@ -1,0 +1,52 @@
+// The details dialog: progress, live numbers, the new-link form and the file's facts.
+import type { Messages } from "../core";
+
+export const details: Messages["details"] = {
+  eyebrow: "Download-Details",
+  openFile: "Datei öffnen",
+  remove: "Entfernen…",
+  cancelAndDelete: "Abbrechen und löschen",
+  cancelAndDeleteTitle: "Beendet den Download und löscht die unvollständige Datei",
+  downloadAgain: "Erneut herunterladen",
+  redownload: "Erneut herunterladen…",
+  progress: "Fortschritt",
+  progressOf: "{downloaded} von {total}",
+  progressOfAbout: "{downloaded} von etwa {total}",
+  legend: {
+    downloaded: "Heruntergeladen",
+    connection: "Verbindung",
+    remaining: "Verbleibend",
+  },
+  stats: {
+    speed: "Geschwindigkeit",
+    timeLeft: "Restzeit",
+    connections: "Verbindungen",
+    target: "Ziel {count}",
+    resume: "Fortsetzen",
+    supported: "Unterstützt",
+    notSupported: "Nicht unterstützt",
+    size: "Größe",
+    downloaded: "Heruntergeladen",
+  },
+  rows: {
+    savedTo: "Gespeichert unter",
+    folder: "Ordner",
+    source: "Quelle",
+    video: "Video",
+    stream: "Stream",
+    bestQuality: "Beste Qualität",
+    fragments: { one: "{done} von {count} Fragment", other: "{done} von {count} Fragmenten" },
+    queue: "Warteschlange",
+    checksum: "Prüfsumme",
+    added: "Hinzugefügt",
+    finished: "Abgeschlossen",
+  },
+  relink: {
+    button: "Neuen Link verwenden…",
+    label: "Neuer Link für diese Datei",
+    submit: "Weiter",
+    hint: "Für einen abgelaufenen oder defekten Link. Der Download wird nur dann an der unterbrochenen Stelle fortgesetzt, wenn der neue Link dieselbe Datei liefert; andernfalls wird nichts überschrieben.",
+  },
+  copy: "Kopieren",
+  copied: "Kopiert",
+};

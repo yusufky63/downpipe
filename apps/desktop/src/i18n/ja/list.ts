@@ -1,0 +1,71 @@
+// The download list, its selection bar and right-click menu.
+import type { Messages } from "../core";
+
+export const list: Messages["list"] = {
+  label: "ダウンロード",
+  columns: {
+    name: "名前",
+    size: "サイズ",
+    progress: "進行状況",
+    speed: "速度",
+    left: "残り時間",
+    date: "日付",
+    actions: "操作",
+  },
+  selectAll: "表示中のダウンロードをすべて選択",
+  selectRow: "{name} を選択",
+  dragOut: "ファイルを別のアプリにドラッグ",
+  dateAdded: "追加日時：{date}",
+  dateFinished: "完了日時：{date}",
+  dateLastTry: "最終試行：{date}",
+  bar: {
+    label: "選択したダウンロード",
+    count: { other: "{count} 件選択中" },
+    resume: "再開",
+    pause: "一時停止",
+    remove: "削除…",
+    more: "その他",
+    clear: "選択を解除",
+  },
+  menu: {
+    label: "ダウンロードの操作",
+    labelMany: "{count} 件のダウンロードの操作",
+    open: "開く",
+    reveal: "フォルダーに表示",
+    resume: "再開",
+    retry: "再試行",
+    pause: "一時停止",
+    redownload: "再ダウンロード…",
+    relink: "新しいリンクを使用…",
+    moveToQueue: "キューに移動",
+    newQueue: "新しいキュー…",
+    order: "キュー内の順序",
+    moveTop: "先頭へ移動",
+    moveUp: "上へ移動",
+    moveDown: "下へ移動",
+    moveBottom: "末尾へ移動",
+    copyLink: "リンクをコピー",
+    copyLinks: "リンクをまとめてコピー",
+    copyPath: "ファイルのパスをコピー",
+    properties: "プロパティ",
+    remove: "削除…",
+    removeMany: { other: "{count} 件のダウンロードを削除…" },
+  },
+};
+
+export const app: Messages["app"] = {
+  noEngine:
+    "このウィンドウはエンジンを含まない Downpipe のインターフェイスです。ダウンロードするには、pnpm desktop でデスクトップアプリを起動してください。",
+  loadFailed: "ダウンロードを読み込めませんでした：{error}",
+  dropHere: "リンクまたは .txt のリストをドロップして追加",
+  dropNothing: "リンク、または 1 行に 1 つのリンクを書いた .txt ファイルをドロップしてください。",
+  copied: {
+    link: "リンクをコピーしました。",
+    links: { other: "{count} 件のリンクをコピーしました。" },
+    path: "ファイルのパスをコピーしました。",
+  },
+  copyFailed: "クリップボードにコピーできませんでした。",
+  exported: { other: "{count} 件のリンクを保存しました。" },
+  duplicate: "このリンクはすでに一覧にあります。",
+  whenDoneIdle: "まだ何もダウンロードしていません。次のダウンロードが完了した時点で適用されます。",
+};

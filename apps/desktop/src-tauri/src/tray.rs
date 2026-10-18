@@ -2,18 +2,21 @@
 //! the browser extension can still hand downloads over.
 
 use downpipe_core::Manager;
+use tauri::Wry;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+
+use crate::i18n::{Lang, Texts};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager as _};
 
 const TRAY_ID: &str = "downpipe";
 
-pub fn create(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show Downpipe", true, None::<&str>)?;
-    let pause = MenuItem::with_id(app, "pause_all", "Pause all", true, None::<&str>)?;
-    let resume = MenuItem::with_id(app, "resume_all", "Resume all", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Downpipe", true, None::<&str>)?;
-    let menu = Menu::with_items(
+fn menu(app: &AppHandle, texts: &Texts) -> tauri::Result<Menu<Wry>> {
+    let show = MenuItem::with_id(app, "show", texts.show, true, None::<&str>)?;
+    let pause = MenuItem::with_id(app, "pause_all", texts.pause_all, true, None::<&str>)?;
+    let resume = MenuItem::with_id(app, "resume_all", texts.resume_all, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", texts.quit, true, None::<&str>)?;
+    Menu::with_items(
         app,
         &[
             &show,
@@ -23,7 +26,22 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             &PredefinedMenuItem::separator(app)?,
             &quit,
         ],
-    )?;
+    )
+}
+
+/// Rebuild the menu in another language. The handlers stay: they go by id.
+pub fn set_language(app: &AppHandle, texts: &Texts) {
+    if let Some(tray) = app.tray_by_id(TRAY_ID)
+        && let Ok(menu) = menu(app, texts)
+    {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
+/// Created in English; the background loop switches it to the user's
+/// language within a second, once the settings are at hand.
+pub fn create(app: &AppHandle) -> tauri::Result<()> {
+    let menu = menu(app, Lang::En.texts())?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("Downpipe")

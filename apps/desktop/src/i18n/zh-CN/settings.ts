@@ -1,0 +1,150 @@
+// The settings dialog, one group per tab, and the browser bridge's states.
+// {placeholders} that hold an element (a path, a command) are put in by the dialog.
+import type { Messages } from "../core";
+
+export const settings: Messages["settings"] = {
+  eyebrow: "设置",
+  title: "首选项",
+  tabsLabel: "设置分区",
+  tabs: {
+    downloads: "下载",
+    queues: "队列",
+    categories: "类别",
+    network: "网络",
+    media: "媒体",
+    schedule: "计划",
+    app: "应用",
+  },
+  downloads: {
+    folder: "默认文件夹",
+    folderHint: "下方的类别会在此文件夹内创建各自的文件夹。",
+    concurrent: "同时下载数",
+    concurrentHint: "其余下载在队列中等待。范围 1 到 16。",
+    connections: "每个下载的连接数",
+    connectionsHint: "上限。Downpipe 先使用 2 个连接，仅在有助于提速时才增加。范围 1 到 32。",
+    speedLimit: "速度限制",
+    speedLimitHint: "由所有下载共享。留空表示不限速。立即生效。",
+    noLimit: "不限速",
+    unit: "速度限制单位",
+  },
+  queues: {
+    intro:
+      "每个队列与其他队列并行，各自同时运行一定数量的下载；在队列内部，下载按从上到下的顺序开始。可通过右键菜单在队列之间移动下载并调整其顺序。被移除队列中的下载会移至主队列。",
+    label: "队列",
+    name: "队列名称",
+    namePlaceholder: "名称",
+    mainLimit: { other: "同时 {count} 个" },
+    mainLimitTitle: "在“下载”选项卡的“同时下载数”中设置",
+    limit: "{name} 同时下载数",
+    limitUnnamed: "队列同时下载数",
+    limitTitle: "同时下载数，范围 1 到 16",
+    remove: "移除 {name}",
+    removeUnnamed: "移除队列",
+    newName: "队列 {number}",
+    add: "添加队列",
+  },
+  categories: {
+    use: "按类别将下载分到不同文件夹",
+    useHint:
+      "新下载会按文件类型保存到其类别的文件夹中。如果服务器提供的文件名显示为其他类型，下载完成后文件会移到正确的文件夹。你自己选择的文件夹不会被更改。",
+    label: "类别",
+    name: "类别名称",
+    namePlaceholder: "名称",
+    types: "{name} 文件类型",
+    typesUnnamed: "类别文件类型",
+    remove: "移除 {name}",
+    removeUnnamed: "移除类别",
+    folder: "{name} 文件夹",
+    folderUnnamed: "类别文件夹",
+    folderPlaceholder: "文件夹：默认文件夹内的 {name}",
+    folderPlaceholderUnnamed: "文件夹：默认文件夹内的同名文件夹",
+    add: "添加类别",
+  },
+  network: {
+    proxy: "代理",
+    proxyHint: "http://、https:// 或 socks5://host:port。留空则使用系统代理。仅对保存后开始的下载生效。",
+    proxyPlaceholder: "系统代理",
+    userAgent: "用户代理",
+    userAgentHint: "有些服务器只响应浏览器。留空则发送 Downpipe 自己的用户代理。",
+  },
+  media: {
+    ffmpegHint:
+      "将流中分开的视频和声音合并为一个文件，不重新编码。留空则使用 PATH 中的 ffmpeg。Downpipe 不附带 FFmpeg。",
+    ffmpegPlaceholder: "PATH 中的 ffmpeg",
+    found: "已找到",
+    notFound: "未找到",
+    ffmpegMissing:
+      "视频和声音分开提供的流会保存为两个文件。请安装 FFmpeg 并将其添加到 PATH，或在上方输入 ffmpeg 的路径，然后保存。",
+    streams:
+      "流来自浏览器扩展的媒体检测，或在此处添加的 .m3u8 和 .mpd 链接。不会下载受 DRM 保护的流和直播流。",
+  },
+  siteTools: {
+    heading: "页面中的视频",
+    intro:
+      "在 YouTube 页面上，“使用 Downpipe 下载”会将页面交给 yt-dlp，由它找出其中的视频。yt-dlp 需要 Deno 才能处理 YouTube，并需要 FFmpeg 来合并 360p 以上的视频和声音。",
+    ytDlpHint: "留空则使用下方下载的副本，否则使用 PATH 中的 yt-dlp。",
+    ytDlpPlaceholder: "已下载的副本，否则为 PATH 中的 yt-dlp",
+    denoHint: "需要 2.3.0 或更高版本。留空则使用下方下载的副本，否则使用 PATH 中的 deno，再否则使用 Node 22 或更高版本。",
+    denoPlaceholder: "已下载的副本，否则为 PATH 中的 deno",
+    looking: "正在查找 yt-dlp 和 Deno…",
+    listLabel: "用于页面中视频的工具",
+    downloading: "正在下载…",
+    installNote:
+      "仅在你按下此按钮时：从 github.com/yt-dlp/yt-dlp 和 github.com/denoland/deno 获取官方版本，分别对照其发布页公布的 SHA-256 进行校验后，放入 {folder}。YouTube 经常变化；再按一次即可获取最新的 yt-dlp。",
+    toolsFolder: "Downpipe 的工具文件夹",
+    cookies:
+      "Downpipe 不会向 yt-dlp 发送任何 Cookie，因此不会下载私享、会员专属和有年龄限制的视频，也不会下载受保护（DRM）的视频和直播。是否遵守 YouTube 的条款由你自行负责。",
+  },
+  schedule: {
+    enable: "按计划开始和停止下载",
+    enableHint:
+      "到开始时间时，已暂停和失败的下载会继续。到停止时间时，这些下载会暂停。Downpipe 必须保持运行（在窗口或系统托盘中）。",
+    queue: "队列",
+    queueHint: "其他队列不受影响。",
+    everyQueue: "所有队列",
+    start: "开始时间",
+    stop: "停止时间",
+    stopHint: "可选",
+    days: "星期",
+  },
+  app: {
+    language: "语言",
+    languageHint: "立即应用于窗口、托盘菜单和通知。",
+    systemDefault: "系统默认（{language}）",
+    notify: "下载完成时通知",
+    notifyHint: "窗口不在前台时，如果下载完成或失败，会显示系统通知。",
+    tray: "关闭窗口后在系统托盘中保持运行",
+    trayHint: "下载会继续，浏览器扩展仍可发送链接。可从系统托盘图标退出。",
+    startup: "登录时启动 Downpipe",
+    startupHint: "在系统托盘中启动，这样捕获的下载始终有处可去。",
+    clipboard: "复制链接时提示下载",
+    clipboardHint:
+      "当你复制的链接指向“类别”中列出的文件类型，或指向 YouTube 视频时，Downpipe 会用该链接打开“添加”对话框。已在列表中的链接会被跳过。",
+    awake: "下载时阻止电脑睡眠",
+    awakeHint: "睡眠会等到下载停止运行后再进行。屏幕仍可关闭。",
+    confirmBrowser: "从浏览器开始下载前询问",
+    confirmBrowserHint:
+      "先在浏览器上方的小窗口中选择文件名、文件夹和队列。关闭：下载会立即开始，并使用自动文件夹。",
+  },
+  bridge: {
+    heading: "浏览器桥接",
+    register: "启动时向浏览器注册",
+    registerHint:
+      "让 Chrome、Edge、Chromium 和 Firefox 中的 Downpipe 扩展能够连接到此应用副本。仅更改你的用户帐户。关闭此项可自行使用 downpipe-native-host 管理注册。",
+    checking: "正在检查注册…",
+    noHost: "此 Downpipe 副本在 {host} 处没有浏览器桥接。请重新安装 Downpipe；如果是开发版本，请运行 {command}。",
+    listLabel: "各浏览器的注册情况",
+    registering: "正在注册…",
+    registerNow: "立即注册",
+    pickUp: "已打开的浏览器会在扩展下次检查时识别到它。",
+    states: {
+      registered: "已注册",
+      notInstalled: "未安装",
+      missing: "未注册",
+      invalid: "无法读取",
+      otherHost: "其他副本",
+      extensionNotAllowed: "其他扩展",
+      failed: "错误",
+    },
+  },
+};

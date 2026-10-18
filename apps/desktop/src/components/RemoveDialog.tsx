@@ -1,3 +1,4 @@
+import { useI18n } from "../i18n";
 import type { Task } from "../lib/api";
 import { displayName } from "../lib/tasks";
 import { Button, Dialog } from "./primitives";
@@ -11,31 +12,32 @@ export function RemoveDialog({
   onClose: () => void;
   onConfirm: (deleteFiles: boolean) => void;
 }) {
+  const { t } = useI18n();
   const one = tasks.length === 1 ? tasks[0] : undefined;
-  const allDone = tasks.every((t) => t.state === "completed");
-  const anyDone = tasks.some((t) => t.state === "completed");
+  const allDone = tasks.every((task) => task.state === "completed");
+  const anyDone = tasks.some((task) => task.state === "completed");
   const deleteLabel = one
     ? allDone
-      ? "Remove and delete file"
-      : "Remove and delete partial data"
+      ? t("dialogs.remove.deleteFile")
+      : t("dialogs.remove.deletePartial")
     : anyDone
-      ? "Remove and delete files"
-      : "Remove and delete partial data";
+      ? t("dialogs.remove.deleteFiles")
+      : t("dialogs.remove.deletePartial");
   return (
     <Dialog
-      eyebrow="Remove"
-      title={one ? displayName(one) : `${tasks.length} downloads`}
+      eyebrow={t("common.remove")}
+      title={one ? displayName(one) : t("common.downloads", { count: tasks.length })}
       onClose={onClose}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Keep
+            {t("common.keep")}
           </Button>
           <Button variant="danger" onClick={() => onConfirm(true)}>
             {deleteLabel}
           </Button>
           <Button variant="primary" onClick={() => onConfirm(false)}>
-            Remove from list
+            {t("dialogs.remove.fromList")}
           </Button>
         </>
       }
@@ -43,17 +45,17 @@ export function RemoveDialog({
       <p className="text-[14px] text-ink-secondary">
         {allDone
           ? one
-            ? "Removing it from the list keeps the file on disk. Deleting also removes the file itself."
-            : "Removing them from the list keeps the files on disk. Deleting also removes the files themselves."
+            ? t("dialogs.remove.doneOne")
+            : t("dialogs.remove.doneMany")
           : one
-            ? "Removing it from the list keeps the partial file, so the same link can still resume later. Deleting removes the partial data too."
-            : "Removing them from the list keeps finished files and partial data on disk. Deleting removes both."}
+            ? t("dialogs.remove.partialOne")
+            : t("dialogs.remove.partialMany")}
       </p>
       {!one && (
         <ul className="mt-4 flex max-h-40 flex-col gap-1 overflow-y-auto rounded-md border border-line px-3 py-2">
-          {tasks.map((t) => (
-            <li key={t.id} className="truncate font-mono text-[12px] text-ink-secondary" title={displayName(t)}>
-              {displayName(t)}
+          {tasks.map((task) => (
+            <li key={task.id} className="truncate font-mono text-[12px] text-ink-secondary" title={displayName(task)}>
+              {displayName(task)}
             </li>
           ))}
         </ul>

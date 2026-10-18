@@ -1,0 +1,52 @@
+// The details dialog: progress, live numbers, the new-link form and the file's facts.
+import type { Messages } from "../core";
+
+export const details: Messages["details"] = {
+  eyebrow: "ダウンロードの詳細",
+  openFile: "ファイルを開く",
+  remove: "削除…",
+  cancelAndDelete: "キャンセルして削除",
+  cancelAndDeleteTitle: "ダウンロードを停止し、途中までのファイルを削除します",
+  downloadAgain: "再ダウンロード",
+  redownload: "再ダウンロード…",
+  progress: "進行状況",
+  progressOf: "{downloaded} / {total}",
+  progressOfAbout: "{downloaded} / 約 {total}",
+  legend: {
+    downloaded: "ダウンロード済み",
+    connection: "接続",
+    remaining: "残り",
+  },
+  stats: {
+    speed: "速度",
+    timeLeft: "残り時間",
+    connections: "接続数",
+    target: "目標 {count}",
+    resume: "再開",
+    supported: "対応",
+    notSupported: "非対応",
+    size: "サイズ",
+    downloaded: "ダウンロード済み",
+  },
+  rows: {
+    savedTo: "保存先",
+    folder: "フォルダー",
+    source: "取得元",
+    video: "動画",
+    stream: "ストリーム",
+    bestQuality: "最高画質",
+    fragments: { other: "フラグメント {done} / {count}" },
+    queue: "キュー",
+    checksum: "チェックサム",
+    added: "追加日時",
+    finished: "完了日時",
+  },
+  relink: {
+    button: "新しいリンクを使用…",
+    label: "このファイルの新しいリンク",
+    submit: "続行",
+    hint: "期限切れや壊れたリンクの場合に使用します。新しいリンクが同じファイルを提供する場合にのみ、停止した位置からダウンロードを続行します。そうでない場合、何も上書きされません。",
+  },
+  copy: "コピー",
+  copied: "コピーしました",
+};

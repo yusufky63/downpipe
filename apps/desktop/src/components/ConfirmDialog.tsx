@@ -1,6 +1,7 @@
 import { FolderOpen } from "lucide-react";
 import { useEffect, useEffectEvent, useId, useState, type FormEvent } from "react";
 
+import { useI18n } from "../i18n";
 import { api, errorMessage, isCommandError, onConfirmClose, type Choices, type ConfirmOptions, type Queue, type Task } from "../lib/api";
 import { sentence, withStop } from "../lib/format";
 import { REFUSED_STREAM, audioName, audiosFor, initialChoice, kindName, needsMerge, qualityOption, selectionFor } from "../lib/media";
@@ -67,6 +68,7 @@ export function ConfirmDialog({
   onOpenSettings: () => void;
 }) {
   // Added in Downpipe (the Add dialog and the like), not sent by the browser.
+  const { t } = useI18n();
   const fromApp = task.from_app;
   const [name, setName] = useState(displayName(task));
   const [dir, setDir] = useState(task.dir);
@@ -181,8 +183,8 @@ export function ConfirmDialog({
     };
   }, [inWindow]);
 
-  const what = task.site ? task.site.site : task.media ? `${kindName(task.media.kind)} stream` : null;
-  const from = fromApp ? (what ?? "New download") : what ? `From the browser · ${what}` : "From the browser";
+  const what = task.site ? task.site.site : task.media ? t("confirm.stream", { kind: kindName(task.media.kind) }) : null;
+  const from = fromApp ? (what ?? t("confirm.newDownload")) : what ? t("confirm.fromBrowserWhat", { what }) : t("confirm.fromBrowser");
   // The setting is about the browser; a video added here always needs its quality chosen.
   const offerStop = !fromApp && onStopAsking !== undefined;
   const options = choices?.options;
@@ -192,8 +194,8 @@ export function ConfirmDialog({
 
   return (
     <Dialog
-      eyebrow={waiting > 0 ? `${from} · ${waiting} more waiting` : from}
-      title={stream ? "Download this video?" : "Download this file?"}
+      eyebrow={waiting > 0 ? t("confirm.moreWaiting", { from, count: waiting }) : from}
+      title={stream ? t("confirm.titleVideo") : t("confirm.titleFile")}
       frame={inWindow ? "window" : "modal"}
       size="sm"
       compact
@@ -204,10 +206,10 @@ export function ConfirmDialog({
           {offerStop && (
             <label
               className="mr-auto flex items-center gap-1.5 text-[12px] text-ink-secondary"
-              title="Downloads from the browser then start at once. Settings, App turns the question back on."
+              title={t("confirm.stopAskingTitle")}
             >
               <input type="checkbox" checked={stopAsking} onChange={(e) => setStopAsking(e.target.checked)} className="size-3.5 accent-primary" />
-              Don&apos;t ask again
+              {t("confirm.stopAsking")}
             </label>
           )}
           <Button
@@ -219,13 +221,13 @@ export function ConfirmDialog({
               onDiscard();
             }}
           >
-            {refused ? "Remove" : "Cancel"}
+            {refused ? t("common.remove") : t("common.cancel")}
           </Button>
           <Button size="sm" onClick={() => void answer(false)} disabled={busy || refused}>
-            Download later
+            {t("confirm.later")}
           </Button>
           <Button variant="primary" size="sm" onClick={() => void answer(true)} disabled={busy || refused || blocked}>
-            Start download
+            {t("confirm.start")}
           </Button>
         </>
       }
@@ -233,13 +235,13 @@ export function ConfirmDialog({
       <form onSubmit={(e) => void answer(true, e)} className="flex flex-col gap-2.5">
         {/* IDM's "Download File Info": one line per value, labels on the left. */}
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2">
-          <span className="label">URL</span>
+          <span className="label">{t("confirm.url")}</span>
           <span className="truncate font-mono text-[12px] text-ink-secondary select-text" title={task.url}>
             {task.url}
           </span>
 
           <label htmlFor={`${ids}-name`} className="label">
-            Name
+            {t("confirm.name")}
           </label>
           <div className="flex min-w-0 items-center gap-2">
             <input
@@ -248,11 +250,7 @@ export function ConfirmDialog({
               onChange={(e) => setName(e.target.value)}
               spellCheck={false}
               title={
-                site
-                  ? "yt-dlp decides the extension: .mp4 in most cases, .mkv or .webm for some formats, .m4a for audio only."
-                  : stream
-                    ? "The stream decides the extension: .mp4 in most cases, .ts or .webm for some."
-                    : "The server may suggest another name; this one is kept."
+                site ? t("confirm.nameHint.site") : stream ? t("confirm.nameHint.stream") : t("confirm.nameHint.file")
               }
               className={`${small} min-w-0 flex-1`}
             />
@@ -260,7 +258,7 @@ export function ConfirmDialog({
           </div>
 
           <label htmlFor={`${ids}-dir`} className="label">
-            Save to
+            {t("confirm.saveTo")}
           </label>
           <div className="flex min-w-0 gap-2">
             <input
@@ -273,14 +271,14 @@ export function ConfirmDialog({
             />
             <Button size="sm" onClick={() => void browse()}>
               <FolderOpen size={14} strokeWidth={1.75} />
-              Browse
+              {t("common.browse")}
             </Button>
           </div>
 
           {(stream || pickQueue) && (
             <>
               <label htmlFor={stream ? `${ids}-quality` : `${ids}-queue`} className="label">
-                {stream ? "Quality" : "Queue"}
+                {stream ? t("confirm.quality") : t("confirm.queue")}
               </label>
               {/* Widths on wrappers: the shared input class sets its own. */}
               <div className="flex min-w-0 items-center gap-2">
@@ -294,14 +292,16 @@ export function ConfirmDialog({
                       className={`${small} disabled:opacity-70`}
                     >
                       {!options && (
-                        <option value="">{inspection.state === "failed" ? "Best" : site ? "Asking yt-dlp…" : "Reading the stream…"}</option>
+                        <option value="">
+                          {inspection.state === "failed" ? t("confirm.qualityBest") : site ? t("confirm.askingYtDlp") : t("confirm.readingStream")}
+                        </option>
                       )}
                       {options?.videos.map((v) => (
                         <option key={v.id} value={v.id}>
                           {qualityOption(v)}
                         </option>
                       ))}
-                      {options && options.videos.length === 0 && <option value="">Audio only</option>}
+                      {options && options.videos.length === 0 && <option value="">{t("media.audioOnly")}</option>}
                     </select>
                   </div>
                 )}
@@ -309,8 +309,8 @@ export function ConfirmDialog({
                   <div className={stream ? "w-28 shrink-0" : "min-w-0 flex-1"}>
                     <select
                       id={`${ids}-queue`}
-                      aria-label="Queue"
-                      title="Queue"
+                      aria-label={t("confirm.queue")}
+                      title={t("confirm.queue")}
                       value={queue}
                       onChange={(e) => setQueue(e.target.value)}
                       className={small}
@@ -331,7 +331,7 @@ export function ConfirmDialog({
           {options && audios.length > 1 && (
             <>
               <label htmlFor={`${ids}-audio`} className="label">
-                Audio
+                {t("confirm.audio")}
               </label>
               <select id={`${ids}-audio`} value={audioId} onChange={(e) => setAudioId(e.target.value)} className={small}>
                 {audios.map((a) => (
@@ -364,6 +364,7 @@ function StreamNotice({
   videoId: string;
   onOpenSettings: () => void;
 }) {
+  const { t } = useI18n();
   if (inspection.state === "failed") {
     if (inspection.refused) return <Banner tone="danger">{inspection.message}</Banner>;
     if (inspection.setup) {
@@ -371,14 +372,14 @@ function StreamNotice({
         <Banner tone="warning">
           <span>{inspection.message} </span>
           <button type="button" className={linkClass} onClick={onOpenSettings}>
-            Open Settings, Media
+            {t("confirm.openMediaSettings")}
           </button>
         </Banner>
       );
     }
     return (
       <Banner tone="warning">
-        Could not read the {site ? "page" : "stream"}: {inspection.message} It is downloaded in the best quality when it starts.
+        {t(site ? "confirm.readFailedPage" : "confirm.readFailedStream", { message: inspection.message })}
       </Banner>
     );
   }
@@ -387,20 +388,22 @@ function StreamNotice({
   if (!site) {
     return (
       <Banner tone="warning">
-        <span>No FFmpeg found, so video and sound are saved as two files. </span>
+        <span>{t("confirm.noFfmpegStream")} </span>
         <button type="button" className={linkClass} onClick={onOpenSettings}>
-          Set up FFmpeg
+          {t("confirm.setUpFfmpeg")}
         </button>
       </Banner>
     );
   }
+  // The link sits wherever the language puts {link} in the sentence.
+  const [before = "", after = ""] = t("confirm.noFfmpegSite").split("{link}");
   return (
     <Banner tone="danger">
-      <span>This quality needs FFmpeg to join video and sound, and none was found. Pick Audio only or an H.264 + AAC quality, or </span>
+      <span>{before}</span>
       <button type="button" className={linkClass} onClick={onOpenSettings}>
-        set up FFmpeg
+        {t("confirm.setUpFfmpegLink")}
       </button>
-      <span>.</span>
+      <span>{after}</span>
     </Banner>
   );
 }

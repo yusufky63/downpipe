@@ -1,6 +1,7 @@
 import { FolderOpen, Plus, Trash2 } from "lucide-react";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useState, type ReactNode } from "react";
 
+import { LOCALES, systemLocaleName, useI18n } from "../i18n";
 import {
   MAIN_QUEUE,
   api,
@@ -18,17 +19,21 @@ import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } 
 
 export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "media" | "schedule" | "app";
 
-const TABS: { id: SettingsTab; label: string }[] = [
-  { id: "downloads", label: "Downloads" },
-  { id: "queues", label: "Queues" },
-  { id: "categories", label: "Categories" },
-  { id: "network", label: "Network" },
-  { id: "media", label: "Media" },
-  { id: "schedule", label: "Schedule" },
-  { id: "app", label: "App" },
-];
+const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "network", "media", "schedule", "app"];
 
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+/** Short day names, Monday first like `schedule.days`; 1 January 2024 was a Monday. */
+function weekdays(locale: string): string[] {
+  const format = new Intl.DateTimeFormat(locale, { weekday: "short" });
+  return Array.from({ length: 7 }, (_, i) => format.format(new Date(2024, 0, 1 + i)));
+}
+
+/**
+ * A translated sentence with elements, such as a path in monospace, at its
+ * {placeholders}, so translators can move them where their grammar needs.
+ */
+function fill(text: string, parts: Record<string, ReactNode>): ReactNode {
+  return text.split(/\{(\w+)\}/).map((piece, i) => (i % 2 === 1 ? <Fragment key={i}>{parts[piece] ?? `{${piece}}`}</Fragment> : piece));
+}
 
 /** Categories as edited: extensions stay a free-form string until saved. */
 interface CategoryDraft {
@@ -74,6 +79,7 @@ export function SettingsDialog({
   onClose: () => void;
   onSaved: (s: Settings) => void;
 }) {
+  const { t, locale } = useI18n();
   const initialRate = bytesToRate(settings.speed_limit);
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [dir, setDir] = useState(settings.download_dir);
@@ -97,12 +103,14 @@ export function SettingsDialog({
   const [ffmpegPath, setFfmpegPath] = useState(settings.ffmpeg_path);
   const [ytDlpPath, setYtDlpPath] = useState(settings.yt_dlp_path);
   const [denoPath, setDenoPath] = useState(settings.deno_path);
+  const [language, setLanguage] = useState(settings.language);
   const [error, setError] = useState<string | null>(null);
   const tabIds = useId();
 
   const save = async () => {
     try {
       const saved = await api.updateSettings({
+        language,
         download_dir: dir.trim(),
         max_concurrent_downloads: Number.parseInt(concurrent, 10) || settings.max_concurrent_downloads,
         max_connections_per_download: Number.parseInt(connections, 10) || settings.max_connections_per_download,
@@ -140,36 +148,36 @@ export function SettingsDialog({
   return (
     <Dialog
       size="lg"
-      eyebrow="Settings"
-      title="Preferences"
+      eyebrow={t("settings.eyebrow")}
+      title={t("settings.title")}
       onClose={onClose}
       footer={
         <>
           {error && <p className="mr-auto text-[13px] text-danger-fg">{error}</p>}
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button variant="primary" onClick={() => void save()}>
-            Save
+            {t("common.save")}
           </Button>
         </>
       }
     >
-      <div role="tablist" aria-label="Settings sections" className="scrollbar-none -mx-5 -mt-5 mb-5 flex overflow-x-auto border-b border-line px-3">
-        {TABS.map((t) => (
+      <div role="tablist" aria-label={t("settings.tabsLabel")} className="scrollbar-none -mx-5 -mt-5 mb-5 flex overflow-x-auto border-b border-line px-3">
+        {TABS.map((id) => (
           <button
-            key={t.id}
+            key={id}
             type="button"
             role="tab"
-            id={`${tabIds}-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls={`${tabIds}-${t.id}-panel`}
-            onClick={() => setTab(t.id)}
+            id={`${tabIds}-${id}`}
+            aria-selected={tab === id}
+            aria-controls={`${tabIds}-${id}-panel`}
+            onClick={() => setTab(id)}
             className={`-mb-px shrink-0 border-b-2 px-3 py-2.5 text-[13px] transition-colors duration-150 ${
-              tab === t.id ? "border-primary text-ink" : "border-transparent text-ink-secondary hover:text-ink"
+              tab === id ? "border-primary text-ink" : "border-transparent text-ink-secondary hover:text-ink"
             }`}
           >
-            {t.label}
+            {t(`settings.tabs.${id}`)}
           </button>
         ))}
       </div>
@@ -177,18 +185,18 @@ export function SettingsDialog({
       <div role="tabpanel" id={`${tabIds}-${tab}-panel`} aria-labelledby={`${tabIds}-${tab}`} className="flex min-h-[380px] flex-col gap-5">
         {tab === "downloads" && (
           <>
-            <Field label="Default folder" hint="Categories below create their folders inside this one.">
+            <Field label={t("settings.downloads.folder")} hint={t("settings.downloads.folderHint")}>
               {(id) => <FolderInput id={id} value={dir} onChange={setDir} />}
             </Field>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-              <Field label="Downloads at once" hint="Others wait in the queue. 1 to 16.">
+              <Field label={t("settings.downloads.concurrent")} hint={t("settings.downloads.concurrentHint")}>
                 {(id) => <NumberInput id={id} min={1} max={16} value={concurrent} onChange={setConcurrent} />}
               </Field>
-              <Field label="Connections per download" hint="Upper limit. Downpipe starts with 2 and adds more only while they help. 1 to 32.">
+              <Field label={t("settings.downloads.connections")} hint={t("settings.downloads.connectionsHint")}>
                 {(id) => <NumberInput id={id} min={1} max={32} value={connections} onChange={setConnections} />}
               </Field>
             </div>
-            <Field label="Speed limit" hint="Shared by all downloads. Leave empty for no limit. Applies immediately.">
+            <Field label={t("settings.downloads.speedLimit")} hint={t("settings.downloads.speedLimitHint")}>
               {(id) => (
                 <div className="flex gap-2">
                   <input
@@ -197,12 +205,12 @@ export function SettingsDialog({
                     min={0}
                     step="any"
                     value={limit}
-                    placeholder="No limit"
+                    placeholder={t("settings.downloads.noLimit")}
                     onChange={(e) => setLimit(e.target.value)}
                     className={`${inputClass} num h-9 font-mono`}
                   />
                   <select
-                    aria-label="Speed limit unit"
+                    aria-label={t("settings.downloads.unit")}
                     value={unit}
                     onChange={(e) => setUnit(e.target.value as RateUnit)}
                     className={`${inputClass} h-9 w-28 font-mono`}
@@ -218,30 +226,27 @@ export function SettingsDialog({
 
         {tab === "queues" && (
           <>
-            <p className="text-[13px] text-ink-secondary">
-              Each queue runs its own number of downloads at once, next to the others; inside a queue, downloads start top to bottom. Move downloads
-              between queues and change their order from the right-click menu. Downloads in a removed queue move to the main queue.
-            </p>
-            <ul aria-label="Queues" className="flex flex-col gap-3">
+            <p className="text-[13px] text-ink-secondary">{t("settings.queues.intro")}</p>
+            <ul aria-label={t("settings.queues.label")} className="flex flex-col gap-3">
               {queues.map((q) => {
                 const main = q.id === MAIN_QUEUE;
                 return (
                   <li key={q.key} className="grid grid-cols-[minmax(0,1fr)_96px_32px] items-center gap-2 rounded-md border border-line p-3">
                     <input
-                      aria-label="Queue name"
+                      aria-label={t("settings.queues.name")}
                       value={q.name}
-                      placeholder="Name"
+                      placeholder={t("settings.queues.namePlaceholder")}
                       onChange={(e) => updateQueue(q.key, { name: e.target.value })}
                       className={`${inputClass} h-8 text-[13px]`}
                     />
                     {main ? (
-                      <span className="num text-right font-mono text-[12px] text-ink-muted" title="Set in Downloads, Downloads at once">
-                        {concurrent} at once
+                      <span className="num text-right font-mono text-[12px] text-ink-muted" title={t("settings.queues.mainLimitTitle")}>
+                        {t("settings.queues.mainLimit", { count: concurrent })}
                       </span>
                     ) : (
                       <input
-                        aria-label={`${q.name || "Queue"} downloads at once`}
-                        title="Downloads at once, 1 to 16"
+                        aria-label={q.name ? t("settings.queues.limit", { name: q.name }) : t("settings.queues.limitUnnamed")}
+                        title={t("settings.queues.limitTitle")}
                         type="number"
                         min={1}
                         max={16}
@@ -253,7 +258,11 @@ export function SettingsDialog({
                     {main ? (
                       <span aria-hidden="true" />
                     ) : (
-                      <IconButton label={`Remove ${q.name || "queue"}`} tone="danger" onClick={() => setQueues((list) => list.filter((x) => x.key !== q.key))}>
+                      <IconButton
+                        label={q.name ? t("settings.queues.remove", { name: q.name }) : t("settings.queues.removeUnnamed")}
+                        tone="danger"
+                        onClick={() => setQueues((list) => list.filter((x) => x.key !== q.key))}
+                      >
                         <Trash2 size={16} strokeWidth={1.75} />
                       </IconButton>
                     )}
@@ -264,10 +273,12 @@ export function SettingsDialog({
             <div>
               <Button
                 size="sm"
-                onClick={() => setQueues((list) => [...list, { key: ++draftKey, id: "", name: `Queue ${list.length + 1}`, max: "1" }])}
+                onClick={() =>
+                  setQueues((list) => [...list, { key: ++draftKey, id: "", name: t("settings.queues.newName", { number: list.length + 1 }), max: "1" }])
+                }
               >
                 <Plus size={16} strokeWidth={1.75} />
-                Add queue
+                {t("settings.queues.add")}
               </Button>
             </div>
           </>
@@ -275,37 +286,38 @@ export function SettingsDialog({
 
         {tab === "categories" && (
           <>
-            <Switch
-              label="Sort downloads into category folders"
-              hint="A new download goes to its category's folder by file type. When the server's file name shows a different type, the finished file moves to the right folder. Folders you pick yourself are never changed."
-              checked={useCategories}
-              onChange={setUseCategories}
-            />
-            <ul aria-label="Categories" className={`flex flex-col gap-3 ${useCategories ? "" : "opacity-50"}`}>
+            <Switch label={t("settings.categories.use")} hint={t("settings.categories.useHint")} checked={useCategories} onChange={setUseCategories} />
+            <ul aria-label={t("settings.categories.label")} className={`flex flex-col gap-3 ${useCategories ? "" : "opacity-50"}`}>
               {categories.map((c) => (
                 <li key={c.key} className="grid grid-cols-1 gap-2 rounded-md border border-line p-3 sm:grid-cols-[140px_minmax(0,1fr)_auto]">
                   <input
-                    aria-label="Category name"
+                    aria-label={t("settings.categories.name")}
                     value={c.name}
-                    placeholder="Name"
+                    placeholder={t("settings.categories.namePlaceholder")}
                     onChange={(e) => updateCategory(c.key, { name: e.target.value })}
                     className={`${inputClass} h-8 text-[13px]`}
                   />
                   <input
-                    aria-label={`${c.name || "Category"} file types`}
+                    aria-label={c.name ? t("settings.categories.types", { name: c.name }) : t("settings.categories.typesUnnamed")}
                     value={c.extensions}
                     placeholder="zip rar 7z"
                     spellCheck={false}
                     onChange={(e) => updateCategory(c.key, { extensions: e.target.value })}
                     className={`${inputClass} h-8 font-mono text-[12px]`}
                   />
-                  <IconButton label={`Remove ${c.name || "category"}`} tone="danger" onClick={() => setCategories((list) => list.filter((x) => x.key !== c.key))}>
+                  <IconButton
+                    label={c.name ? t("settings.categories.remove", { name: c.name }) : t("settings.categories.removeUnnamed")}
+                    tone="danger"
+                    onClick={() => setCategories((list) => list.filter((x) => x.key !== c.key))}
+                  >
                     <Trash2 size={16} strokeWidth={1.75} />
                   </IconButton>
                   <input
-                    aria-label={`${c.name || "Category"} folder`}
+                    aria-label={c.name ? t("settings.categories.folder", { name: c.name }) : t("settings.categories.folderUnnamed")}
                     value={c.folder}
-                    placeholder={`Folder: ${c.name || "name"} inside the default folder`}
+                    placeholder={
+                      c.name ? t("settings.categories.folderPlaceholder", { name: c.name }) : t("settings.categories.folderPlaceholderUnnamed")
+                    }
                     spellCheck={false}
                     onChange={(e) => updateCategory(c.key, { folder: e.target.value })}
                     className={`${inputClass} h-8 font-mono text-[12px] sm:col-span-2`}
@@ -316,7 +328,7 @@ export function SettingsDialog({
             <div>
               <Button size="sm" onClick={() => setCategories((list) => [...list, { key: ++draftKey, name: "", extensions: "", folder: "" }])}>
                 <Plus size={16} strokeWidth={1.75} />
-                Add category
+                {t("settings.categories.add")}
               </Button>
             </div>
           </>
@@ -324,19 +336,19 @@ export function SettingsDialog({
 
         {tab === "network" && (
           <>
-            <Field label="Proxy" hint="http://, https:// or socks5://host:port. Empty uses the system proxy. Used by downloads started after saving.">
+            <Field label={t("settings.network.proxy")} hint={t("settings.network.proxyHint")}>
               {(id) => (
                 <input
                   id={id}
                   value={proxy}
-                  placeholder="System proxy"
+                  placeholder={t("settings.network.proxyPlaceholder")}
                   spellCheck={false}
                   onChange={(e) => setProxy(e.target.value)}
                   className={`${inputClass} h-9 font-mono text-[13px]`}
                 />
               )}
             </Field>
-            <Field label="User agent" hint="Some servers only answer browsers. Empty sends Downpipe's own.">
+            <Field label={t("settings.network.userAgent")} hint={t("settings.network.userAgentHint")}>
               {(id) => (
                 <input
                   id={id}
@@ -353,15 +365,12 @@ export function SettingsDialog({
 
         {tab === "media" && (
           <>
-            <Field
-              label="FFmpeg"
-              hint="Merges the separate video and sound of a stream into one file, without re-encoding. Empty uses ffmpeg from PATH. Downpipe does not include FFmpeg."
-            >
+            <Field label="FFmpeg" hint={t("settings.media.ffmpegHint")}>
               {(id) => (
                 <input
                   id={id}
                   value={ffmpegPath}
-                  placeholder="ffmpeg on PATH"
+                  placeholder={t("settings.media.ffmpegPlaceholder")}
                   spellCheck={false}
                   onChange={(e) => setFfmpegPath(e.target.value)}
                   className={`${inputClass} h-9 font-mono text-[13px]`}
@@ -369,10 +378,7 @@ export function SettingsDialog({
               )}
             </Field>
             <FfmpegStatus />
-            <Banner tone="neutral">
-              Streams come from the browser extension&apos;s media detection, or from .m3u8 and .mpd links added here.
-              DRM-protected and live streams are not downloaded.
-            </Banner>
+            <Banner tone="neutral">{t("settings.media.streams")}</Banner>
             <SiteTools
               ytDlpPath={ytDlpPath}
               denoPath={denoPath}
@@ -386,17 +392,17 @@ export function SettingsDialog({
         {tab === "schedule" && (
           <>
             <Switch
-              label="Start and stop downloads on a schedule"
-              hint="At the start time, paused and failed downloads resume. At the stop time, they pause. Downpipe has to be running, in the window or the tray."
+              label={t("settings.schedule.enable")}
+              hint={t("settings.schedule.enableHint")}
               checked={schedule.enabled}
               onChange={(enabled) => setSchedule({ ...schedule, enabled })}
             />
             {schedulable.length > 1 && (
               <div className={schedule.enabled ? "" : "opacity-50"}>
-                <Field label="Queue" hint={schedule.queue ? "The other queues are not touched." : undefined}>
+                <Field label={t("settings.schedule.queue")} hint={schedule.queue ? t("settings.schedule.queueHint") : undefined}>
                   {(id) => (
                     <select id={id} value={schedule.queue} onChange={(e) => setSchedule({ ...schedule, queue: e.target.value })} className={`${inputClass} h-9`}>
-                      <option value="">Every queue</option>
+                      <option value="">{t("settings.schedule.everyQueue")}</option>
                       {schedulable.map((q) => (
                         <option key={q.id} value={q.id}>
                           {q.name}
@@ -408,7 +414,7 @@ export function SettingsDialog({
               </div>
             )}
             <div className={`grid grid-cols-2 gap-5 ${schedule.enabled ? "" : "opacity-50"}`}>
-              <Field label="Start at">
+              <Field label={t("settings.schedule.start")}>
                 {(id) => (
                   <input
                     id={id}
@@ -419,7 +425,7 @@ export function SettingsDialog({
                   />
                 )}
               </Field>
-              <Field label="Stop at" hint="Optional">
+              <Field label={t("settings.schedule.stop")} hint={t("settings.schedule.stopHint")}>
                 {(id) => (
                   <input
                     id={id}
@@ -432,13 +438,13 @@ export function SettingsDialog({
               </Field>
             </div>
             <fieldset className={schedule.enabled ? "" : "opacity-50"}>
-              <legend className="label mb-2">Days</legend>
+              <legend className="label mb-2">{t("settings.schedule.days")}</legend>
               <div className="flex flex-wrap gap-1.5">
-                {DAYS.map((day, i) => {
+                {weekdays(locale).map((day, i) => {
                   const on = schedule.days[i] ?? false;
                   return (
                     <button
-                      key={day}
+                      key={i}
                       type="button"
                       aria-pressed={on}
                       onClick={() => setSchedule({ ...schedule, days: schedule.days.map((d, j) => (j === i ? !d : d)) })}
@@ -457,39 +463,26 @@ export function SettingsDialog({
 
         {tab === "app" && (
           <>
+            <Field label={t("settings.app.language")} hint={t("settings.app.languageHint")}>
+              {(id) => (
+                <select id={id} value={language} onChange={(e) => setLanguage(e.target.value)} className={`${inputClass} h-9`}>
+                  <option value="">{t("settings.app.systemDefault", { language: systemLocaleName() })}</option>
+                  {LOCALES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Switch label={t("settings.app.notify")} hint={t("settings.app.notifyHint")} checked={notify} onChange={setNotify} />
+            <Switch label={t("settings.app.tray")} hint={t("settings.app.trayHint")} checked={closeToTray} onChange={setCloseToTray} />
+            <Switch label={t("settings.app.startup")} hint={t("settings.app.startupHint")} checked={startWithSystem} onChange={setStartWithSystem} />
+            <Switch label={t("settings.app.clipboard")} hint={t("settings.app.clipboardHint")} checked={watchClipboard} onChange={setWatchClipboard} />
+            <Switch label={t("settings.app.awake")} hint={t("settings.app.awakeHint")} checked={keepAwake} onChange={setKeepAwake} />
             <Switch
-              label="Notify when a download finishes"
-              hint="A system notification when a download completes or fails while the window is not in front."
-              checked={notify}
-              onChange={setNotify}
-            />
-            <Switch
-              label="Keep running in the tray when the window closes"
-              hint="Downloads continue, and the browser extension can still send links. Quit from the tray icon."
-              checked={closeToTray}
-              onChange={setCloseToTray}
-            />
-            <Switch
-              label="Start Downpipe when you sign in"
-              hint="Starts in the tray, so captured downloads always have somewhere to go."
-              checked={startWithSystem}
-              onChange={setStartWithSystem}
-            />
-            <Switch
-              label="Offer to download copied links"
-              hint="When you copy a link to a file type listed under Categories, or to a YouTube video, Downpipe opens the Add dialog with it. Links already in the list are skipped."
-              checked={watchClipboard}
-              onChange={setWatchClipboard}
-            />
-            <Switch
-              label="Keep the computer awake while downloading"
-              hint="Sleep waits until downloads stop running. The screen can still turn off."
-              checked={keepAwake}
-              onChange={setKeepAwake}
-            />
-            <Switch
-              label="Ask before downloads from the browser start"
-              hint="Choose the file name, folder and queue first, in a small window over the browser. Off: they start at once with the automatic folder."
+              label={t("settings.app.confirmBrowser")}
+              hint={t("settings.app.confirmBrowserHint")}
               checked={confirmBrowser}
               onChange={setConfirmBrowser}
             />
@@ -503,6 +496,7 @@ export function SettingsDialog({
 
 /** Which FFmpeg the saved settings lead to. */
 function FfmpegStatus() {
+  const { t } = useI18n();
   const [found, setFound] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     let current = true;
@@ -517,7 +511,7 @@ function FfmpegStatus() {
   if (found === undefined) return null;
   return found ? (
     <div className="flex min-w-0 items-center gap-2">
-      <Badge tone="positive">Found</Badge>
+      <Badge tone="positive">{t("settings.media.found")}</Badge>
       <span className="truncate font-mono text-[12px] text-ink-secondary select-text" title={found}>
         {found}
       </span>
@@ -525,12 +519,9 @@ function FfmpegStatus() {
   ) : (
     <div className="flex flex-col gap-1.5">
       <div>
-        <Badge tone="warning">Not found</Badge>
+        <Badge tone="warning">{t("settings.media.notFound")}</Badge>
       </div>
-      <p className="text-[13px] text-ink-secondary">
-        Streams whose video and sound come separately are saved as two files. Install FFmpeg and add it to PATH, or enter the
-        path to ffmpeg above, then save.
-      </p>
+      <p className="text-[13px] text-ink-secondary">{t("settings.media.ffmpegMissing")}</p>
     </div>
   );
 }
@@ -553,6 +544,7 @@ function SiteTools({
   /** A Deno path is saved in the settings, so a download would not be used. */
   denoConfigured: boolean;
 }) {
+  const { t } = useI18n();
   const headingId = useId();
   const [status, setStatus] = useState<ToolsStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -585,30 +577,27 @@ function SiteTools({
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-4 border-t border-line pt-5">
       <h3 id={headingId} className="label">
-        Videos on pages
+        {t("settings.siteTools.heading")}
       </h3>
-      <p className="text-[13px] text-ink-secondary">
-        On a YouTube page, Download with Downpipe hands the page to yt-dlp, which picks the video out. yt-dlp needs Deno for
-        YouTube and FFmpeg to join video and sound above 360p.
-      </p>
-      <Field label="yt-dlp" hint="Empty uses the copy downloaded below, else yt-dlp from PATH.">
+      <p className="text-[13px] text-ink-secondary">{t("settings.siteTools.intro")}</p>
+      <Field label="yt-dlp" hint={t("settings.siteTools.ytDlpHint")}>
         {(id) => (
           <input
             id={id}
             value={ytDlpPath}
-            placeholder="Downloaded copy, else yt-dlp on PATH"
+            placeholder={t("settings.siteTools.ytDlpPlaceholder")}
             spellCheck={false}
             onChange={(e) => onYtDlpPath(e.target.value)}
             className={`${inputClass} h-9 font-mono text-[13px]`}
           />
         )}
       </Field>
-      <Field label="Deno" hint="Version 2.3.0 or newer. Empty uses the copy downloaded below, else deno from PATH, else Node 22 or newer.">
+      <Field label="Deno" hint={t("settings.siteTools.denoHint")}>
         {(id) => (
           <input
             id={id}
             value={denoPath}
-            placeholder="Downloaded copy, else deno on PATH"
+            placeholder={t("settings.siteTools.denoPlaceholder")}
             spellCheck={false}
             onChange={(e) => onDenoPath(e.target.value)}
             className={`${inputClass} h-9 font-mono text-[13px]`}
@@ -617,9 +606,9 @@ function SiteTools({
       </Field>
 
       {error && <Banner tone="danger">{error}</Banner>}
-      {!status && !error && <p className="text-[13px] text-ink-muted">Looking for yt-dlp and Deno…</p>}
+      {!status && !error && <p className="text-[13px] text-ink-muted">{t("settings.siteTools.looking")}</p>}
       {status && (
-        <ul aria-label="Tools for videos on pages" className="divide-y divide-line rounded-md border border-line">
+        <ul aria-label={t("settings.siteTools.listLabel")} className="divide-y divide-line rounded-md border border-line">
           {toolRows(status).map((row) => (
             <li key={row.name} className="flex flex-col gap-1 px-3 py-2">
               <div className="flex items-center justify-between gap-3">
@@ -636,26 +625,23 @@ function SiteTools({
         <div className="flex flex-col gap-2">
           <div>
             <Button size="sm" onClick={() => void install()} disabled={busy}>
-              {busy ? "Downloading…" : installButtonLabel(status, wanted)}
+              {busy ? t("settings.siteTools.downloading") : installButtonLabel(status, wanted)}
             </Button>
           </div>
           <p className="text-[12px] text-ink-muted">
-            Only when you press it: the official builds from github.com/yt-dlp/yt-dlp and github.com/denoland/deno, each checked
-            against the SHA-256 its release publishes, go into{" "}
-            <span className="font-mono break-all">{status.managed_dir ?? "Downpipe's tools folder"}</span>. YouTube changes
-            often; press it again for the latest yt-dlp.
+            {fill(t("settings.siteTools.installNote"), {
+              folder: <span className="font-mono break-all">{status.managed_dir ?? t("settings.siteTools.toolsFolder")}</span>,
+            })}
           </p>
         </div>
       )}
-      <Banner tone="neutral">
-        Downpipe sends yt-dlp no cookies, so private, members-only and age-restricted videos are not downloaded, nor are
-        protected (DRM) and live ones. Following YouTube&apos;s terms is up to you.
-      </Banner>
+      <Banner tone="neutral">{t("settings.siteTools.cookies")}</Banner>
     </section>
   );
 }
 
 function FolderInput({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
+  const { t } = useI18n();
   return (
     <div className="flex gap-2">
       <input id={id} value={value} onChange={(e) => onChange(e.target.value)} spellCheck={false} className={`${inputClass} h-9 font-mono text-[13px]`} />
@@ -666,7 +652,7 @@ function FolderInput({ id, value, onChange }: { id: string; value: string; onCha
         }}
       >
         <FolderOpen size={16} strokeWidth={1.75} />
-        Browse
+        {t("common.browse")}
       </Button>
     </div>
   );
@@ -705,6 +691,7 @@ function BrowserBridge({
   registerHost: boolean;
   onRegisterHostChange: (on: boolean) => void;
 }) {
+  const { t } = useI18n();
   const headingId = useId();
   const [status, setStatus] = useState<BridgeRegistration | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -736,25 +723,22 @@ function BrowserBridge({
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-4 border-t border-line pt-5">
       <h3 id={headingId} className="label">
-        Browser bridge
+        {t("settings.bridge.heading")}
       </h3>
-      <Switch
-        label="Register with browsers at start-up"
-        hint="Lets the Downpipe extension in Chrome, Edge, Chromium and Firefox reach this copy of the app. Changes your user account only. Turn it off to manage the registration with downpipe-native-host yourself."
-        checked={registerHost}
-        onChange={onRegisterHostChange}
-      />
+      <Switch label={t("settings.bridge.register")} hint={t("settings.bridge.registerHint")} checked={registerHost} onChange={onRegisterHostChange} />
 
       {error && <Banner tone="danger">{error}</Banner>}
-      {!status && !error && <p className="text-[13px] text-ink-muted">Checking the registration…</p>}
+      {!status && !error && <p className="text-[13px] text-ink-muted">{t("settings.bridge.checking")}</p>}
       {status && !status.host_found && (
         <Banner tone="warning">
-          This copy of Downpipe has no browser bridge at <span className="font-mono break-all">{status.host}</span>. Reinstall Downpipe; in a
-          development build, run <span className="font-mono">pnpm sidecar</span>.
+          {fill(t("settings.bridge.noHost"), {
+            host: <span className="font-mono break-all">{status.host}</span>,
+            command: <span className="font-mono">pnpm sidecar</span>,
+          })}
         </Banner>
       )}
       {status && (
-        <ul aria-label="Registration per browser" className="divide-y divide-line rounded-md border border-line">
+        <ul aria-label={t("settings.bridge.listLabel")} className="divide-y divide-line rounded-md border border-line">
           {status.browsers.map((b) => {
             const info = bridgeStateInfo(b.state);
             return (
@@ -772,9 +756,9 @@ function BrowserBridge({
       {status && canRegister(status) && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Button size="sm" onClick={() => void register()} disabled={busy}>
-            {busy ? "Registering…" : "Register now"}
+            {busy ? t("settings.bridge.registering") : t("settings.bridge.registerNow")}
           </Button>
-          <span className="text-[12px] text-ink-muted">Open browsers pick it up the next time the extension checks.</span>
+          <span className="text-[12px] text-ink-muted">{t("settings.bridge.pickUp")}</span>
         </div>
       )}
     </section>

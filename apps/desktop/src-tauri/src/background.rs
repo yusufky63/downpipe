@@ -16,6 +16,7 @@ use tauri::{AppHandle, Emitter, Manager as _};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::broadcast::error::RecvError;
 
+use crate::i18n::{self, Lang, Texts};
 use crate::{confirm, power, tray};
 
 /// Engine events are re-emitted to the web view under this name.
@@ -145,11 +146,12 @@ impl Background {
     /// it looks as if Downpipe quit while it keeps downloading.
     pub fn closed_to_tray(&self, app: &AppHandle) {
         if !self.told_about_tray.swap(true, Ordering::Relaxed) {
+            let texts = texts_of(app);
             let _ = app
                 .notification()
                 .builder()
-                .title("Downpipe is still running")
-                .body("Downloads continue and the browser can still send links. Quit from the tray icon.")
+                .title(texts.still_running_title)
+                .body(texts.still_running_body)
                 .show();
         }
     }
@@ -226,20 +228,19 @@ impl Background {
         self.publish_when_done(app);
         // The countdown must be visible to be cancelled.
         tray::show_main(app);
-        let what = match action {
+        let texts = texts_of(app);
+        let template = match action {
             WhenDone::Nothing => return,
-            WhenDone::Quit => "quit",
-            WhenDone::Sleep => "put this computer to sleep",
-            WhenDone::Shutdown => "shut down this computer",
+            WhenDone::Quit => texts.all_done_quit,
+            WhenDone::Sleep => texts.all_done_sleep,
+            WhenDone::Shutdown => texts.all_done_shutdown,
         };
+        let secs = COUNTDOWN.as_secs().to_string();
         let _ = app
             .notification()
             .builder()
-            .title("All downloads finished")
-            .body(format!(
-                "Downpipe will {what} in {} seconds. Open Downpipe to cancel.",
-                COUNTDOWN.as_secs()
-            ))
+            .title(texts.all_done_title)
+            .body(i18n::fill(template, &[("secs", &secs)]))
             .show();
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
@@ -272,11 +273,15 @@ fn perform(app: &AppHandle, action: WhenDone) {
     };
     if let Err(err) = result {
         tracing::warn!("when-done action {action:?} failed: {err}");
+        let texts = texts_of(app);
         let _ = app
             .notification()
             .builder()
-            .title("Downpipe could not finish the job")
-            .body(format!("The system did not allow it: {err}"))
+            .title(texts.job_failed_title)
+            .body(i18n::fill(
+                texts.job_failed_body,
+                &[("err", &err.to_string())],
+            ))
             .show();
     }
 }
@@ -290,6 +295,7 @@ pub fn spawn(app: AppHandle, manager: Manager) {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut last_tooltip = String::new();
+        let mut last_lang: Option<Lang> = None;
         let mut last_taskbar = Taskbar::Off;
         let mut last_schedule_check = std::time::Instant::now();
         let mut prev_stamp = LocalStamp::now();
@@ -311,7 +317,13 @@ pub fn spawn(app: AppHandle, manager: Manager) {
                 },
                 _ = tick.tick() => {
                     let bg = app.state::<Background>();
-                    let tooltip = tooltip_text(&bg);
+                    let settings = manager.settings();
+                    let lang = Lang::resolve(&settings.language);
+                    if last_lang != Some(lang) {
+                        tray::set_language(&app, lang.texts());
+                        last_lang = Some(lang);
+                    }
+                    let tooltip = tooltip_text(&bg, lang.texts());
                     if tooltip != last_tooltip {
                         tray::set_tooltip(&app, &tooltip);
                         last_tooltip = tooltip;
@@ -321,7 +333,7 @@ pub fn spawn(app: AppHandle, manager: Manager) {
                         set_taskbar(&app, taskbar);
                         last_taskbar = taskbar;
                     }
-                    awake.set(manager.settings().keep_awake && bg.running() > 0);
+                    awake.set(settings.keep_awake && bg.running() > 0);
                     if last_schedule_check.elapsed() >= SCHEDULE_EVERY {
                         last_schedule_check = std::time::Instant::now();
                         let now = LocalStamp::now();
@@ -344,7 +356,7 @@ fn on_event(app: &AppHandle, manager: &Manager, event: &ManagerEvent) {
             let finished_now = matches!(state, TaskState::Completed | TaskState::Failed)
                 && prev.is_some_and(|p| p.state != state);
             if finished_now && manager.settings().notify_on_finish && !window_in_front(app) {
-                notify_finished(app, task);
+                notify_finished(app, task, i18n::texts(&manager.settings().language));
             }
             // A download waits for its name and folder; the question must
             // be visible to be answered. One from the browser is asked in
@@ -379,7 +391,7 @@ fn window_in_front(app: &AppHandle) -> bool {
     })
 }
 
-fn notify_finished(app: &AppHandle, task: &TaskSnapshot) {
+fn notify_finished(app: &AppHandle, task: &TaskSnapshot, texts: &Texts) {
     let r = &task.record;
     let name = r.file_name.clone().unwrap_or_else(|| r.url.clone());
     let (title, body) = if r.state == TaskState::Completed {
@@ -390,7 +402,7 @@ fn notify_finished(app: &AppHandle, task: &TaskSnapshot) {
             .map(|d| d.to_string_lossy().into_owned())
             .unwrap_or_default();
         (
-            "Download complete".to_string(),
+            texts.complete.to_string(),
             [name, size, place]
                 .into_iter()
                 .filter(|s| !s.is_empty())
@@ -399,7 +411,7 @@ fn notify_finished(app: &AppHandle, task: &TaskSnapshot) {
         )
     } else {
         let why = r.error.clone().unwrap_or_default();
-        ("Download failed".to_string(), format!("{name}: {why}"))
+        (texts.failed.to_string(), format!("{name}: {why}"))
     };
     let _ = app.notification().builder().title(title).body(body).show();
 }
@@ -421,6 +433,7 @@ fn set_taskbar(app: &AppHandle, taskbar: Taskbar) {
 
 fn run_schedule(app: &AppHandle, manager: &Manager, prev: LocalStamp, now: LocalStamp) {
     let settings = manager.settings();
+    let texts = i18n::texts(&settings.language);
     let queue = &settings.schedule.queue;
     // Empty means every queue; `normalized` already dropped unknown ids.
     let name = settings.queue(queue).map(|q| q.name.clone());
@@ -428,29 +441,29 @@ fn run_schedule(app: &AppHandle, manager: &Manager, prev: LocalStamp, now: Local
         (Some(ScheduleAction::Start), None) => {
             manager.resume_all();
             (
-                "Scheduled downloads started",
-                "Paused and failed downloads are running again.".to_string(),
+                texts.schedule_started,
+                texts.schedule_started_all.to_string(),
             )
         }
         (Some(ScheduleAction::Start), Some(name)) => {
             manager.start_queue(queue);
             (
-                "Scheduled downloads started",
-                format!("Paused and failed downloads in {name} are running again."),
+                texts.schedule_started,
+                i18n::fill(texts.schedule_started_queue, &[("name", &name)]),
             )
         }
         (Some(ScheduleAction::Stop), None) => {
             manager.pause_all();
             (
-                "Scheduled stop",
-                "All downloads are paused until the next start time.".to_string(),
+                texts.schedule_stopped,
+                texts.schedule_stopped_all.to_string(),
             )
         }
         (Some(ScheduleAction::Stop), Some(name)) => {
             manager.stop_queue(queue);
             (
-                "Scheduled stop",
-                format!("Downloads in {name} are paused until the next start time."),
+                texts.schedule_stopped,
+                i18n::fill(texts.schedule_stopped_queue, &[("name", &name)]),
             )
         }
         (None, _) => return,
@@ -459,17 +472,29 @@ fn run_schedule(app: &AppHandle, manager: &Manager, prev: LocalStamp, now: Local
     let _ = app.notification().builder().title(title).body(body).show();
 }
 
-fn tooltip_text(bg: &Background) -> String {
+fn tooltip_text(bg: &Background, texts: &Texts) -> String {
     let (running, speed) = bg
         .tasks
         .lock()
         .values()
         .filter(|s| s.state.is_running())
         .fold((0usize, 0u64), |(n, total), s| (n + 1, total + s.speed));
+    let speed = format_bytes(speed);
     match running {
         0 => "Downpipe".to_string(),
-        1 => format!("Downpipe: 1 download, {}/s", format_bytes(speed)),
-        n => format!("Downpipe: {n} downloads, {}/s", format_bytes(speed)),
+        1 => i18n::fill(texts.tooltip_one, &[("speed", &speed)]),
+        n => i18n::fill(
+            texts.tooltip_many,
+            &[("n", &n.to_string()), ("speed", &speed)],
+        ),
+    }
+}
+
+/// Texts in the language picked in Settings, for code that only has the app.
+fn texts_of(app: &AppHandle) -> &'static Texts {
+    match app.try_state::<Manager>() {
+        Some(manager) => i18n::texts(&manager.settings().language),
+        None => Lang::En.texts(),
     }
 }
 
@@ -512,7 +537,7 @@ mod tests {
     #[test]
     fn tooltip_counts_running_downloads() {
         let bg = Background::default();
-        assert_eq!(tooltip_text(&bg), "Downpipe");
+        assert_eq!(tooltip_text(&bg, Lang::En.texts()), "Downpipe");
         bg.tasks.lock().insert(
             "a".into(),
             seen(TaskState::Downloading, 2 * 1024 * 1024, 0, None),
@@ -520,11 +545,17 @@ mod tests {
         bg.tasks
             .lock()
             .insert("b".into(), seen(TaskState::Paused, 0, 0, None));
-        assert_eq!(tooltip_text(&bg), "Downpipe: 1 download, 2.0 MiB/s");
+        assert_eq!(
+            tooltip_text(&bg, Lang::En.texts()),
+            "Downpipe: 1 download, 2.0 MiB/s"
+        );
         bg.tasks
             .lock()
             .insert("c".into(), seen(TaskState::Waiting, 1024 * 1024, 0, None));
-        assert_eq!(tooltip_text(&bg), "Downpipe: 2 downloads, 3.0 MiB/s");
+        assert_eq!(
+            tooltip_text(&bg, Lang::En.texts()),
+            "Downpipe: 2 downloads, 3.0 MiB/s"
+        );
         assert_eq!(bg.active(), 2);
         assert_eq!(bg.running(), 2);
     }

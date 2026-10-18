@@ -1,5 +1,6 @@
 // The right-click menu of the download list, as data: which entries the
 // selected downloads get and whether they apply. The component draws it.
+import { t } from "../i18n/core";
 import type { Queue, Task } from "./api";
 import { canPause, canResume } from "./tasks";
 
@@ -81,26 +82,26 @@ export function buildMenu(selected: readonly Task[], queues: readonly Queue[]): 
 
   const entries: MenuEntry[] = [];
   if (one) {
-    if (done) entries.push({ kind: "item", action: "open", label: "Open", icon: "open" });
-    entries.push({ kind: "item", action: "reveal", label: "Show in folder", icon: "folder" }, SEPARATOR);
+    if (done) entries.push({ kind: "item", action: "open", label: t("list.menu.open"), icon: "open" });
+    entries.push({ kind: "item", action: "reveal", label: t("list.menu.reveal"), icon: "folder" }, SEPARATOR);
   }
   entries.push(
     {
       kind: "item",
       action: "resume",
-      label: retry ? "Retry" : "Resume",
+      label: retry ? t("list.menu.retry") : t("list.menu.resume"),
       icon: retry ? "retry" : "play",
       disabled: resumable.length === 0,
     },
-    { kind: "item", action: "pause", label: "Pause", icon: "pause", disabled: !selected.some(canPause) },
+    { kind: "item", action: "pause", label: t("list.menu.pause"), icon: "pause", disabled: !selected.some(canPause) },
   );
-  if (one && done) entries.push({ kind: "item", action: "redownload", label: "Download again…", icon: "again" });
-  if (one && canRelink(one)) entries.push({ kind: "item", action: "relink", label: "Use a new link…", icon: "link" });
+  if (one && done) entries.push({ kind: "item", action: "redownload", label: t("list.menu.redownload"), icon: "again" });
+  if (one && canRelink(one)) entries.push({ kind: "item", action: "relink", label: t("list.menu.relink"), icon: "link" });
   entries.push(
     SEPARATOR,
     {
       kind: "submenu",
-      label: "Move to queue",
+      label: t("list.menu.moveToQueue"),
       icon: "queue",
       items: [
         ...queues.map(
@@ -112,30 +113,30 @@ export function buildMenu(selected: readonly Task[], queues: readonly Queue[]): 
           }),
         ),
         SEPARATOR,
-        { kind: "item", action: "new_queue", label: "New queue…", icon: "plus" },
+        { kind: "item", action: "new_queue", label: t("list.menu.newQueue"), icon: "plus" },
       ],
     },
     {
       kind: "submenu",
-      label: "Queue order",
+      label: t("list.menu.order"),
       icon: "order",
       items: [
-        { kind: "item", action: "move_top", label: "Move to top", icon: "top", shortcut: SHORTCUTS.move_top },
-        { kind: "item", action: "move_up", label: "Move up", icon: "up", shortcut: SHORTCUTS.move_up },
-        { kind: "item", action: "move_down", label: "Move down", icon: "down", shortcut: SHORTCUTS.move_down },
-        { kind: "item", action: "move_bottom", label: "Move to bottom", icon: "bottom", shortcut: SHORTCUTS.move_bottom },
+        { kind: "item", action: "move_top", label: t("list.menu.moveTop"), icon: "top", shortcut: SHORTCUTS.move_top },
+        { kind: "item", action: "move_up", label: t("list.menu.moveUp"), icon: "up", shortcut: SHORTCUTS.move_up },
+        { kind: "item", action: "move_down", label: t("list.menu.moveDown"), icon: "down", shortcut: SHORTCUTS.move_down },
+        { kind: "item", action: "move_bottom", label: t("list.menu.moveBottom"), icon: "bottom", shortcut: SHORTCUTS.move_bottom },
       ],
     },
     SEPARATOR,
-    { kind: "item", action: "copy_link", label: many ? "Copy links" : "Copy link", icon: "copy", shortcut: SHORTCUTS.copy_link },
+    { kind: "item", action: "copy_link", label: many ? t("list.menu.copyLinks") : t("list.menu.copyLink"), icon: "copy", shortcut: SHORTCUTS.copy_link },
   );
-  if (one?.path) entries.push({ kind: "item", action: "copy_path", label: "Copy file path", icon: "copy" });
+  if (one?.path) entries.push({ kind: "item", action: "copy_path", label: t("list.menu.copyPath"), icon: "copy" });
   entries.push(SEPARATOR);
-  if (one) entries.push({ kind: "item", action: "properties", label: "Properties", icon: "info", shortcut: SHORTCUTS.properties });
+  if (one) entries.push({ kind: "item", action: "properties", label: t("list.menu.properties"), icon: "info", shortcut: SHORTCUTS.properties });
   entries.push({
     kind: "item",
     action: "remove",
-    label: many ? `Remove ${selected.length} downloads…` : "Remove…",
+    label: many ? t("list.menu.removeMany", { count: selected.length }) : t("list.menu.remove"),
     icon: "trash",
     shortcut: SHORTCUTS.remove,
     danger: true,

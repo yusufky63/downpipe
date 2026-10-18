@@ -1,15 +1,14 @@
+import { t } from "../i18n/core";
 import type { ManagerEvent, Task, TaskState } from "./api";
 import { formatBytes, nameFromUrl } from "./format";
 
 export type Filter = "all" | "active" | "queued" | "completed" | "failed";
 
-export const FILTERS: { id: Filter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "active", label: "Active" },
-  { id: "queued", label: "Queued" },
-  { id: "completed", label: "Completed" },
-  { id: "failed", label: "Failed" },
-];
+export const FILTERS: readonly Filter[] = ["all", "active", "queued", "completed", "failed"];
+
+export function filterLabel(filter: Filter): string {
+  return t(`states.filters.${filter}`);
+}
 
 const RUNNING: ReadonlySet<TaskState> = new Set(["starting", "downloading", "waiting", "verifying"]);
 
@@ -51,7 +50,7 @@ export function matchesFilter(task: Task, filter: Filter): boolean {
 export function countByFilter(tasks: Task[]): Record<Filter, number> {
   const counts: Record<Filter, number> = { all: 0, active: 0, queued: 0, completed: 0, failed: 0 };
   for (const task of tasks) {
-    for (const { id } of FILTERS) {
+    for (const id of FILTERS) {
       if (matchesFilter(task, id)) counts[id] += 1;
     }
   }
@@ -81,7 +80,7 @@ export function sortForDisplay(tasks: Task[]): Task[] {
 export function displayName(task: Task): string {
   if (task.file_name) return task.file_name;
   // A page's address names nothing ("watch"); its title arrives later.
-  if (task.site) return `${task.site.site} video`;
+  if (task.site) return t("common.siteVideo", { site: task.site.site });
   return nameFromUrl(task.url);
 }
 
@@ -121,25 +120,23 @@ export const canCancel = (t: Task) => t.state !== "completed" && t.state !== "ca
 export type Tone = "primary" | "positive" | "danger" | "warning" | "neutral";
 
 export function stateInfo(task: Task): { label: string; tone: Tone } {
-  if (task.awaiting_confirmation) return { label: "Confirm", tone: "warning" };
-  switch (task.state) {
-    case "queued":
-      return { label: "Queued", tone: "neutral" };
-    case "starting":
-      return { label: "Connecting", tone: "primary" };
-    case "downloading":
-      return { label: "Downloading", tone: "primary" };
-    case "waiting":
-      return { label: "Retrying", tone: "warning" };
-    case "verifying":
-      return { label: "Verifying", tone: "primary" };
-    case "paused":
-      return { label: "Paused", tone: "neutral" };
-    case "completed":
-      return { label: "Done", tone: "positive" };
-    case "failed":
-      return { label: "Failed", tone: "danger" };
-    case "canceled":
-      return { label: "Canceled", tone: "neutral" };
-  }
+  if (task.awaiting_confirmation) return { label: t("states.confirm"), tone: "warning" };
+  return { label: t(`states.${task.state}`), tone: STATE_TONES[task.state] };
+}
+
+const STATE_TONES: Record<TaskState, Tone> = {
+  queued: "neutral",
+  starting: "primary",
+  downloading: "primary",
+  waiting: "warning",
+  verifying: "primary",
+  paused: "neutral",
+  completed: "positive",
+  failed: "danger",
+  canceled: "neutral",
+};
+
+/** When a download last did something: when it finished, else its last change. */
+export function lastActivity(task: Task): number {
+  return task.completed_at ?? task.updated_at;
 }
