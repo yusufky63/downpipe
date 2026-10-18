@@ -38,6 +38,8 @@ export function importReportText(report: ImportReport): string {
   const parts: string[] = [];
   if (report.settings) parts.push(t("settings.backup.result.settings"));
   parts.push(t("settings.backup.result.added", { count: report.added }));
+  if (report.feeds > 0) parts.push(t("settings.backup.result.feeds", { count: report.feeds }));
+  if (report.feeds_failed > 0) parts.push(t("settings.backup.result.feedsFailed", { count: report.feeds_failed }));
   if (report.duplicates > 0) parts.push(t("settings.backup.result.duplicates", { count: report.duplicates }));
   if (report.invalid > 0) parts.push(t("settings.backup.result.invalid", { count: report.invalid }));
   return parts.join(" ");

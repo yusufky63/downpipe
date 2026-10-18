@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "Kuyruklar",
     categories: "Kategoriler",
     network: "Ağ",
+    sites: "Siteler",
     media: "Medya",
     schedule: "Zamanlama",
     app: "Uygulama",
@@ -24,8 +25,12 @@ export const settings: Messages["settings"] = {
     connectionsHint: "Üst sınır. Downpipe 2 ile başlar ve yalnızca yararlı oldukları sürece daha fazlasını ekler. 1 ile 32 arası.",
     speedLimit: "Hız sınırı",
     speedLimitHint: "Tüm indirmeler arasında paylaşılır. Sınır olmaması için boş bırakın. Hemen uygulanır.",
+    speedLimitInvalid: "Bir sayı girin, örneğin 1,5 ya da 1.5.",
     noLimit: "Sınır yok",
     unit: "Hız sınırı birimi",
+    duplicate: "Bir bağlantı zaten listedeyse",
+    duplicateHint: "Sorudaki \"Bir daha sorma\" seçeneği de bunu ayarlar.",
+    duplicateAsk: "Her seferinde sor",
   },
   queues: {
     intro:
@@ -159,7 +164,10 @@ export const settings: Messages["settings"] = {
     madeOn: "{date} tarihinde oluşturuldu.",
     madeUnknown: "Dosya ne zaman oluşturulduğunu belirtmiyor.",
     settings: "Ayarlar",
-    settingsHint: "Dosyadaki ayarları, kuyrukları ({queues}) ve kategorileri ({categories}) alır. Aynı adlı kuyruklar ve kategoriler güncellenir; yalnızca bu bilgisayarda olanlar kalır. FFmpeg, yt-dlp ve Deno yolları olduğu gibi kalır.",
+    settingsHint:
+      "Dosyadaki ayarları, kuyrukları ({queues}), kategorileri ({categories}) ve site kurallarını ({rules}) alır. Aynı adlı ya da aynı siteye ait olanlar güncellenir; yalnızca bu bilgisayarda olanlar kalır. FFmpeg, yt-dlp ve Deno yolları ile uzaktan denetim olduğu gibi kalır.",
+    feeds: "Akışlar",
+    feedsHint: { one: "{total} akıştan {count} tanesi yeni. Her biri bir kez okunur ve şu anki içeriği indirilmez, yalnızca hatırlanır.", other: "{total} akıştan {count} tanesi yeni. Her biri bir kez okunur ve şu anki içeriği indirilmez, yalnızca hatırlanır." },
     downloads: "İndirmeler",
     downloadsHint: { one: "{total} indirmeden {count} tanesi yeni. Bitmemiş indirmeler duraklatılmış olarak eklenir, listede zaten olan bağlantılar atlanır ve hiçbir dosyanın üzerine yazılmaz.", other: "{total} indirmeden {count} tanesi yeni. Bitmemiş indirmeler duraklatılmış olarak eklenir, listede zaten olan bağlantılar atlanır ve hiçbir dosyanın üzerine yazılmaz." },
     invalid: { one: "Dosyadaki {count} kayıt bozuk ve dışarıda bırakılacak.", other: "Dosyadaki {count} kayıt bozuk ve dışarıda bırakılacak." },
@@ -167,6 +175,8 @@ export const settings: Messages["settings"] = {
     result: {
       settings: "Ayarlar içe aktarıldı.",
       added: { one: "{count} indirme eklendi.", other: "{count} indirme eklendi." },
+      feeds: { one: "{count} akışa abone olundu.", other: "{count} akışa abone olundu." },
+      feedsFailed: { one: "{count} akış okunamadı ve dışarıda bırakıldı.", other: "{count} akış okunamadı ve dışarıda bırakıldı." },
       duplicates: { one: "{count} tanesi zaten listedeydi.", other: "{count} tanesi zaten listedeydi." },
       invalid: { one: "{count} bozuk kayıt dışarıda bırakıldı.", other: "{count} bozuk kayıt dışarıda bırakıldı." },
     },

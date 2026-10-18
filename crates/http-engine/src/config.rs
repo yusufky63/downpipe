@@ -1,8 +1,10 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::checksum::Checksum;
 use crate::media::MediaRequest;
+use crate::ratelimit::RateLimiter;
 
 pub const KIB: u64 = 1024;
 pub const MIB: u64 = 1024 * KIB;
@@ -48,6 +50,9 @@ pub struct EngineConfig {
     pub user_agent: String,
     /// `http://`, `https://` or `socks5://` proxy URL.
     pub proxy: Option<String>,
+    /// Without `proxy`: connect directly, ignoring the system proxy (a site
+    /// rule that says "no proxy" for one host).
+    pub no_proxy: bool,
 }
 
 impl Default for EngineConfig {
@@ -69,6 +74,7 @@ impl Default for EngineConfig {
             retry_max_delay: Duration::from_secs(30),
             user_agent: concat!("Downpipe/", env!("CARGO_PKG_VERSION")).to_string(),
             proxy: None,
+            no_proxy: false,
         }
     }
 }
@@ -96,6 +102,15 @@ pub struct DownloadRequest {
     /// itself. `file_name` then names the result without its extension
     /// mattering; the stream decides it.
     pub media: Option<MediaRequest>,
+    /// Per-download override of [`EngineConfig::max_retries`].
+    pub max_retries: Option<u32>,
+    /// A speed limit of this download's own, on top of the engine's global
+    /// one. Shared rather than a number, so its owner can change the rate
+    /// while the download runs.
+    pub limiter: Option<Arc<RateLimiter>>,
+    /// A third limit, shared by every download from one site (a site rule's
+    /// speed limit). The download runs at the lowest of the three.
+    pub site_limiter: Option<Arc<RateLimiter>>,
 }
 
 impl DownloadRequest {
@@ -109,6 +124,13 @@ impl DownloadRequest {
             max_connections: None,
             relink: false,
             media: None,
+            max_retries: None,
+            limiter: None,
+            site_limiter: None,
         }
+    }
+
+    pub(crate) fn retries(&self, config: &EngineConfig) -> u32 {
+        self.max_retries.unwrap_or(config.max_retries)
     }
 }

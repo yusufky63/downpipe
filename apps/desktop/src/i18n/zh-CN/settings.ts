@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "队列",
     categories: "类别",
     network: "网络",
+    sites: "站点",
     media: "媒体",
     schedule: "计划",
     app: "应用",
@@ -24,8 +25,12 @@ export const settings: Messages["settings"] = {
     connectionsHint: "上限。Downpipe 先使用 2 个连接，仅在有助于提速时才增加。范围 1 到 32。",
     speedLimit: "速度限制",
     speedLimitHint: "由所有下载共享。留空表示不限速。立即生效。",
+    speedLimitInvalid: "请输入数字，例如 1.5 或 1,5。",
     noLimit: "不限速",
     unit: "速度限制单位",
+    duplicate: "链接已在列表中时",
+    duplicateHint: "询问中的“不再询问”也会设置此项。",
+    duplicateAsk: "每次都询问",
   },
   queues: {
     intro:
@@ -159,7 +164,10 @@ export const settings: Messages["settings"] = {
     madeOn: "创建于 {date}。",
     madeUnknown: "文件中没有记录创建时间。",
     settings: "设置",
-    settingsHint: "采用文件中的设置、队列（{queues}）和分类（{categories}）。同名的队列和分类会被更新；只有本机才有的会保留。FFmpeg、yt-dlp 和 Deno 的路径保持不变。",
+    settingsHint:
+      "采用文件中的设置、队列（{queues}）、分类（{categories}）和站点规则（{rules}）。同名或同站点的会被更新；只有本机才有的会保留。FFmpeg、yt-dlp 和 Deno 的路径以及远程控制保持不变。",
+    feeds: "订阅源",
+    feedsHint: { other: "{total} 个订阅源中有 {count} 个是新的。每个都会读取一次，并记住其当前内容而不下载。" },
     downloads: "下载",
     downloadsHint: { other: "{total} 个中有 {count} 个是新的。未完成的下载以暂停状态添加，列表中已有的链接会被跳过，不会替换任何文件。" },
     invalid: { other: "文件中有 {count} 个条目已损坏，将被跳过。" },
@@ -167,6 +175,8 @@ export const settings: Messages["settings"] = {
     result: {
       settings: "设置已导入。",
       added: { other: "已添加 {count} 个下载。" },
+      feeds: { other: "已订阅 {count} 个订阅源。" },
+      feedsFailed: { other: "有 {count} 个订阅源无法读取，已跳过。" },
       duplicates: { other: "{count} 个已在列表中。" },
       invalid: { other: "已跳过 {count} 个损坏的条目。" },
     },

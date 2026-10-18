@@ -70,7 +70,7 @@ All connections run HTTP/1.1. Under HTTP/2 every segment would share one TCP con
 4. If the new rate is less than `ramp_gain` times the previous one, go back to the previous count and stop probing.
 5. A `429` or `503` reduces the count to the connections still running and stops probing for this download.
 
-Many hosts cap connections per client and refuse one too many with `403`, `429` or `503` while the others are served. A refusal of that kind, while other connections of the same download are running, is not a failure: the count drops to the connections that work, the segment goes to the next free one, and probing stops. The engine remembers the working count per host (`host:port`) for as long as it runs, so later downloads from that host start within it instead of tripping the limit again (`Engine::connection_limit`). A `403` with no other connection left is retried like a server failure once the host has shown such a limit (it may still count a connection that just closed); a link that really expired runs out of retries and fails with `forbidden`.
+Many hosts cap connections per client and refuse one too many with `403`, `429` or `503` while the others are served. A refusal of that kind, while other connections of the same download are running, is not a failure: the count drops to the connections that work, the segment goes to the next free one, and probing stops. The engine remembers the working count per host (`host:port`) for as long as it runs, so later downloads from that host start within it instead of tripping the limit again (`Engine::connection_limit`, and `Engine::connection_limits` for all of them). Engines made with `Engine::derive` (another proxy or user agent) share that memory. A `403` with no other connection left is retried like a server failure once the host has shown such a limit (it may still count a connection that just closed); a link that really expired runs out of retries and fails with `forbidden`.
 
 ## Retries, silence and network outages
 
@@ -110,6 +110,16 @@ A web page (`text/html`) in answer to a resume of a file that is not one is chec
 
 A download from a server without range support cannot resume; pausing it deletes the partial file. Pausing while a resume is still waiting for the server's first answer keeps the partial file and its meta untouched.
 
+## File hosts
+
+Some hosts answer a share link with a page instead of the file. `hosts::resolve` runs before every start of a file download and turns such a link into the address of the file, by the same steps a visitor takes in the browser without signing in; ordinary links pass through untouched and cost nothing. The download keeps the link the user gave as its identity: the resume data is filed under it, and the host is asked again on each start because its tokens expire.
+
+| Host | What happens |
+|---|---|
+| Google Drive | Share links (`drive.google.com/file/d/<id>/view`, `open?id=`, `uc?id=`, `drive.usercontent.google.com/download?id=`) become `drive.usercontent.google.com/download?id=<id>&export=download`. For files Drive cannot scan for viruses (above about 100 MB) it sends a warning page; its "Download anyway" form (`id="download-form"`, hidden `confirm` and `uuid` fields) is followed, but only to a Drive address or the host the page came from. A file that is not shared publicly ends in a sign-in or "request access" page and fails with `private_file`; Drive's daily quota ("too many users have viewed or downloaded this file") fails with `unavailable`; a folder link fails at once with `unavailable`, since Drive builds folder archives in the browser. Docs, Sheets and Slides documents are left alone. |
+
+Not handled, on purpose: hosts that need an account, a premium plan, a captcha, a countdown page or client-side decryption (Mega, Rapidgator, Uploaded and the like). Downpipe does not scrape them or work around their limits. Their direct links, once the browser has them, download like any other link.
+
 ## Replacing an expired link
 
 `DownloadRequest::relink` tells the engine that the URL replaces the one the resume data was saved with (the desktop app's **Use a new link**). The meta is then found by file name instead of URL, and the resume goes through the same checks as any other: `If-Range` with the saved validator, then the `206` must report the saved size and ETag. If it does, the meta is rewritten for the new link at once, so later resumes are ordinary. If it does not, the download fails with `different_file` and nothing on disk is touched; a normal resume would have started over instead.
@@ -139,6 +149,13 @@ Progress counts finished fragments and the bytes of those in flight. The total i
 ## Speed limit
 
 One token bucket per engine (the desktop app and CLI use one engine). Connections take tokens for each chunk and sleep off any debt, which keeps the total rate exact even with Windows' coarse timer. The rate can change while downloads run.
+
+A download can have a bucket of its own as well (`DownloadRequest::limiter`). Its connections take from that one first and then from the engine's, so the download runs at the lower of the two limits while the global one still holds for all of them together. Taking from its own bucket first means a download sleeping off its own debt does not hold tokens other downloads could use. The owner of the bucket (the core) can change its rate while the download runs.
+`DownloadRequest::site_limiter` adds a third bucket, which the desktop app shares among the downloads one site rule applies to. A connection takes from the download's own bucket, then the site's, then the engine's, so the lowest of the three limits wins.
+
+## Per-download overrides
+
+Besides `max_connections`, `limiter` and `site_limiter`, a request can set `max_retries` (in place of `EngineConfig::max_retries`, also for the first request and for streams). A proxy is a property of the client, so a download through another proxy runs on an engine from `Engine::derive`, which shares the limiter and the host memory; `EngineConfig::no_proxy` connects directly, ignoring the system proxy. The desktop app's site rules use all of these ([site-rules.md](site-rules.md)).
 
 ## Measuring
 

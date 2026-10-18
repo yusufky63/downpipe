@@ -78,6 +78,7 @@ impl IdmEntry {
             site: None,
             created_at: 0,
             completed_at: None,
+            speed_limit: None,
         }
     }
 }

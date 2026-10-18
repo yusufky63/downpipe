@@ -38,5 +38,30 @@ export const dialogs = {
     overwrite: "Add it again and replace the existing file",
     existing: "Show the existing download if it is finished, otherwise resume it",
     ok: "OK",
+    remember: "Don't ask again, always do this",
+    rememberHint: "Settings, Downloads changes it back.",
+  },
+  /** A download's own speed limit, under the global one. {limit} is like "2 MiB/s". */
+  speedLimit: {
+    eyebrow: "Speed limit",
+    body: "For this download alone, under the global limit of {limit}.",
+    bodyNoGlobal: "For this download alone. There is no global limit.",
+    bodyMany: "For each of them alone, under the global limit of {limit}.",
+    bodyManyNoGlobal: "For each of them alone. There is no global limit.",
+    label: "Limit",
+    unit: "Speed limit unit",
+    placeholder: "No limit",
+    video: "A video takes a new limit when it starts again.",
+    remove: "Remove limit",
+    save: "Set limit",
+  },
+  /** "Pause until…" with a time of the user's choice. */
+  pauseUntil: {
+    eyebrow: "Pause until",
+    label: "Resume at",
+    hint: "Pauses now and resumes by itself at this time while Downpipe runs, or as soon as it starts after that.",
+    past: "Pick a time in the future.",
+    invalid: "Enter a date and a time.",
+    submit: "Pause",
   },
 };

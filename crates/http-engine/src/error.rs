@@ -55,6 +55,11 @@ pub enum DownloadError {
     )]
     LoginRequired,
 
+    /// A file host's file that only signed-in users with access may fetch.
+    /// The message names the host and what to do.
+    #[error("{0}")]
+    PrivateFile(String),
+
     #[error("the server stopped honouring byte ranges")]
     RangeNotHonoured,
 
@@ -171,6 +176,7 @@ impl DownloadError {
             Self::DifferentFile(_) => "different_file",
             Self::ExpiredLink => "expired_link",
             Self::LoginRequired => "login_required",
+            Self::PrivateFile(_) => "private_file",
             Self::RangeNotHonoured => "range_not_honoured",
             Self::PrematureEnd | Self::Stalled(_) | Self::Network(_) => "network",
             Self::ChecksumMismatch { .. } | Self::InvalidChecksum(_) => "checksum",

@@ -9,6 +9,7 @@ export const settings = {
     queues: "Queues",
     categories: "Categories",
     network: "Network",
+    sites: "Sites",
     media: "Media",
     schedule: "Schedule",
     app: "App",
@@ -22,8 +23,12 @@ export const settings = {
     connectionsHint: "Upper limit. Downpipe starts with 2 and adds more only while they help. 1 to 32.",
     speedLimit: "Speed limit",
     speedLimitHint: "Shared by all downloads. Leave empty for no limit. Applies immediately.",
+    speedLimitInvalid: "Enter a number, such as 1.5 or 1,5.",
     noLimit: "No limit",
     unit: "Speed limit unit",
+    duplicate: "When a link is already in the list",
+    duplicateHint: "\"Don't ask again\" in the question sets this too.",
+    duplicateAsk: "Ask every time",
   },
   queues: {
     intro:
@@ -171,7 +176,9 @@ export const settings = {
     settings: "Settings",
     /** {queues} and {categories} are numbers. */
     settingsHint:
-      "Takes the file's settings, its queues ({queues}) and categories ({categories}). Queues and categories with the same name are updated; the ones only this computer has stay. The paths to FFmpeg, yt-dlp and Deno stay as they are.",
+      "Takes the file's settings, its queues ({queues}), categories ({categories}) and site rules ({rules}). Ones with the same name or site are updated; the ones only this computer has stay. The paths to FFmpeg, yt-dlp and Deno and the remote control stay as they are.",
+    feeds: "Feeds",
+    feedsHint: { one: "{count} of {total} feeds is new. Each one is read once and what it holds now is remembered, not downloaded.", other: "{count} of {total} feeds are new. Each one is read once and what it holds now is remembered, not downloaded." },
     downloads: "Downloads",
     /** {count} new of {total} in the file. */
     downloadsHint: {
@@ -186,6 +193,8 @@ export const settings = {
     result: {
       settings: "The settings were imported.",
       added: { one: "Added {count} download.", other: "Added {count} downloads." },
+      feeds: { one: "Subscribed to {count} feed.", other: "Subscribed to {count} feeds." },
+      feedsFailed: { one: "{count} feed could not be read and was left out.", other: "{count} feeds could not be read and were left out." },
       duplicates: { one: "{count} was already in the list.", other: "{count} were already in the list." },
       invalid: { one: "{count} damaged entry was left out.", other: "{count} damaged entries were left out." },
     },

@@ -113,6 +113,7 @@ async fn a_backup_restores_settings_and_the_list_without_secrets() {
             ImportChoice {
                 settings: true,
                 downloads: true,
+                ..ImportChoice::default()
             },
         )
         .unwrap();
@@ -146,6 +147,7 @@ async fn a_backup_restores_settings_and_the_list_without_secrets() {
             ImportChoice {
                 settings: false,
                 downloads: true,
+                ..ImportChoice::default()
             },
         )
         .unwrap();
@@ -178,6 +180,7 @@ async fn importing_never_touches_existing_files_or_starts_downloads() {
             ImportChoice {
                 settings: false,
                 downloads: true,
+                ..ImportChoice::default()
             },
         )
         .unwrap();

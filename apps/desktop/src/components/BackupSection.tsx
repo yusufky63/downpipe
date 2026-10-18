@@ -48,6 +48,7 @@ export function BackupSection({ onSettingsImported }: { onSettingsImported: (set
   const [preview, setPreview] = useState<BackupPreview | null>(null);
   const [takeSettings, setTakeSettings] = useState(true);
   const [takeDownloads, setTakeDownloads] = useState(true);
+  const [takeFeeds, setTakeFeeds] = useState(true);
 
   const exportBackup = async () => {
     setBusy(true);
@@ -71,6 +72,7 @@ export function BackupSection({ onSettingsImported }: { onSettingsImported: (set
         setPreview(read);
         setTakeSettings(true);
         setTakeDownloads(read.new_downloads > 0);
+        setTakeFeeds(read.new_feeds > 0);
       }
     } catch (err) {
       setPreview(null);
@@ -83,7 +85,11 @@ export function BackupSection({ onSettingsImported }: { onSettingsImported: (set
   const importNow = async () => {
     setBusy(true);
     try {
-      const report = await api.importBackup({ settings: takeSettings, downloads: takeDownloads });
+      const report = await api.importBackup({
+        settings: takeSettings,
+        downloads: takeDownloads,
+        feeds: takeFeeds && preview !== null && preview.feeds > 0,
+      });
       setPreview(null);
       const message = importReportText(report);
       if (report.settings) {
@@ -121,7 +127,11 @@ export function BackupSection({ onSettingsImported }: { onSettingsImported: (set
           </div>
           <Checkbox
             label={t("settings.backup.settings")}
-            hint={t("settings.backup.settingsHint", { queues: preview.queues, categories: preview.categories })}
+            hint={t("settings.backup.settingsHint", {
+              queues: preview.queues,
+              categories: preview.categories,
+              rules: preview.site_rules,
+            })}
             checked={takeSettings}
             onChange={setTakeSettings}
           />
@@ -131,12 +141,20 @@ export function BackupSection({ onSettingsImported }: { onSettingsImported: (set
             checked={takeDownloads}
             onChange={setTakeDownloads}
           />
+          {preview.feeds > 0 && (
+            <Checkbox
+              label={t("settings.backup.feeds")}
+              hint={t("settings.backup.feedsHint", { count: preview.new_feeds, total: preview.feeds })}
+              checked={takeFeeds}
+              onChange={setTakeFeeds}
+            />
+          )}
           {preview.invalid > 0 && <Banner tone="warning">{t("settings.backup.invalid", { count: preview.invalid })}</Banner>}
           <div className="flex flex-wrap justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setPreview(null)} disabled={busy}>
               {t("common.cancel")}
             </Button>
-            <Button size="sm" variant="primary" onClick={() => void importNow()} disabled={busy || (!takeSettings && !takeDownloads)}>
+            <Button size="sm" variant="primary" onClick={() => void importNow()} disabled={busy || (!takeSettings && !takeDownloads && !(takeFeeds && preview.feeds > 0))}>
               {t("settings.backup.importNow")}
             </Button>
           </div>

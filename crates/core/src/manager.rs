@@ -1,6 +1,7 @@
 //! The download queue: starts downloads up to the concurrency limit, tracks
 //! their state, persists it, and broadcasts snapshots to UIs.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -20,6 +21,7 @@ use tokio::task::JoinHandle;
 use crate::backup::{
     Backup, BackupDownload, BackupSummary, ImportChoice, ImportReport, merge_settings,
 };
+use crate::rules::{self, RefusedHost, RuleProxy, SiteRule};
 use crate::settings::{MAIN_QUEUE, Settings};
 use crate::store::Store;
 use crate::task::{
@@ -35,6 +37,10 @@ const TOOLS_DIR: &str = "tools";
 /// meta file next to the download is the precise record anyway.
 const PERSIST_EVERY: Duration = Duration::from_secs(5);
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+/// How often downloads paused until a time are checked. Times are compared
+/// with the wall clock, so a computer that slept through one still resumes
+/// the download when it wakes.
+const RESUME_CHECK_EVERY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
@@ -104,6 +110,12 @@ struct Inner {
     events: broadcast::Sender<ManagerEvent>,
     /// Downpipe's own copies of the site provider's tools.
     tools_dir: PathBuf,
+    /// Engines for site rules with a proxy of their own (`""` for none),
+    /// derived from `engine` and dropped when it is rebuilt.
+    proxied: Mutex<HashMap<String, Engine>>,
+    /// One limiter per site rule with a speed limit, by rule id, shared by
+    /// every download the rule applies to.
+    site_limiters: Mutex<HashMap<String, Arc<RateLimiter>>>,
 }
 
 #[derive(Debug)]
@@ -129,6 +141,9 @@ struct Entry {
     /// The URL was replaced by the user; the next start must prove the
     /// server still has the same file before resuming.
     relink: bool,
+    /// This download's own speed limit, shared with its running job so a
+    /// change applies at once.
+    limiter: Arc<RateLimiter>,
 }
 
 /// What a stop request should turn into once the engine has stopped.
@@ -181,6 +196,7 @@ impl Manager {
             store.upsert(&record)?;
             tasks.push(Entry {
                 url: record.url.clone(),
+                limiter: Arc::new(RateLimiter::new(record.speed_limit.unwrap_or(0))),
                 record,
                 live: Live::default(),
                 headers: Vec::new(),
@@ -207,9 +223,23 @@ impl Manager {
                 }),
                 events,
                 tools_dir: data_dir.join(TOOLS_DIR),
+                proxied: Mutex::default(),
+                site_limiters: Mutex::default(),
             }),
         };
         manager.inner.schedule();
+        // Weak, so the timer never keeps a closed manager (and its database)
+        // alive.
+        let weak = Arc::downgrade(&manager.inner);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(RESUME_CHECK_EVERY);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tick.tick().await;
+                let Some(inner) = weak.upgrade() else { break };
+                Manager { inner }.resume_due(unix_now());
+            }
+        });
         Ok(manager)
     }
 
@@ -232,6 +262,12 @@ impl Manager {
 
     pub fn settings(&self) -> Settings {
         self.inner.state.lock().settings.clone()
+    }
+
+    /// The HTTP client downloads use, with the proxy and user agent of the
+    /// settings and no cookie store: for the site grabber and feeds.
+    pub fn http_client(&self) -> reqwest::Client {
+        self.inner.engine.lock().client().clone()
     }
 
     pub fn add(&self, opts: AddOptions) -> Result<TaskSnapshot, CoreError> {
@@ -304,12 +340,28 @@ impl Manager {
                 .as_deref()
                 .and_then(|name| st.settings.category_for(name))
                 .cloned();
-            let auto_dir = opts.dir.is_none();
-            let dir = match (opts.dir, &category) {
-                (Some(dir), _) => dir,
-                (None, Some(c)) => st.settings.category_dir(c),
-                (None, None) => st.settings.download_dir.clone(),
+            let rule = st.settings.site_rule_for(&url).cloned();
+            let rule_dir = rule
+                .as_ref()
+                .filter(|r| !r.download_dir.is_empty())
+                .map(|r| st.settings.resolve_dir(&r.download_dir));
+            // A rule's folder is chosen, not guessed, so the finished file
+            // stays there whatever its type.
+            let auto_dir = opts.dir.is_none() && rule_dir.is_none();
+            let dir = match (opts.dir, rule_dir, &category) {
+                (Some(dir), _, _) | (None, Some(dir), _) => dir,
+                (None, None, Some(c)) => st.settings.category_dir(c),
+                (None, None, None) => st.settings.download_dir.clone(),
             };
+            let queue = opts
+                .queue
+                .filter(|q| st.settings.queue(q).is_some())
+                .or_else(|| {
+                    rule.as_ref()
+                        .map(|r| r.queue.clone())
+                        .filter(|q| st.settings.queue(q).is_some())
+                })
+                .unwrap_or_else(|| MAIN_QUEUE.into());
             let record = TaskRecord {
                 id: uuid::Uuid::new_v4().to_string(),
                 url: key,
@@ -329,19 +381,20 @@ impl Manager {
                 max_connections: opts.max_connections.map(|c| c.clamp(1, 32)),
                 category: category.map(|c| c.name),
                 auto_dir,
-                queue: opts
-                    .queue
-                    .filter(|q| st.settings.queue(q).is_some())
-                    .unwrap_or_else(|| MAIN_QUEUE.into()),
+                queue,
                 position: next_position(&st.tasks),
                 created_at: now,
                 updated_at: now,
                 completed_at: None,
                 media,
                 site,
+                speed_limit: None,
+                resume_at: None,
+                site_rule: rule.map(|r| r.pattern),
             };
             st.store.upsert(&record)?;
             let entry = Entry {
+                limiter: Arc::new(RateLimiter::unlimited()),
                 url: url.to_string(),
                 record,
                 live: Live::default(),
@@ -369,6 +422,8 @@ impl Manager {
 
     pub fn pause(&self, id: &str) -> Result<(), CoreError> {
         self.inner.with_entry(id, |st, entry| {
+            // Paused by hand: no longer until a time.
+            let had_timer = entry.record.resume_at.take().is_some();
             if let Some(control) = &entry.control {
                 entry.after_stop = AfterStop::Pause;
                 control.pause();
@@ -380,9 +435,73 @@ impl Manager {
                     st.store.upsert(&entry.record)?;
                     Ok(Some(entry.snapshot()))
                 }
+                TaskState::Paused | TaskState::Failed if had_timer => {
+                    st.store.upsert(&entry.record)?;
+                    Ok(Some(entry.snapshot()))
+                }
                 TaskState::Paused => Ok(None),
                 state => Err(invalid("pause", state)),
             }
+        })
+    }
+
+    /// Pause a download until `at` (Unix seconds); it is queued again by
+    /// itself then. A running download stops with a checkpoint like any
+    /// pause; a failed one keeps its error until it is retried at that time.
+    pub fn pause_until(&self, id: &str, at: i64) -> Result<(), CoreError> {
+        self.inner.with_entry(id, |st, entry| {
+            if entry.live.awaiting_confirmation || entry.record.state.is_finished() {
+                return Err(invalid("pause", entry.record.state));
+            }
+            entry.record.resume_at = Some(at);
+            if let Some(control) = &entry.control {
+                // Stored with the paused state once the job has stopped.
+                entry.after_stop = AfterStop::Pause;
+                control.pause();
+                return Ok(Some(entry.snapshot()));
+            }
+            if entry.record.state == TaskState::Queued {
+                entry.set_state(TaskState::Paused);
+            }
+            st.store.upsert(&entry.record)?;
+            Ok(Some(entry.snapshot()))
+        })
+    }
+
+    /// Queue the downloads paused until `now` or earlier. The manager calls
+    /// this itself every few seconds with the current time.
+    pub fn resume_due(&self, now: i64) {
+        let due: Vec<TaskId> = {
+            let st = self.inner.state.lock();
+            st.tasks
+                .iter()
+                .filter(|e| {
+                    e.record.resume_at.is_some_and(|at| at <= now)
+                        && e.control.is_none()
+                        && e.record.state.can_resume()
+                        && !e.live.awaiting_confirmation
+                })
+                .map(|e| e.record.id.clone())
+                .collect()
+        };
+        for id in due {
+            if let Err(e) = self.resume(&id) {
+                tracing::warn!(task = id, "could not resume at its time: {e}");
+            }
+        }
+    }
+
+    /// Give a download a speed limit of its own (bytes per second), under the
+    /// global one; `None` or 0 removes it. A running download follows the
+    /// change at once, except a video page, whose yt-dlp takes it at its next
+    /// start.
+    pub fn set_speed_limit(&self, id: &str, limit: Option<u64>) -> Result<(), CoreError> {
+        let limit = limit.filter(|&l| l > 0);
+        self.inner.with_entry(id, |st, entry| {
+            entry.record.speed_limit = limit;
+            entry.limiter.set_rate(limit.unwrap_or(0));
+            st.store.upsert(&entry.record)?;
+            Ok(Some(entry.snapshot()))
         })
     }
 
@@ -400,6 +519,7 @@ impl Manager {
                     // Resuming one held for confirmation by hand accepts it
                     // as it is.
                     entry.live.awaiting_confirmation = false;
+                    entry.record.resume_at = None;
                     entry.record.error = None;
                     entry.record.error_kind = None;
                     entry.set_state(TaskState::Queued);
@@ -427,6 +547,7 @@ impl Manager {
                 _ => {
                     remove_partial(&entry.record);
                     entry.record.downloaded = 0;
+                    entry.record.resume_at = None;
                     entry.live = Live::default();
                     entry.set_state(TaskState::Canceled);
                     st.store.upsert(&entry.record)?;
@@ -637,7 +758,7 @@ impl Manager {
     /// from the manifest with the download's own headers. No media is
     /// downloaded. For the quality chooser in the confirmation dialog.
     pub async fn inspect_media(&self, id: &str) -> Result<MediaChoices, CoreError> {
-        let (url, headers, info) = {
+        let (url, headers, info, engine) = {
             let st = self.inner.state.lock();
             let entry = st
                 .tasks
@@ -649,9 +770,16 @@ impl Manager {
                 .media
                 .clone()
                 .ok_or_else(|| invalid("inspect the stream of", entry.record.state))?;
-            (entry.url.clone(), entry.headers.clone(), info)
+            let rule = entry.rule(&st.settings);
+            let engine = self.inner.engine.lock().clone();
+            let engine = self.inner.engine_for(&engine, &st.settings, rule)?;
+            (
+                entry.url.clone(),
+                rule_headers(&entry.headers, rule),
+                info,
+                engine,
+            )
         };
-        let engine = self.inner.engine.lock().clone();
         let options = engine.media_options(&url, info.kind, &headers).await?;
         Ok(MediaChoices {
             options,
@@ -670,7 +798,7 @@ impl Manager {
     /// What a video page offers, read by yt-dlp (which fetches the page and
     /// its player data, no video). For the quality chooser.
     pub async fn inspect_site(&self, id: &str) -> Result<SiteChoices, CoreError> {
-        let (url, site, settings) = {
+        let (url, site, settings, proxy) = {
             let st = self.inner.state.lock();
             let entry = st
                 .tasks
@@ -682,11 +810,11 @@ impl Manager {
                 .site
                 .clone()
                 .ok_or_else(|| invalid("inspect the page of", entry.record.state))?;
-            (entry.url.clone(), site, st.settings.clone())
+            let proxy = site_proxy(&st.settings, entry.rule(&st.settings));
+            (entry.url.clone(), site, st.settings.clone(), proxy)
         };
         let tools = downpipe_providers::tools::find(&self.inner.tool_config(&settings));
-        let proxy = (!settings.proxy.is_empty()).then_some(settings.proxy.as_str());
-        let info = downpipe_providers::info::inspect(&tools, &url, proxy).await?;
+        let info = downpipe_providers::info::inspect(&tools, &url, proxy.as_deref()).await?;
         Ok(SiteChoices {
             site: site.site,
             title: info.title,
@@ -829,9 +957,43 @@ impl Manager {
             .collect()
     }
 
+    /// Hosts that refused extra connections this session and that no rule
+    /// holds to that many connections yet, for "make it a rule".
+    pub fn refused_hosts(&self) -> Vec<RefusedHost> {
+        let rules = self.settings().site_rules;
+        let engine = self.inner.engine.lock().clone();
+        let mut out: Vec<RefusedHost> = Vec::new();
+        for (host, _port, connections) in engine.connection_limits() {
+            let connections = u32::try_from(connections).unwrap_or(u32::MAX);
+            let covered = rules::rule_for_host(&rules, &host)
+                .and_then(|r| r.max_connections)
+                .is_some_and(|max| max <= connections);
+            if covered {
+                continue;
+            }
+            // One row per host, whatever ports it was reached on.
+            match out.iter_mut().find(|h| h.host == host) {
+                Some(seen) => seen.connections = seen.connections.min(connections),
+                None => out.push(RefusedHost { host, connections }),
+            }
+        }
+        out
+    }
+
     pub fn update_settings(&self, settings: Settings) -> Result<Settings, CoreError> {
         let settings = settings.normalized();
         validate_proxy(&settings.proxy)?;
+        if let Some(problem) = rules::problems(&settings.site_rules).first() {
+            let pattern = settings
+                .site_rules
+                .iter()
+                .find(|r| r.id == problem.id)
+                .map_or("", |r| r.pattern.as_str());
+            return Err(CoreError::InvalidSetting(format!(
+                "site rule `{pattern}`: {}",
+                rules::describe(problem.code)
+            )));
+        }
         if settings.user_agent.chars().any(char::is_control) {
             return Err(CoreError::InvalidSetting(
                 "the user agent cannot contain control characters".into(),
@@ -843,8 +1005,11 @@ impl Manager {
         let rebuilt =
             if previous.proxy != settings.proxy || previous.user_agent != settings.user_agent {
                 let config = engine_config(&self.inner.base_config, &settings);
+                // Derived, so what hosts refused is not forgotten.
+                let current = self.inner.engine.lock().clone();
                 Some(
-                    Engine::with_limiter(config, self.inner.limiter.clone())
+                    current
+                        .derive(config)
                         .map_err(|e| CoreError::InvalidSetting(e.to_string()))?,
                 )
             } else {
@@ -865,8 +1030,26 @@ impl Manager {
         }
         if let Some(engine) = rebuilt {
             *self.inner.engine.lock() = engine;
+            self.inner.proxied.lock().clear();
+        } else {
+            // Engines are kept by proxy; drop those no rule uses any more.
+            let wanted: Vec<String> = settings.site_rules.iter().filter_map(proxy_key).collect();
+            self.inner
+                .proxied
+                .lock()
+                .retain(|key, _| wanted.contains(key));
         }
         self.inner.limiter.set_rate(settings.speed_limit);
+        // Running downloads follow a changed site limit at once.
+        self.inner.site_limiters.lock().retain(|id, limiter| {
+            let rate = settings
+                .site_rules
+                .iter()
+                .find(|r| &r.id == id)
+                .and_then(|r| r.speed_limit);
+            limiter.set_rate(rate.unwrap_or(0));
+            rate.is_some()
+        });
         self.inner.emit(ManagerEvent::Settings {
             settings: Box::new(settings.clone()),
         });
@@ -907,6 +1090,8 @@ impl Manager {
                 .filter(|q| q.id != MAIN_QUEUE)
                 .count(),
             categories: backup.settings.categories.len(),
+            site_rules: backup.settings.site_rules.len(),
+            feeds: backup.feeds.len(),
         }
     }
 
@@ -1025,9 +1210,15 @@ impl Manager {
                     },
                     updated_at: now,
                     completed_at: item.completed_at,
+                    speed_limit: item.speed_limit,
+                    // Looked up again when it starts, like any download's.
+                    site_rule: None,
+                    // Nothing waits for a time after an import.
+                    resume_at: None,
                 };
                 refresh_from_meta(&mut record);
                 st.store.upsert(&record)?;
+                let record_limit = record.speed_limit.unwrap_or(0);
                 let entry = Entry {
                     url: record.url.clone(),
                     record,
@@ -1038,6 +1229,7 @@ impl Manager {
                     after_stop: AfterStop::Pause,
                     last_persist: Instant::now(),
                     relink: false,
+                    limiter: Arc::new(RateLimiter::new(record_limit)),
                 };
                 snapshots.push(entry.snapshot());
                 st.tasks.push(entry);
@@ -1115,6 +1307,41 @@ impl Inner {
         }
     }
 
+    /// The engine for downloads `rule` applies to: the main one, or one
+    /// derived for the rule's proxy (or for no proxy).
+    fn engine_for(
+        &self,
+        engine: &Engine,
+        settings: &Settings,
+        rule: Option<&SiteRule>,
+    ) -> Result<Engine, DownloadError> {
+        let Some(key) = rule.and_then(proxy_key) else {
+            return Ok(engine.clone());
+        };
+        let mut cache = self.proxied.lock();
+        if let Some(engine) = cache.get(&key) {
+            return Ok(engine.clone());
+        }
+        let mut config = engine_config(&self.base_config, settings);
+        config.no_proxy = key.is_empty();
+        config.proxy = (!key.is_empty()).then(|| key.clone());
+        let derived = engine.derive(config)?;
+        cache.insert(key, derived.clone());
+        Ok(derived)
+    }
+
+    fn site_limiter(&self, rule: &SiteRule) -> Option<Arc<RateLimiter>> {
+        let rate = rule.speed_limit.filter(|&r| r > 0)?;
+        let mut limiters = self.site_limiters.lock();
+        let limiter = limiters
+            .entry(rule.id.clone())
+            .or_insert_with(|| Arc::new(RateLimiter::new(rate)));
+        if limiter.rate() != rate {
+            limiter.set_rate(rate);
+        }
+        Some(limiter.clone())
+    }
+
     fn with_entry(
         &self,
         id: &str,
@@ -1180,13 +1407,17 @@ impl Inner {
                     continue;
                 }
                 *busy += 1;
+                // Looked up at every start, so a rule changed while the
+                // download was paused applies to its resume.
+                let rule = entry.rule(settings);
+                entry.record.site_rule = rule.map(|r| r.pattern.clone());
                 let handle = if entry.record.site.is_some() {
                     let tools = site_tools
                         .get_or_insert_with(|| {
                             downpipe_providers::tools::find(&self.tool_config(settings))
                         })
                         .clone();
-                    downpipe_providers::job::start(entry.site_request(settings, tools))
+                    downpipe_providers::job::start(entry.site_request(settings, tools, rule))
                 } else {
                     let tool = match &entry.record.media {
                         Some(_) => ffmpeg
@@ -1194,7 +1425,15 @@ impl Inner {
                             .clone(),
                         None => None,
                     };
-                    engine.start(entry.request(per_download, tool))
+                    let limiter = rule.and_then(|r| self.site_limiter(r));
+                    let request = entry.request(per_download, tool, rule, limiter);
+                    match self.engine_for(&engine, settings, rule) {
+                        Ok(engine) => engine.start(request),
+                        // Validated when saved, so only a proxy the HTTP
+                        // stack refuses gets here; ignoring the rule would
+                        // send the download past the proxy it asked for.
+                        Err(err) => DownloadHandle::spawn(move |_| async move { Err(err) }),
+                    }
                 };
                 entry.control = Some(handle.control());
                 entry.after_stop = AfterStop::Pause;
@@ -1339,6 +1578,7 @@ impl Inner {
                     r.completed_at = Some(unix_now());
                     r.error = None;
                     r.error_kind = None;
+                    r.resume_at = None;
                     entry.live.segments.clear();
                     entry.set_state(TaskState::Completed);
                 }
@@ -1356,6 +1596,7 @@ impl Inner {
                 }
                 Ok(Outcome::Canceled) => {
                     r.downloaded = 0;
+                    r.resume_at = None;
                     entry.live = Live::default();
                     entry.set_state(TaskState::Canceled);
                 }
@@ -1394,15 +1635,36 @@ impl Entry {
         self.last_persist = Instant::now();
     }
 
-    fn request(&self, per_download: u32, ffmpeg: Option<PathBuf>) -> DownloadRequest {
+    /// The site rule that applies to this download under `settings`.
+    fn rule<'a>(&self, settings: &'a Settings) -> Option<&'a SiteRule> {
+        settings.site_rule_for(&url::Url::parse(&self.url).ok()?)
+    }
+
+    fn request(
+        &self,
+        per_download: u32,
+        ffmpeg: Option<PathBuf>,
+        rule: Option<&SiteRule>,
+        site_limiter: Option<Arc<RateLimiter>>,
+    ) -> DownloadRequest {
         let mut req = DownloadRequest::new(self.url.clone(), self.record.dir.clone());
         // Once the engine picked a name, keep it: that is how the resume
         // data next to the file is found again.
         req.file_name.clone_from(&self.record.file_name);
         req.checksum = self.record.checksum.as_deref().and_then(|c| c.parse().ok());
-        req.headers.clone_from(&self.headers);
-        req.max_connections = Some(self.record.max_connections.unwrap_or(per_download) as usize);
+        req.headers = rule_headers(&self.headers, rule);
+        // A number set for this one download beats the site's, which beats
+        // the global one.
+        let connections = self
+            .record
+            .max_connections
+            .or_else(|| rule.and_then(|r| r.max_connections))
+            .unwrap_or(per_download);
+        req.max_connections = Some(connections as usize);
+        req.max_retries = rule.and_then(|r| r.max_retries);
+        req.site_limiter = site_limiter;
         req.relink = self.relink;
+        req.limiter = Some(self.limiter.clone());
         req.media = self.record.media.as_ref().map(|info| MediaRequest {
             kind: info.kind,
             selection: info.selection.clone().unwrap_or_default(),
@@ -1411,17 +1673,68 @@ impl Entry {
         req
     }
 
-    fn site_request(&self, settings: &Settings, tools: Tools) -> SiteRequest {
+    fn site_request(
+        &self,
+        settings: &Settings,
+        tools: Tools,
+        rule: Option<&SiteRule>,
+    ) -> SiteRequest {
+        // yt-dlp has one limit per process: the lowest of the global, the
+        // download's own and the site's; 0 when none is set.
+        let rate_limit = [
+            Some(settings.speed_limit),
+            self.record.speed_limit,
+            rule.and_then(|r| r.speed_limit),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|&l| l > 0)
+        .min()
+        .unwrap_or(0);
         SiteRequest {
             url: self.url.clone(),
             dir: self.record.dir.clone(),
             file_name: self.record.file_name.clone(),
             selection: self.record.site.as_ref().and_then(|s| s.selection.clone()),
             tools,
-            proxy: (!settings.proxy.is_empty()).then(|| settings.proxy.clone()),
-            rate_limit: settings.speed_limit,
+            proxy: site_proxy(settings, rule),
+            rate_limit,
         }
     }
+}
+
+/// The proxy cache key of a rule that sets one: its URL, or `""` for none.
+fn proxy_key(rule: &SiteRule) -> Option<String> {
+    match rule.proxy {
+        RuleProxy::Inherit => None,
+        RuleProxy::Direct => Some(String::new()),
+        RuleProxy::Custom => Some(rule.proxy_url.clone()),
+    }
+}
+
+/// yt-dlp's `--proxy` for a download: `""` connects directly.
+fn site_proxy(settings: &Settings, rule: Option<&SiteRule>) -> Option<String> {
+    match rule.and_then(proxy_key) {
+        Some(key) => Some(key),
+        None => (!settings.proxy.is_empty()).then(|| settings.proxy.clone()),
+    }
+}
+
+/// The download's headers with the rule's user agent and referer in place
+/// of any the browser passed on.
+fn rule_headers(headers: &[(String, String)], rule: Option<&SiteRule>) -> Vec<(String, String)> {
+    let mut out = headers.to_vec();
+    let Some(rule) = rule else {
+        return out;
+    };
+    for (name, value) in [("User-Agent", &rule.user_agent), ("Referer", &rule.referer)] {
+        if value.is_empty() {
+            continue;
+        }
+        out.retain(|(n, _)| !n.trim().eq_ignore_ascii_case(name));
+        out.push((name.to_string(), value.clone()));
+    }
+    out
 }
 
 fn next_position(tasks: &[Entry]) -> i64 {

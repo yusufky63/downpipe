@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "Warteschlangen",
     categories: "Kategorien",
     network: "Netzwerk",
+    sites: "Websites",
     media: "Medien",
     schedule: "Zeitplan",
     app: "App",
@@ -24,8 +25,12 @@ export const settings: Messages["settings"] = {
     connectionsHint: "Obergrenze. Downpipe beginnt mit 2 und fügt weitere nur hinzu, solange sie helfen. 1 bis 32.",
     speedLimit: "Geschwindigkeitslimit",
     speedLimitHint: "Gilt für alle Downloads zusammen. Leer lassen für kein Limit. Wirkt sofort.",
+    speedLimitInvalid: "Geben Sie eine Zahl ein, etwa 1,5 oder 1.5.",
     noLimit: "Kein Limit",
     unit: "Einheit des Geschwindigkeitslimits",
+    duplicate: "Wenn ein Link schon in der Liste ist",
+    duplicateHint: "\"Nicht mehr fragen\" in der Nachfrage setzt das ebenfalls.",
+    duplicateAsk: "Jedes Mal fragen",
   },
   queues: {
     intro:
@@ -160,7 +165,10 @@ export const settings: Messages["settings"] = {
     madeOn: "Erstellt am {date}.",
     madeUnknown: "Die Datei gibt nicht an, wann sie erstellt wurde.",
     settings: "Einstellungen",
-    settingsHint: "Übernimmt die Einstellungen der Datei, ihre Warteschlangen ({queues}) und Kategorien ({categories}). Warteschlangen und Kategorien mit gleichem Namen werden aktualisiert; die nur auf diesem Computer vorhandenen bleiben. Die Pfade zu FFmpeg, yt-dlp und Deno bleiben unverändert.",
+    settingsHint:
+      "Übernimmt die Einstellungen der Datei, ihre Warteschlangen ({queues}), Kategorien ({categories}) und Website-Regeln ({rules}). Einträge mit gleichem Namen oder gleicher Website werden aktualisiert; die nur auf diesem Computer vorhandenen bleiben. Die Pfade zu FFmpeg, yt-dlp und Deno und die Fernsteuerung bleiben unverändert.",
+    feeds: "Feeds",
+    feedsHint: { one: "{count} von {total} Feeds ist neu. Jeder wird einmal gelesen; was er jetzt enthält, wird vorgemerkt, nicht heruntergeladen.", other: "{count} von {total} Feeds sind neu. Jeder wird einmal gelesen; was er jetzt enthält, wird vorgemerkt, nicht heruntergeladen." },
     downloads: "Downloads",
     downloadsHint: { one: "{count} von {total} ist neu. Unfertige Downloads werden pausiert hinzugefügt, Links aus der Liste werden übersprungen, und keine Datei wird ersetzt.", other: "{count} von {total} sind neu. Unfertige Downloads werden pausiert hinzugefügt, Links aus der Liste werden übersprungen, und keine Datei wird ersetzt." },
     invalid: { one: "{count} Eintrag in der Datei ist beschädigt und wird ausgelassen.", other: "{count} Einträge in der Datei sind beschädigt und werden ausgelassen." },
@@ -168,6 +176,8 @@ export const settings: Messages["settings"] = {
     result: {
       settings: "Die Einstellungen wurden importiert.",
       added: { one: "{count} Download hinzugefügt.", other: "{count} Downloads hinzugefügt." },
+      feeds: { one: "{count} Feed abonniert.", other: "{count} Feeds abonniert." },
+      feedsFailed: { one: "{count} Feed konnte nicht gelesen werden und wurde ausgelassen.", other: "{count} Feeds konnten nicht gelesen werden und wurden ausgelassen." },
       duplicates: { one: "{count} war bereits in der Liste.", other: "{count} waren bereits in der Liste." },
       invalid: { one: "{count} beschädigter Eintrag wurde ausgelassen.", other: "{count} beschädigte Einträge wurden ausgelassen." },
     },

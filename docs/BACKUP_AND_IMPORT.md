@@ -6,8 +6,9 @@
 
 **Export settings and list…** saves one JSON file (`downpipe-backup-<date>.json`) with:
 
-- the settings, queues and categories included, except the paths of the programs Downpipe runs (FFmpeg, yt-dlp, Deno), which belong to one machine;
-- every download in the list, in list order: its link, folder, file name, state, size and progress, queue, category, a stream's or video page's kind and chosen quality, a checksum if one was given, and when it was added and finished.
+- the settings, queues, categories and site rules included, except the paths of the programs Downpipe runs (FFmpeg, yt-dlp, Deno), which belong to one machine, and the remote control (whether it is on, its address and its token's hash), which a file must never be able to switch on;
+- every download in the list, in list order: its link, folder, file name, state, size and progress, queue, category, its own speed limit, a stream's or video page's kind and chosen quality, a checksum if one was given, and when it was added and finished;
+- the feed subscriptions: each feed's address, filter (file types and title pattern), check interval, queue and whether it is on, but not which items it has seen.
 
 It never contains headers or cookies: the catalog does not store them (headers given with a download live in memory only) and links are stored without `user:password@`. A link's own query string is kept as it is, since it is part of the address; treat a backup like the list itself.
 
@@ -26,9 +27,9 @@ It never contains headers or cookies: the catalog does not store them (headers g
 }
 ```
 
-**Import…** opens a file, checks it and shows what it holds before anything changes: when and by which version it was made, how many of its downloads are new, and how many queues and categories it has. Two checkboxes choose what to take:
+**Import…** opens a file, checks it and shows what it holds before anything changes: when and by which version it was made, how many of its downloads and feeds are new, and how many queues, categories and site rules it has. Checkboxes choose what to take (the feeds one only when the file has feeds):
 
-- **Settings.** The file's settings replace the current ones. Queues (by id) and categories (by name) from the file replace the same ones here and are added otherwise; queues and categories only this installation has stay. The FFmpeg, yt-dlp and Deno paths stay as they are, a download folder that is not an absolute path on this system keeps the current one, a category folder written for another system (`C:\...` on Linux, `/home/...` on Windows) becomes the category's folder inside the download folder, and a proxy or user agent this version refuses keeps the current one. Importing settings closes the Settings dialog, which would otherwise still show the old values.
+- **Settings.** The file's settings replace the current ones. Queues (by id), categories (by name) and site rules (by site) from the file replace the same ones here and are added otherwise; the ones only this installation has stay, and a replaced site rule keeps its id here. A site rule this version refuses (a pattern that is no site, a bad referer or proxy) is left out, and a rule's folder written for another system is cleared, so the rule's downloads go where the categories send them. The FFmpeg, yt-dlp and Deno paths and the remote control stay as they are, a download folder that is not an absolute path on this system keeps the current one, a category folder written for another system (`C:\...` on Linux, `/home/...` on Windows) becomes the category's folder inside the download folder, and a proxy or user agent this version refuses keeps the current one. Importing settings closes the Settings dialog, which would otherwise still show the old values.
 - **Downloads.** Each download is checked on its own; one that fails is left out and counted, the rest are imported:
   - only `http` and `https` links up to 8 KiB; credentials are removed and video pages are stored under their canonical link, as when they are added;
   - a file name of at most 255 characters, made safe like a server's;
@@ -37,6 +38,8 @@ It never contains headers or cookies: the catalog does not store them (headers g
   - a checksum only if it parses, a queue only if it exists after the settings are taken (otherwise the main queue), short single-line labels for the category and quality; a video page's site is taken from its link, not from the file.
 
 A link already in the list, or twice in the file, is skipped. Importing writes only to Downpipe's catalog. A paused download whose name is taken in its folder saves under a free name (`name (1).ext`) when it is resumed; the engine never overwrites a file.
+
+- **Feeds.** Each subscription is checked (an `http` or `https` address, a title pattern that compiles, at most 500 characters and 64 file types, an interval of 5 minutes to a week) and subscribed to as if added by hand: the feed is read once, and what it holds now is remembered, not downloaded, so only items published later are added. A feed already subscribed to is skipped, and one that cannot be read now is left out and counted. A queue the settings do not have becomes the main queue.
 
 Files over 64 MB, with more than 100,000 downloads, of another `format`, or from a newer `version` are refused with a message saying which.
 

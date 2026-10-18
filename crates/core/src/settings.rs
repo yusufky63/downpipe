@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::rules::{SiteRule, normalize_rules};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -56,7 +58,80 @@ pub struct Settings {
     /// Deno, which yt-dlp needs for YouTube. Empty: the tools folder, then
     /// `PATH` (and Node 22 or newer when there is no Deno at all).
     pub deno_path: String,
+    /// Per-site overrides; see [`crate::rules`].
+    pub site_rules: Vec<SiteRule>,
+    /// The answer to "this link is already in the list" once the user chose
+    /// "Don't ask again": one of [`DUPLICATE_ANSWERS`]. `ask` asks every
+    /// time. The desktop app applies it; the core still holds a browser's
+    /// duplicate for confirmation, so the answer is given in one place.
+    pub duplicate_answer: String,
+    /// Remote control from a phone or another computer (off by default).
+    pub remote: RemoteSettings,
 }
+
+/// Port the remote control listens on unless the user picks another.
+pub const DEFAULT_REMOTE_PORT: u16 = 9420;
+
+/// The optional remote control: an HTTP API and a small web page served by
+/// the desktop app (`downpipe-remote`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemoteSettings {
+    pub enabled: bool,
+    /// IP address to listen on: `127.0.0.1` (this computer only) unless the
+    /// user explicitly picks a network address such as `0.0.0.0`.
+    pub bind: String,
+    pub port: u16,
+    /// SHA-256 of the access token, lower-case hex. The token itself is
+    /// shown once when it is made and never stored, so neither the catalog
+    /// nor the settings the UI reads can give it away.
+    pub token_hash: String,
+}
+
+impl Default for RemoteSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: "127.0.0.1".into(),
+            port: DEFAULT_REMOTE_PORT,
+            token_hash: String::new(),
+        }
+    }
+}
+
+impl RemoteSettings {
+    fn normalized(mut self) -> Self {
+        let bind = self.bind.trim();
+        self.bind = match bind.parse::<std::net::IpAddr>() {
+            Ok(ip) => ip.to_string(),
+            Err(_) => Self::default().bind,
+        };
+        // Ports below 1024 need administrator rights on some systems.
+        if self.port < 1024 {
+            self.port = DEFAULT_REMOTE_PORT;
+        }
+        self.token_hash = self.token_hash.trim().to_ascii_lowercase();
+        if self.token_hash.len() != 64 || !self.token_hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            self.token_hash.clear();
+        }
+        // Without a token nobody could sign in, so it cannot be on.
+        if self.token_hash.is_empty() {
+            self.enabled = false;
+        }
+        self
+    }
+
+    /// Listens on an address other machines can reach.
+    pub fn is_network(&self) -> bool {
+        self.bind
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| !ip.is_loopback())
+    }
+}
+
+/// The values of [`Settings::duplicate_answer`]: ask, a numbered copy, the
+/// old file downloaded again in place, or the download already in the list.
+pub const DUPLICATE_ANSWERS: [&str; 4] = ["ask", "copy", "overwrite", "existing"];
 
 /// The queue every download belongs to unless moved.
 pub const MAIN_QUEUE: &str = "main";
@@ -145,6 +220,9 @@ impl Default for Settings {
             ffmpeg_path: String::new(),
             yt_dlp_path: String::new(),
             deno_path: String::new(),
+            site_rules: Vec::new(),
+            duplicate_answer: "ask".into(),
+            remote: RemoteSettings::default(),
         }
     }
 }
@@ -173,6 +251,12 @@ impl Settings {
         self.ffmpeg_path = self.ffmpeg_path.trim().trim_matches('"').to_string();
         self.yt_dlp_path = self.yt_dlp_path.trim().trim_matches('"').to_string();
         self.deno_path = self.deno_path.trim().trim_matches('"').to_string();
+        // An answer a newer version knows and this one does not asks again.
+        if !DUPLICATE_ANSWERS.contains(&self.duplicate_answer.as_str()) {
+            self.duplicate_answer = "ask".into();
+        }
+
+        self.remote = std::mem::take(&mut self.remote).normalized();
         self.categories = self
             .categories
             .into_iter()
@@ -194,7 +278,29 @@ impl Settings {
         {
             self.schedule.queue = String::new();
         }
+        self.site_rules = normalize_rules(std::mem::take(&mut self.site_rules));
+        for rule in &mut self.site_rules {
+            if !rule.queue.is_empty() && !self.queues.iter().any(|q| q.id == rule.queue) {
+                rule.queue = String::new();
+            }
+        }
         self
+    }
+
+    /// The rule that applies to downloads from `url`, if any.
+    pub fn site_rule_for(&self, url: &url::Url) -> Option<&SiteRule> {
+        crate::rules::rule_for(&self.site_rules, url)
+    }
+
+    /// Where `dir` of a rule or category points: absolute as it is,
+    /// otherwise inside the download folder.
+    pub fn resolve_dir(&self, folder: &str) -> PathBuf {
+        let folder = folder.trim();
+        if Path::new(folder).is_absolute() {
+            PathBuf::from(folder)
+        } else {
+            self.download_dir.join(folder)
+        }
     }
 
     pub fn queue(&self, id: &str) -> Option<&Queue> {
@@ -237,10 +343,8 @@ impl Settings {
         if folder.is_empty() {
             self.download_dir
                 .join(downpipe_http::filename::sanitize(&category.name))
-        } else if Path::new(folder).is_absolute() {
-            PathBuf::from(folder)
         } else {
-            self.download_dir.join(folder)
+            self.resolve_dir(folder)
         }
     }
 }
@@ -429,6 +533,26 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_answer_is_kept_only_when_known() {
+        for answer in DUPLICATE_ANSWERS {
+            let s = Settings {
+                duplicate_answer: answer.into(),
+                ..Settings::default()
+            }
+            .normalized();
+            assert_eq!(s.duplicate_answer, answer);
+        }
+        let s = Settings {
+            duplicate_answer: "rename".into(),
+            ..Settings::default()
+        }
+        .normalized();
+        assert_eq!(s.duplicate_answer, "ask");
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s.duplicate_answer, "ask");
+    }
+
+    #[test]
     fn missing_fields_take_defaults() {
         let s: Settings = serde_json::from_str(r#"{"speed_limit": 1024}"#).unwrap();
         assert_eq!(s.speed_limit, 1024);
@@ -546,6 +670,43 @@ mod tests {
             exts.windows(2).all(|w| w[0] < w[1]),
             "sorted, no duplicates"
         );
+    }
+
+    #[test]
+    fn remote_control_needs_a_token_and_a_valid_address() {
+        let pick = |remote: RemoteSettings| {
+            Settings {
+                remote,
+                ..Settings::default()
+            }
+            .normalized()
+            .remote
+        };
+        let off = Settings::default().remote;
+        assert!(!off.enabled && off.bind == "127.0.0.1" && !off.is_network());
+
+        let hash = "AB".repeat(32);
+        let on = pick(RemoteSettings {
+            enabled: true,
+            bind: " 0.0.0.0 ".into(),
+            port: 80,
+            token_hash: hash.clone(),
+        });
+        assert!(on.enabled && on.is_network());
+        assert_eq!(on.bind, "0.0.0.0");
+        assert_eq!(on.port, DEFAULT_REMOTE_PORT, "privileged ports fall back");
+        assert_eq!(on.token_hash, hash.to_ascii_lowercase());
+
+        let bad = pick(RemoteSettings {
+            enabled: true,
+            bind: "my-computer".into(),
+            port: 50000,
+            token_hash: "not a hash".into(),
+        });
+        assert_eq!(bad.bind, "127.0.0.1", "only IP addresses");
+        assert!(bad.token_hash.is_empty());
+        assert!(!bad.enabled, "no token, no remote control");
+        assert_eq!(bad.port, 50000);
     }
 
     #[test]

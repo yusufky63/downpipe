@@ -42,5 +42,30 @@ export const dialogs: Messages["dialogs"] = {
     overwrite: "L'ajouter à nouveau et remplacer le fichier existant",
     existing: "Afficher le téléchargement existant s'il est terminé, sinon le reprendre",
     ok: "OK",
+    remember: "Ne plus demander, toujours faire ceci",
+    rememberHint: "Paramètres, Téléchargements permet de revenir dessus.",
+  },
+  /** A download's own speed limit, under the global one. {limit} is like "2 MiB/s". */
+  speedLimit: {
+    eyebrow: "Limite de vitesse",
+    body: "Pour ce téléchargement seul, sous la limite globale de {limit}.",
+    bodyNoGlobal: "Pour ce téléchargement seul. Il n'y a pas de limite globale.",
+    bodyMany: "Pour chacun d'eux séparément, sous la limite globale de {limit}.",
+    bodyManyNoGlobal: "Pour chacun d'eux séparément. Il n'y a pas de limite globale.",
+    label: "Limite",
+    unit: "Unité de la limite de vitesse",
+    placeholder: "Aucune limite",
+    video: "Une vidéo prend la nouvelle limite quand elle redémarre.",
+    remove: "Retirer la limite",
+    save: "Appliquer la limite",
+  },
+  /** "Pause until…" with a time of the user's choice. */
+  pauseUntil: {
+    eyebrow: "Suspendre jusqu'à",
+    label: "Reprendre à",
+    hint: "Se suspend maintenant et reprend tout seul à cette heure tant que Downpipe tourne, sinon dès qu'il redémarre ensuite.",
+    past: "Choisissez une heure à venir.",
+    invalid: "Saisissez une date et une heure.",
+    submit: "Suspendre",
   },
 };

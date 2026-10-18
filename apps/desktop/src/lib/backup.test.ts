@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BackupPreview, IdmRow } from "./api";
+import { errorMessage, type BackupPreview, type IdmRow } from "./api";
 import { backupOrigin, idmRowName, importErrorText, importReportText, importableRows, initialIdmSelection } from "./backup";
 
 const row = (patch: Partial<IdmRow>): IdmRow => ({
@@ -21,16 +21,22 @@ const preview = (patch: Partial<BackupPreview>): BackupPreview => ({
   invalid: 0,
   queues: 0,
   categories: 0,
+  site_rules: 0,
+  feeds: 0,
+  new_feeds: 0,
   ...patch,
 });
 
 describe("import results", () => {
   it("say what was taken and what was left", () => {
-    expect(importReportText({ settings: true, added: 3, duplicates: 1, invalid: 0 })).toBe(
+    expect(importReportText({ settings: true, added: 3, duplicates: 1, invalid: 0, feeds: 0, feeds_failed: 0 })).toBe(
       "The settings were imported. Added 3 downloads. 1 was already in the list.",
     );
-    expect(importReportText({ settings: false, added: 1, duplicates: 0, invalid: 2 })).toBe(
+    expect(importReportText({ settings: false, added: 1, duplicates: 0, invalid: 2, feeds: 0, feeds_failed: 0 })).toBe(
       "Added 1 download. 2 damaged entries were left out.",
+    );
+    expect(importReportText({ settings: false, added: 0, duplicates: 0, invalid: 0, feeds: 2, feeds_failed: 1 })).toBe(
+      "Added 0 downloads. Subscribed to 2 feeds. 1 feed could not be read and was left out.",
     );
   });
 
@@ -38,7 +44,9 @@ describe("import results", () => {
     expect(importErrorText({ code: "not_a_backup", message: "x" })).toBe("This file is not a Downpipe backup.");
     expect(importErrorText({ code: "backup_too_new", message: "x" })).toContain("newer Downpipe");
     expect(importErrorText({ code: "file_too_large", message: "x" })).toBe("This file is too large to import.");
-    expect(importErrorText({ code: "io", message: "Access is denied." })).toBe("Access is denied.");
+    // Anything else is worded like any other failure.
+    const io = { code: "io", message: "Access is denied." };
+    expect(importErrorText(io)).toBe(errorMessage(io));
   });
 
   it("name where a backup came from as far as it says", () => {

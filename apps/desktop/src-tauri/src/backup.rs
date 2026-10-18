@@ -8,7 +8,10 @@
 use std::path::{Path, PathBuf};
 
 use downpipe_core::Manager;
-use downpipe_core::backup::{self, Backup, BackupError, BackupSummary, ImportChoice, ImportReport};
+use downpipe_core::backup::{
+    self, Backup, BackupError, BackupFeed, BackupSummary, ImportChoice, ImportReport,
+};
+use downpipe_core::feeds::Feeds;
 use downpipe_core::idm::{self, IdmEntry};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -102,8 +105,10 @@ pub async fn export_backup(
     app: AppHandle,
     window: tauri::WebviewWindow,
     manager: State<'_, Manager>,
+    feeds: State<'_, Feeds>,
 ) -> CmdResult<Option<Exported>> {
-    let backup = manager.backup(env!("CARGO_PKG_VERSION"));
+    let mut backup = manager.backup(env!("CARGO_PKG_VERSION"));
+    backup.feeds = feeds.list().iter().map(BackupFeed::from_feed).collect();
     let name = format!(
         "downpipe-backup-{}.json",
         chrono::Local::now().format("%Y-%m-%d")
@@ -129,6 +134,8 @@ pub struct BackupPreview {
     file: String,
     #[serde(flatten)]
     summary: BackupSummary,
+    /// Of the file's feeds, the ones not subscribed to yet.
+    new_feeds: usize,
 }
 
 /// Pick a backup and check it; the preview says what importing it brings.
@@ -137,6 +144,7 @@ pub async fn inspect_backup(
     app: AppHandle,
     window: tauri::WebviewWindow,
     manager: State<'_, Manager>,
+    feeds: State<'_, Feeds>,
     pending: State<'_, PendingImports>,
 ) -> CmdResult<Option<BackupPreview>> {
     let Some(path) = open_dialog(&window, &app, ("JSON", &["json"])).await else {
@@ -147,25 +155,43 @@ pub async fn inspect_backup(
         .await
         .map_err(|e| CommandError::new("internal", e.to_string()))??;
     let summary = manager.backup_summary(&parsed);
+    let subscribed: Vec<String> = feeds.list().into_iter().map(|f| f.url).collect();
+    let new_feeds = parsed
+        .feeds
+        .iter()
+        .filter(|f| {
+            let url = f.url.trim_end_matches('/');
+            !subscribed.iter().any(|s| s.trim_end_matches('/') == url)
+        })
+        .count();
     *pending.backup.lock() = Some(parsed);
     Ok(Some(BackupPreview {
         file: file_label(&path),
         summary,
+        new_feeds,
     }))
 }
 
 /// Import what the preview showed, as far as the user chose.
 #[tauri::command]
-pub fn import_backup(
+pub async fn import_backup(
     app: AppHandle,
     manager: State<'_, Manager>,
+    feeds: State<'_, Feeds>,
     pending: State<'_, PendingImports>,
     choice: ImportChoice,
 ) -> CmdResult<ImportReport> {
     let backup = pending.backup.lock().take().ok_or_else(|| {
         CommandError::new("not_found", "Pick the backup again; it is no longer open")
     })?;
-    let report = manager.import_backup(&backup, choice)?;
+    // Settings first, so the feeds find the queues they name.
+    let mut report = manager.import_backup(&backup, choice)?;
+    if choice.feeds {
+        let imported = feeds.import(backup.feeds.clone()).await;
+        report.feeds = imported.added;
+        report.feeds_failed = imported.failed;
+        report.duplicates += imported.duplicates;
+    }
     if report.settings {
         // As saving the settings does: the login item follows at once.
         crate::sync_autostart(&app, manager.settings().start_with_system)

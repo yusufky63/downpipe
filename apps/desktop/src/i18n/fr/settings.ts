@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "Files d'attente",
     categories: "Catégories",
     network: "Réseau",
+    sites: "Sites",
     media: "Médias",
     schedule: "Planification",
     app: "Application",
@@ -24,8 +25,12 @@ export const settings: Messages["settings"] = {
     connectionsHint: "Limite supérieure. Downpipe commence avec 2 et n'en ajoute que tant qu'elles sont utiles. De 1 à 32.",
     speedLimit: "Limite de vitesse",
     speedLimitHint: "Partagée par tous les téléchargements. Laissez vide pour ne pas limiter. S'applique immédiatement.",
+    speedLimitInvalid: "Saisissez un nombre, par exemple 1,5 ou 1.5.",
     noLimit: "Aucune limite",
     unit: "Unité de la limite de vitesse",
+    duplicate: "Quand un lien est déjà dans la liste",
+    duplicateHint: "\"Ne plus demander\" dans la question règle aussi ce choix.",
+    duplicateAsk: "Demander à chaque fois",
   },
   queues: {
     intro:
@@ -164,7 +169,10 @@ export const settings: Messages["settings"] = {
     madeOn: "Créé le {date}.",
     madeUnknown: "Le fichier n'indique pas quand il a été créé.",
     settings: "Réglages",
-    settingsHint: "Reprend les réglages du fichier, ses files d'attente ({queues}) et ses catégories ({categories}). Les files et catégories de même nom sont mises à jour ; celles que seul cet ordinateur possède sont conservées. Les chemins de FFmpeg, yt-dlp et Deno ne changent pas.",
+    settingsHint:
+      "Reprend les réglages du fichier, ses files d'attente ({queues}), catégories ({categories}) et règles par site ({rules}). Celles de même nom ou de même site sont mises à jour ; celles que seul cet ordinateur possède sont conservées. Les chemins de FFmpeg, yt-dlp et Deno et le contrôle à distance ne changent pas.",
+    feeds: "Flux",
+    feedsHint: { one: "{count} flux sur {total} est nouveau. Chacun est lu une fois et son contenu actuel est mémorisé, sans être téléchargé.", many: "{count} flux sur {total} sont nouveaux. Chacun est lu une fois et son contenu actuel est mémorisé, sans être téléchargé.", other: "{count} flux sur {total} sont nouveaux. Chacun est lu une fois et son contenu actuel est mémorisé, sans être téléchargé." },
     downloads: "Téléchargements",
     downloadsHint: { one: "{count} sur {total} est nouveau. Les téléchargements inachevés sont ajoutés en pause, les liens déjà dans la liste sont ignorés et aucun fichier n'est remplacé.", many: "{count} sur {total} sont nouveaux. Les téléchargements inachevés sont ajoutés en pause, les liens déjà dans la liste sont ignorés et aucun fichier n'est remplacé.", other: "{count} sur {total} sont nouveaux. Les téléchargements inachevés sont ajoutés en pause, les liens déjà dans la liste sont ignorés et aucun fichier n'est remplacé." },
     invalid: { one: "{count} entrée du fichier est endommagée et sera ignorée.", many: "{count} entrées du fichier sont endommagées et seront ignorées.", other: "{count} entrées du fichier sont endommagées et seront ignorées." },
@@ -172,6 +180,8 @@ export const settings: Messages["settings"] = {
     result: {
       settings: "Les réglages ont été importés.",
       added: { one: "{count} téléchargement ajouté.", many: "{count} téléchargements ajoutés.", other: "{count} téléchargements ajoutés." },
+      feeds: { one: "Abonné à {count} flux.", many: "Abonné à {count} flux.", other: "Abonné à {count} flux." },
+      feedsFailed: { one: "{count} flux n'a pas pu être lu et a été ignoré.", many: "{count} flux n'ont pas pu être lus et ont été ignorés.", other: "{count} flux n'ont pas pu être lus et ont été ignorés." },
       duplicates: { one: "{count} était déjà dans la liste.", many: "{count} étaient déjà dans la liste.", other: "{count} étaient déjà dans la liste." },
       invalid: { one: "{count} entrée endommagée a été ignorée.", many: "{count} entrées endommagées ont été ignorées.", other: "{count} entrées endommagées ont été ignorées." },
     },

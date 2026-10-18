@@ -27,13 +27,26 @@ export const options = {
     "Used while Media on this page is on in the toolbar popup. HLS and DASH streams are always listed; the excluded sites above apply here too.",
   overlay: "Show a Download button on videos",
   overlayDetail: "On a playing video, for a few seconds and while the pointer is over it.",
+  overlayHover: "Show it only while the pointer is over the video",
+  overlayHoverDetail: "Otherwise it also shows for a few seconds when a video starts.",
+  overlaySitesLabel: "Sites without the button",
+  overlaySitesHelp: "One site per line, like the excluded sites. Hide on this site, in the button's menu, adds the site here. Media these sites play is still listed in the popup.",
   mediaTypesLabel: "List media files of these types",
   mediaTypesHelp:
     "Extensions separated by spaces or commas. A file without one is judged by the type the server sends. An empty list lists streams only.",
   mediaSizeLabel: "Leave out media files smaller than",
   mediaSizeHelp:
     "Keeps notification sounds and short previews out. 0 lists every size; files whose size the server does not say are always listed.",
-  appHeading: "05 — Desktop app",
+  /** Alt+click (or Shift+click) on a link leaves that download to the browser. */
+  bypassHeading: "05 — Download in the browser",
+  bypassLabel: "Let the browser download a link clicked with",
+  bypassAlt: "Alt (Option on a Mac)",
+  bypassShift: "Shift",
+  bypassOff: "Off",
+  bypassHelp: "While capture is on, clicking a link with this key held leaves that one download to the browser. Other clicks and the browser's own shortcuts stay as they are.",
+  bypassAccess: "This needs access to the sites you visit, to notice the click. Nothing is read or sent until you click a link this way.",
+  bypassAllow: "Allow access",
+  appHeading: "06 — Desktop app",
   startApp: "Start Downpipe when it is closed",
   startAppDetail:
     "A download sent from the browser starts Downpipe in the tray first, instead of failing. When this is off, Downpipe has to be open.",

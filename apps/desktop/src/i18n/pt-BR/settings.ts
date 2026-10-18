@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "Filas",
     categories: "Categorias",
     network: "Rede",
+    sites: "Sites",
     media: "Mídia",
     schedule: "Agendamento",
     app: "Aplicativo",
@@ -24,8 +25,12 @@ export const settings: Messages["settings"] = {
     connectionsHint: "Limite máximo. O Downpipe começa com 2 e adiciona mais somente enquanto elas ajudam. De 1 a 32.",
     speedLimit: "Limite de velocidade",
     speedLimitHint: "Compartilhado por todos os downloads. Deixe vazio para não ter limite. Vale imediatamente.",
+    speedLimitInvalid: "Digite um número, como 1,5 ou 1.5.",
     noLimit: "Sem limite",
     unit: "Unidade do limite de velocidade",
+    duplicate: "Quando um link já está na lista",
+    duplicateHint: "\"Não perguntar de novo\" na pergunta também define isto.",
+    duplicateAsk: "Perguntar sempre",
   },
   queues: {
     intro:
@@ -165,7 +170,10 @@ export const settings: Messages["settings"] = {
     madeOn: "Criado em {date}.",
     madeUnknown: "O arquivo não informa quando foi criado.",
     settings: "Configurações",
-    settingsHint: "Usa as configurações do arquivo, suas filas ({queues}) e categorias ({categories}). Filas e categorias com o mesmo nome são atualizadas; as que só este computador tem continuam. Os caminhos do FFmpeg, do yt-dlp e do Deno não mudam.",
+    settingsHint:
+      "Usa as configurações do arquivo, suas filas ({queues}), categorias ({categories}) e regras por site ({rules}). As que têm o mesmo nome ou site são atualizadas; as que só este computador tem continuam. Os caminhos do FFmpeg, do yt-dlp e do Deno e o controle remoto não mudam.",
+    feeds: "Feeds",
+    feedsHint: { one: "{count} de {total} feeds é novo. Cada um é lido uma vez e o que contém agora é lembrado, sem ser baixado.", many: "{count} de {total} feeds são novos. Cada um é lido uma vez e o que contém agora é lembrado, sem ser baixado.", other: "{count} de {total} feeds são novos. Cada um é lido uma vez e o que contém agora é lembrado, sem ser baixado." },
     downloads: "Downloads",
     downloadsHint: { one: "{count} de {total} é novo. Downloads não concluídos são adicionados pausados, links que já estão na lista são ignorados e nenhum arquivo é substituído.", many: "{count} de {total} são novos. Downloads não concluídos são adicionados pausados, links que já estão na lista são ignorados e nenhum arquivo é substituído.", other: "{count} de {total} são novos. Downloads não concluídos são adicionados pausados, links que já estão na lista são ignorados e nenhum arquivo é substituído." },
     invalid: { one: "{count} entrada do arquivo está danificada e será deixada de fora.", many: "{count} entradas do arquivo estão danificadas e serão deixadas de fora.", other: "{count} entradas do arquivo estão danificadas e serão deixadas de fora." },
@@ -173,6 +181,8 @@ export const settings: Messages["settings"] = {
     result: {
       settings: "As configurações foram importadas.",
       added: { one: "{count} download adicionado.", many: "{count} downloads adicionados.", other: "{count} downloads adicionados." },
+      feeds: { one: "Inscrito em {count} feed.", many: "Inscrito em {count} feeds.", other: "Inscrito em {count} feeds." },
+      feedsFailed: { one: "{count} feed não pôde ser lido e foi deixado de fora.", many: "{count} feeds não puderam ser lidos e foram deixados de fora.", other: "{count} feeds não puderam ser lidos e foram deixados de fora." },
       duplicates: { one: "{count} já estava na lista.", many: "{count} já estavam na lista.", other: "{count} já estavam na lista." },
       invalid: { one: "{count} entrada danificada foi deixada de fora.", many: "{count} entradas danificadas foram deixadas de fora.", other: "{count} entradas danificadas foram deixadas de fora." },
     },

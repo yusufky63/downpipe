@@ -8,6 +8,7 @@ import {
   canResume,
   countByFilter,
   displayName,
+  errorDetail,
   errorText,
   knownSize,
   needsNewLink,
@@ -125,10 +126,16 @@ describe("failures and waits", () => {
     expect(needsNewLink(task("f", { state: "failed", error_kind: "forbidden", site: { site: "YouTube" } }))).toBe(false);
   });
 
-  it("explains expired links in the user's language and keeps other messages", () => {
+  it("explains failures in the user's language and keeps the engine's words", () => {
     const expired = task("a", { state: "failed", error_kind: "expired_link", error: "the server sent a web page instead of the file" });
     expect(errorText(expired)).toMatch(/^The link has expired/);
-    expect(errorText(task("b", { state: "failed", error_kind: "network", error: "network error: timed out" }))).toBe("Network error: timed out");
+    const network = task("b", { state: "failed", error_kind: "network", error: "network error: timed out" });
+    expect(errorText(network)).toBe("The connection to the server failed. Check your network and try again.");
+    expect(errorDetail(network)).toBe("Network error: timed out");
+    // A kind from a newer engine: its own message, nothing more.
+    const unknown = task("d", { state: "failed", error_kind: "brand_new", error: "something new happened" });
+    expect(errorText(unknown)).toBe("Something new happened");
+    expect(errorDetail(unknown)).toBeNull();
     expect(errorText(task("c"))).toBeNull();
   });
 

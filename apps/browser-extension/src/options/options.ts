@@ -7,17 +7,21 @@ import {
   DEFAULT_CAPTURE_TYPES,
   filtersFromForm,
   parseMinSize,
+  parseSiteList,
   sizeFields,
   type FormErrors,
   type SizeUnit,
 } from "../lib/filters";
-import { DEFAULT_MEDIA_TYPES, MAX_MEDIA_MIN_BYTES, parseMediaTypeList, type MediaFilters } from "../lib/media";
+import { parseBypassKey } from "../lib/bypass";
+import { DEFAULT_MEDIA_TYPES, MAX_MEDIA_MIN_BYTES, WEB_ORIGINS, parseMediaTypeList, type MediaFilters } from "../lib/media";
 import { isSettings, type Settings } from "../lib/messages";
 import { byId, startPage } from "../ui/dom";
 
 startPage();
 
 const DOWNLOADS_PERMISSION: chrome.permissions.Permissions = { permissions: ["downloads"] };
+/** What the click script for Alt+click needs: to run in the pages. */
+const SITES_PERMISSION: chrome.permissions.Permissions = { origins: WEB_ORIGINS };
 /** Longer lists end in "and N more" so one bad paste does not fill the page. */
 const MAX_SHOWN_ERRORS = 5;
 
@@ -37,12 +41,20 @@ const els = {
   unit: byId<HTMLSelectElement>("unit"),
   sizeErrors: byId<HTMLUListElement>("size-errors"),
   mediaOverlay: byId<HTMLInputElement>("media-overlay"),
+  overlayHover: byId<HTMLInputElement>("overlay-hover"),
+  overlayHoverRow: byId("overlay-hover-row"),
+  overlaySites: byId<HTMLTextAreaElement>("overlay-sites"),
+  overlaySitesField: byId("overlay-sites-field"),
+  overlaySitesErrors: byId<HTMLUListElement>("overlay-sites-errors"),
   mediaTypes: byId<HTMLTextAreaElement>("media-types"),
   mediaTypesDefault: byId<HTMLButtonElement>("media-types-default"),
   mediaTypesErrors: byId<HTMLUListElement>("media-types-errors"),
   mediaSize: byId<HTMLInputElement>("media-size"),
   mediaUnit: byId<HTMLSelectElement>("media-unit"),
   mediaSizeErrors: byId<HTMLUListElement>("media-size-errors"),
+  bypassKey: byId<HTMLSelectElement>("bypass-key"),
+  bypassAccess: byId("bypass-access"),
+  bypassAllow: byId<HTMLButtonElement>("bypass-allow"),
   save: byId<HTMLButtonElement>("save"),
   state: byId("save-state"),
 };
@@ -78,18 +90,42 @@ function paintErrors(errors: FormErrors): void {
 
 const NO_ERRORS: FormErrors = { types: [], sites: [], size: [] };
 
-function paintMediaErrors(types: readonly string[], size: readonly string[]): void {
+function paintMediaErrors(types: readonly string[], size: readonly string[], sites: readonly string[] = []): void {
+  showErrors(els.overlaySitesErrors, els.overlaySites, sites);
   showErrors(els.mediaTypesErrors, els.mediaTypes, types);
   showErrors(els.mediaSizeErrors, els.mediaSize, size);
 }
 
 /** The media card as stored, or what to say under its fields. */
-function mediaFromForm(): { ok: true; media: MediaFilters } | { ok: false; types: string[]; size: string[] } {
+function mediaFromForm():
+  | { ok: true; media: MediaFilters }
+  | { ok: false; types: string[]; size: string[]; sites: string[] } {
   const types = parseMediaTypeList(els.mediaTypes.value);
   const size = parseMinSize(els.mediaSize.value, els.mediaUnit.value as SizeUnit);
+  const sites = parseSiteList(els.overlaySites.value);
   const sizeErrors = size.ok ? (size.bytes > MAX_MEDIA_MIN_BYTES ? [t("options.errors.sizeTooBig")] : []) : [size.error];
-  if (types.errors.length || !size.ok || sizeErrors.length) return { ok: false, types: types.errors, size: sizeErrors };
-  return { ok: true, media: { mediaOverlay: els.mediaOverlay.checked, mediaTypes: types.values, mediaMinBytes: size.bytes } };
+  if (types.errors.length || !size.ok || sizeErrors.length || sites.errors.length) {
+    return { ok: false, types: types.errors, size: sizeErrors, sites: sites.errors };
+  }
+  return {
+    ok: true,
+    media: {
+      mediaOverlay: els.mediaOverlay.checked,
+      overlayHoverOnly: els.overlayHover.checked,
+      overlaySites: sites.values,
+      mediaTypes: types.values,
+      mediaMinBytes: size.bytes,
+    },
+  };
+}
+
+/** The button's own settings mean nothing while the button is off. */
+function syncOverlay(): void {
+  const off = !els.mediaOverlay.checked;
+  els.overlayHover.disabled = off;
+  els.overlaySites.disabled = off;
+  els.overlayHoverRow.dataset.off = String(off);
+  els.overlaySitesField.dataset.off = String(off);
 }
 
 function syncTypes(): void {
@@ -107,12 +143,17 @@ function fill(s: Settings): void {
   els.size.value = size.value;
   els.unit.value = size.unit;
   els.mediaOverlay.checked = s.mediaOverlay;
+  els.overlayHover.checked = s.overlayHoverOnly;
+  els.overlaySites.value = s.overlaySites.join("\n");
+  syncOverlay();
   els.mediaTypes.value = s.mediaTypes.join(" ");
   const mediaSize = sizeFields(s.mediaMinBytes);
   els.mediaSize.value = mediaSize.value;
   els.mediaUnit.value = mediaSize.unit;
   els.startApp.checked = s.startApp;
+  els.bypassKey.value = s.bypassKey;
   syncTypes();
+  void loadAccess();
   paintErrors(NO_ERRORS);
   paintMediaErrors([], []);
   dirty = false;
@@ -130,6 +171,12 @@ async function loadCapture(): Promise<void> {
   els.captureOff.hidden = await ext.permissions.contains(DOWNLOADS_PERMISSION).catch(() => true);
 }
 
+/** The key needs access to the sites; say so, with a button, while it is missing. */
+async function loadAccess(): Promise<void> {
+  const granted = await ext.permissions.contains(SITES_PERMISSION).catch(() => false);
+  els.bypassAccess.hidden = granted || els.bypassKey.value === "off";
+}
+
 function edited(): void {
   dirty = true;
   setState(t("options.unsaved"));
@@ -145,7 +192,23 @@ els.sites.addEventListener("input", () => showErrors(els.sitesErrors, els.sites,
 els.size.addEventListener("input", () => showErrors(els.sizeErrors, els.size, []));
 els.mediaTypes.addEventListener("input", () => showErrors(els.mediaTypesErrors, els.mediaTypes, []));
 els.mediaSize.addEventListener("input", () => showErrors(els.mediaSizeErrors, els.mediaSize, []));
-els.mediaOverlay.addEventListener("change", edited);
+els.mediaOverlay.addEventListener("change", () => {
+  syncOverlay();
+  edited();
+});
+els.overlayHover.addEventListener("change", edited);
+els.overlaySites.addEventListener("input", () => showErrors(els.overlaySitesErrors, els.overlaySites, []));
+els.bypassKey.addEventListener("change", () => {
+  edited();
+  void loadAccess();
+});
+els.bypassAllow.addEventListener("click", () => {
+  // Asked from the click itself: browsers grant permissions only during one.
+  void ext.permissions
+    .request(SITES_PERMISSION)
+    .catch(() => false)
+    .then(() => loadAccess());
+});
 els.startApp.addEventListener("change", edited);
 
 els.mediaTypesDefault.addEventListener("click", () => {
@@ -171,24 +234,27 @@ els.form.addEventListener("submit", (event) => {
   });
   const media = mediaFromForm();
   paintErrors(result.ok ? NO_ERRORS : result.errors);
-  paintMediaErrors(media.ok ? [] : media.types, media.ok ? [] : media.size);
+  paintMediaErrors(media.ok ? [] : media.types, media.ok ? [] : media.size, media.ok ? [] : media.sites);
   if (!result.ok || !media.ok) {
     setState(t("options.notSavedFix"), "danger");
     if (!result.ok) {
       const { types, sites } = result.errors;
       (types.length ? els.types : sites.length ? els.sites : els.size).focus();
     } else if (!media.ok) {
-      (media.types.length ? els.mediaTypes : els.mediaSize).focus();
+      (media.types.length ? els.mediaTypes : media.size.length ? els.mediaSize : els.overlaySites).focus();
     }
     return;
   }
   els.save.disabled = true;
   setState(t("options.saving"));
   const startApp = els.startApp.checked;
-  // One write after the other: the service worker chains them anyway.
+  // Four writes, one after the other: the service worker chains them anyway.
   void ext.runtime
     .sendMessage({ kind: "save_filters", filters: result.filters })
     .then((reply: unknown) => (isSettings(reply) ? ext.runtime.sendMessage({ kind: "save_media", media: media.media }) : null))
+    .then((reply: unknown) =>
+      isSettings(reply) ? ext.runtime.sendMessage({ kind: "set_bypass_key", key: parseBypassKey(els.bypassKey.value) }) : null,
+    )
     .then((reply: unknown) => (isSettings(reply) ? ext.runtime.sendMessage({ kind: "set_start_app", enabled: startApp }) : null))
     .catch(() => null)
     .then((reply: unknown) => {
@@ -209,8 +275,14 @@ els.form.addEventListener("submit", (event) => {
 ext.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.settings && !dirty) void loadSettings();
 });
-ext.permissions.onAdded.addListener(() => void loadCapture());
-ext.permissions.onRemoved.addListener(() => void loadCapture());
+ext.permissions.onAdded.addListener(() => {
+  void loadCapture();
+  void loadAccess();
+});
+ext.permissions.onRemoved.addListener(() => {
+  void loadCapture();
+  void loadAccess();
+});
 
 window.addEventListener("beforeunload", (event) => {
   if (dirty) event.preventDefault();

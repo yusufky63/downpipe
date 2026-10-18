@@ -217,6 +217,19 @@ describe("parseResponse", () => {
     ]);
   });
 
+  it("keeps a failure's kind only when it is a plain word", () => {
+    const tasks = parseResponse({
+      protocol_version: 1,
+      type: "tasks",
+      tasks: [
+        { task_id: "a", state: "failed", downloaded: 0, speed: 0, error: "x", error_kind: "not_found" },
+        { task_id: "b", state: "failed", downloaded: 0, speed: 0, error: "x", error_kind: "<b>bold</b>" },
+        { task_id: "c", state: "failed", downloaded: 0, speed: 0, error: "x" },
+      ],
+    });
+    expect(tasks?.type === "tasks" && tasks.tasks.map((t) => t.errorKind)).toEqual(["not_found", undefined, undefined]);
+  });
+
   it("rejects anything else", () => {
     for (const bad of [
       null,

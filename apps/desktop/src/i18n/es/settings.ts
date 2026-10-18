@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "Colas",
     categories: "Categorías",
     network: "Red",
+    sites: "Sitios",
     media: "Multimedia",
     schedule: "Programación",
     app: "Aplicación",
@@ -24,8 +25,12 @@ export const settings: Messages["settings"] = {
     connectionsHint: "Límite máximo. Downpipe empieza con 2 y agrega más solo mientras ayuden. De 1 a 32.",
     speedLimit: "Límite de velocidad",
     speedLimitHint: "Compartido por todas las descargas. Déjalo vacío para no tener límite. Se aplica de inmediato.",
+    speedLimitInvalid: "Escribe un número, como 1,5 o 1.5.",
     noLimit: "Sin límite",
     unit: "Unidad del límite de velocidad",
+    duplicate: "Cuando un enlace ya está en la lista",
+    duplicateHint: "\"No volver a preguntar\" en la pregunta también lo cambia.",
+    duplicateAsk: "Preguntar cada vez",
   },
   queues: {
     intro:
@@ -161,7 +166,10 @@ export const settings: Messages["settings"] = {
     madeOn: "Creado el {date}.",
     madeUnknown: "El archivo no indica cuándo se creó.",
     settings: "Ajustes",
-    settingsHint: "Toma los ajustes del archivo, sus colas ({queues}) y categorías ({categories}). Las colas y categorías con el mismo nombre se actualizan; las que solo tiene este equipo se conservan. Las rutas de FFmpeg, yt-dlp y Deno no cambian.",
+    settingsHint:
+      "Toma los ajustes del archivo, sus colas ({queues}), categorías ({categories}) y reglas por sitio ({rules}). Las que tienen el mismo nombre o sitio se actualizan; las que solo tiene este equipo se conservan. Las rutas de FFmpeg, yt-dlp y Deno y el control remoto no cambian.",
+    feeds: "Fuentes",
+    feedsHint: { one: "{count} de {total} fuentes es nueva. Cada una se lee una vez y lo que contiene ahora se recuerda, sin descargarlo.", many: "{count} de {total} fuentes son nuevas. Cada una se lee una vez y lo que contiene ahora se recuerda, sin descargarlo.", other: "{count} de {total} fuentes son nuevas. Cada una se lee una vez y lo que contiene ahora se recuerda, sin descargarlo." },
     downloads: "Descargas",
     downloadsHint: { one: "{count} de {total} es nueva. Las descargas sin terminar se añaden en pausa, los enlaces que ya están en la lista se omiten y no se reemplaza ningún archivo.", many: "{count} de {total} son nuevas. Las descargas sin terminar se añaden en pausa, los enlaces que ya están en la lista se omiten y no se reemplaza ningún archivo.", other: "{count} de {total} son nuevas. Las descargas sin terminar se añaden en pausa, los enlaces que ya están en la lista se omiten y no se reemplaza ningún archivo." },
     invalid: { one: "{count} entrada del archivo está dañada y se omitirá.", many: "{count} entradas del archivo están dañadas y se omitirán.", other: "{count} entradas del archivo están dañadas y se omitirán." },
@@ -169,6 +177,8 @@ export const settings: Messages["settings"] = {
     result: {
       settings: "Se importaron los ajustes.",
       added: { one: "Se añadió {count} descarga.", many: "Se añadieron {count} descargas.", other: "Se añadieron {count} descargas." },
+      feeds: { one: "Suscrito a {count} fuente.", many: "Suscrito a {count} fuentes.", other: "Suscrito a {count} fuentes." },
+      feedsFailed: { one: "{count} fuente no se pudo leer y se omitió.", many: "{count} fuentes no se pudieron leer y se omitieron.", other: "{count} fuentes no se pudieron leer y se omitieron." },
       duplicates: { one: "{count} ya estaba en la lista.", many: "{count} ya estaban en la lista.", other: "{count} ya estaban en la lista." },
       invalid: { one: "Se omitió {count} entrada dañada.", many: "Se omitieron {count} entradas dañadas.", other: "Se omitieron {count} entradas dañadas." },
     },

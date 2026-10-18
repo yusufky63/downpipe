@@ -4,19 +4,22 @@
 //! A backup is read as untrusted input: it may come from another machine,
 //! another version or another person. Every download in it is checked on
 //! its own and dropped when it does not hold up, paths of another system
-//! fall back to this one's folders, and the programs Downpipe runs (FFmpeg,
-//! yt-dlp, Deno) are never taken from a file. Nothing in a backup carries
+//! fall back to this one's folders, and neither the programs Downpipe runs
+//! (FFmpeg, yt-dlp, Deno) nor the remote control are taken from a file. Nothing in a backup carries
 //! headers or cookies: the catalog never stores them, so there are none to
 //! export.
 
 use std::path::{Path, PathBuf};
 
+use downpipe_crawl::feed::FeedFilter;
 use downpipe_http::{Checksum, filename, media::MediaKind};
 use downpipe_providers::pages;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::settings::{Category, MAIN_QUEUE, Queue, Settings};
+use crate::feeds::{DEFAULT_INTERVAL_MINUTES, Feed, MAX_INTERVAL_MINUTES, MIN_INTERVAL_MINUTES};
+use crate::rules::{self, SiteRule};
+use crate::settings::{Category, MAIN_QUEUE, Queue, RemoteSettings, Settings};
 use crate::task::{MediaInfo, SiteInfo, TaskRecord, TaskState};
 
 /// The `format` field, so a file picked by mistake is told apart from an
@@ -74,9 +77,84 @@ pub struct Backup {
     pub exported_at: i64,
     pub settings: Settings,
     pub downloads: Vec<BackupDownload>,
-    /// Downloads in the file that did not pass the checks. Not written.
+    /// Feed subscriptions. Kept by the desktop app, which fills this in;
+    /// missing in backups from before feeds.
+    #[serde(default)]
+    pub feeds: Vec<BackupFeed>,
+    /// Downloads and feeds in the file that did not pass the checks. Not
+    /// written.
     #[serde(skip)]
     pub invalid: usize,
+}
+
+/// A feed subscription as a backup keeps it: where it is and what it takes,
+/// not what it has seen. Subscribing again from a backup remembers the
+/// feed's current items without downloading them, as subscribing does.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackupFeed {
+    pub url: String,
+    #[serde(default)]
+    pub filter: FeedFilter,
+    #[serde(default = "default_interval")]
+    pub interval_minutes: u32,
+    #[serde(default = "main_queue")]
+    pub queue: String,
+    #[serde(default = "enabled")]
+    pub enabled: bool,
+}
+
+fn default_interval() -> u32 {
+    DEFAULT_INTERVAL_MINUTES
+}
+
+fn enabled() -> bool {
+    true
+}
+
+/// A title pattern is a regular expression the app compiles; longer ones
+/// are no one's hand-written filter.
+const MAX_PATTERN_LEN: usize = 500;
+const MAX_FEED_EXTENSIONS: usize = 64;
+
+impl BackupFeed {
+    pub fn from_feed(feed: &Feed) -> Self {
+        Self {
+            url: feed.url.clone(),
+            filter: feed.filter.clone(),
+            interval_minutes: feed.interval_minutes,
+            queue: feed.queue.clone(),
+            enabled: feed.enabled,
+        }
+    }
+
+    /// Check one subscription from a file. `Err` names the first problem.
+    pub fn validated(self) -> Result<Self, String> {
+        let url = url::Url::parse(self.url.trim()).map_err(|e| format!("url: {e}"))?;
+        if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+            return Err("url: not a web address".into());
+        }
+        let url = downpipe_http::redact_url(&url);
+        if url.len() > MAX_URL_LEN {
+            return Err("url: too long".into());
+        }
+        if self.filter.title_pattern.chars().count() > MAX_PATTERN_LEN
+            || self.filter.extensions.len() > MAX_FEED_EXTENSIONS
+        {
+            return Err("filter: too long".into());
+        }
+        self.filter.compile().map_err(|e| format!("filter: {e}"))?;
+        Ok(Self {
+            url,
+            interval_minutes: self
+                .interval_minutes
+                .clamp(MIN_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES),
+            queue: Some(self.queue.trim())
+                .filter(|q| !q.is_empty() && q.len() <= MAX_LABEL_LEN)
+                .unwrap_or(MAIN_QUEUE)
+                .to_string(),
+            ..self
+        })
+    }
 }
 
 /// One download as a backup keeps it: where it came from, where it goes,
@@ -111,6 +189,9 @@ pub struct BackupDownload {
     pub created_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<i64>,
+    /// The download's own speed limit in bytes per second.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed_limit: Option<u64>,
 }
 
 fn main_queue() -> String {
@@ -140,6 +221,7 @@ impl BackupDownload {
             site: record.site.clone(),
             created_at: record.created_at,
             completed_at: record.completed_at,
+            speed_limit: record.speed_limit,
         }
     }
 
@@ -221,6 +303,7 @@ impl BackupDownload {
             site,
             created_at: self.created_at.max(0),
             completed_at: self.completed_at.map(|t| t.max(0)),
+            speed_limit: self.speed_limit.filter(|&s| s > 0),
         })
     }
 }
@@ -249,6 +332,7 @@ impl Backup {
             exported_at,
             settings: exported_settings(settings),
             downloads: records.iter().map(BackupDownload::from_record).collect(),
+            feeds: Vec::new(),
             invalid: 0,
         }
     }
@@ -293,8 +377,29 @@ impl Backup {
         if raw.len() > MAX_DOWNLOADS {
             return Err(BackupError::TooManyDownloads);
         }
+        let raw_feeds = match object.get("feeds") {
+            None | Some(Value::Null) => &Vec::new(),
+            Some(Value::Array(items)) => items,
+            Some(_) => return Err(BackupError::Damaged("feeds is not a list".into())),
+        };
+        if raw_feeds.len() > MAX_DOWNLOADS {
+            return Err(BackupError::TooManyDownloads);
+        }
         let mut downloads = Vec::with_capacity(raw.len());
         let mut invalid = 0;
+        let mut feeds = Vec::with_capacity(raw_feeds.len());
+        for item in raw_feeds {
+            match serde_json::from_value::<BackupFeed>(item.clone())
+                .map_err(|e| e.to_string())
+                .and_then(BackupFeed::validated)
+            {
+                Ok(feed) => feeds.push(feed),
+                Err(why) => {
+                    tracing::debug!("backup: skipped a feed: {why}");
+                    invalid += 1;
+                }
+            }
+        }
         for item in raw {
             match serde_json::from_value::<BackupDownload>(item.clone())
                 .map_err(|e| e.to_string())
@@ -322,19 +427,22 @@ impl Backup {
                 .max(0),
             settings,
             downloads,
+            feeds,
             invalid,
         })
     }
 }
 
 /// The settings as a backup writes them: without the paths of the
-/// programs Downpipe runs, which belong to one machine and are never
-/// imported anyway.
+/// programs Downpipe runs, which belong to one machine, and without the
+/// remote control (its token's hash included), which is never imported
+/// either: a file must not be able to open this computer to the network.
 fn exported_settings(settings: &Settings) -> Settings {
     Settings {
         ffmpeg_path: String::new(),
         yt_dlp_path: String::new(),
         deno_path: String::new(),
+        remote: RemoteSettings::default(),
         ..settings.clone()
     }
 }
@@ -342,11 +450,13 @@ fn exported_settings(settings: &Settings) -> Settings {
 /// The settings after importing `imported` over `current`:
 ///
 /// * the imported values win, except the programs Downpipe runs (FFmpeg,
-///   yt-dlp, Deno), which keep their current paths, and folders that are
-///   not absolute paths on this system, which keep the current folder;
-/// * queues are matched by id and categories by name: imported ones replace
-///   the same-named ones and are added otherwise, and the ones only this
-///   installation has are kept.
+///   yt-dlp, Deno), which keep their current paths, the remote control,
+///   which stays as it is, and folders that are not absolute paths on this
+///   system, which keep the current folder;
+/// * queues are matched by id, categories by name and site rules by their
+///   site: imported ones replace the same ones and are added otherwise, and
+///   the ones only this installation has are kept. A site rule this version
+///   refuses is left out.
 ///
 /// The result is normalized; proxy and user agent are checked by
 /// `Manager::update_settings` like any change.
@@ -355,6 +465,7 @@ pub fn merge_settings(current: &Settings, imported: &Settings) -> Settings {
     merged.ffmpeg_path = current.ffmpeg_path.clone();
     merged.yt_dlp_path = current.yt_dlp_path.clone();
     merged.deno_path = current.deno_path.clone();
+    merged.remote = current.remote.clone();
     if !imported.download_dir.is_absolute() {
         merged.download_dir = current.download_dir.clone();
     }
@@ -375,6 +486,36 @@ pub fn merge_settings(current: &Settings, imported: &Settings) -> Settings {
     merged.categories = merge_by(&current.categories, &categories, |c: &Category| {
         c.name.trim().to_lowercase()
     });
+    let site_rules: Vec<SiteRule> = imported
+        .site_rules
+        .iter()
+        .filter(|r| rules::problems(std::slice::from_ref(*r)).is_empty())
+        .cloned()
+        .map(|mut r| {
+            if looks_absolute(&r.download_dir) && !Path::new(r.download_dir.trim()).is_absolute() {
+                r.download_dir = String::new();
+            }
+            // Ids are this installation's; the site is what matches.
+            r.id = String::new();
+            r
+        })
+        .collect();
+    merged.site_rules = merge_by(&current.site_rules, &site_rules, |r: &SiteRule| {
+        rules::normalize_pattern(&r.pattern)
+    })
+    .into_iter()
+    .map(|mut r| {
+        // A replaced rule keeps the id the UI knows it by.
+        if r.id.is_empty()
+            && let Some(old) = current.site_rules.iter().find(|c| {
+                rules::normalize_pattern(&c.pattern) == rules::normalize_pattern(&r.pattern)
+            })
+        {
+            r.id = old.id.clone();
+        }
+        r
+    })
+    .collect();
     merged.normalized()
 }
 
@@ -429,6 +570,9 @@ pub struct BackupSummary {
     /// Queues besides the main queue.
     pub queues: usize,
     pub categories: usize,
+    pub site_rules: usize,
+    /// Feed subscriptions in the file.
+    pub feeds: usize,
 }
 
 /// What to take from a backup.
@@ -437,6 +581,8 @@ pub struct BackupSummary {
 pub struct ImportChoice {
     pub settings: bool,
     pub downloads: bool,
+    /// Feed subscriptions; the desktop app, which keeps them, imports them.
+    pub feeds: bool,
 }
 
 /// What an import did.
@@ -448,6 +594,10 @@ pub struct ImportReport {
     pub duplicates: usize,
     /// Entries that did not pass the checks.
     pub invalid: usize,
+    /// Feeds subscribed to, and feeds that could not be read now (filled
+    /// in by the desktop app).
+    pub feeds: usize,
+    pub feeds_failed: usize,
 }
 
 #[cfg(test)]
@@ -706,6 +856,92 @@ mod tests {
         assert_eq!(
             merged.categories[1].folder, "",
             "a folder of another system is dropped"
+        );
+    }
+    #[test]
+    fn remote_control_and_site_rules_merge_safely() {
+        let rule = |pattern: &str, ua: &str| SiteRule {
+            pattern: pattern.into(),
+            user_agent: ua.into(),
+            ..SiteRule::default()
+        };
+        let current = Settings {
+            remote: RemoteSettings {
+                enabled: false,
+                token_hash: "mine".into(),
+                ..RemoteSettings::default()
+            },
+            site_rules: vec![rule("example.com", "Mine/1"), rule("only-here.org", "")],
+            ..Settings::default()
+        }
+        .normalized();
+        let kept_id = current.site_rules[0].id.clone();
+        let imported = Settings {
+            remote: RemoteSettings {
+                enabled: true,
+                bind: "0.0.0.0".into(),
+                token_hash: "attacker".into(),
+                ..RemoteSettings::default()
+            },
+            site_rules: vec![
+                rule("EXAMPLE.com", "Theirs/2"),
+                rule("new.net", ""),
+                rule("bad pattern!", ""),
+                rule("ctl.org", "a\u{7}b"),
+            ],
+            ..Settings::default()
+        };
+        let merged = merge_settings(&current, &imported);
+        assert_eq!(
+            merged.remote, current.remote,
+            "the remote control never comes from a file"
+        );
+        let patterns: Vec<&str> = merged
+            .site_rules
+            .iter()
+            .map(|r| r.pattern.as_str())
+            .collect();
+        assert_eq!(patterns, ["example.com", "only-here.org", "new.net"]);
+        assert_eq!(merged.site_rules[0].user_agent, "Theirs/2");
+        assert_eq!(
+            merged.site_rules[0].id, kept_id,
+            "a replaced rule keeps its id"
+        );
+        assert!(rules::problems(&merged.site_rules).is_empty());
+
+        let exported = Backup::new("1", 0, &imported, &[]);
+        assert_eq!(exported.settings.remote, RemoteSettings::default());
+        assert!(!exported.to_json().contains("attacker"));
+    }
+
+    #[test]
+    fn feeds_are_read_and_checked() {
+        let text = json!({
+            "format": FORMAT,
+            "version": 1,
+            "settings": {},
+            "downloads": [],
+            "feeds": [
+                {"url": "https://example.org/cast.xml", "interval_minutes": 1, "filter": {"extensions": ["mp3"]}},
+                {"url": "ftp://example.org/cast.xml"},
+                {"url": "https://example.org/x.xml", "filter": {"title_pattern": "(unclosed"}},
+            ],
+        });
+        let backup = Backup::parse(text.to_string().as_bytes()).unwrap();
+        assert_eq!(backup.feeds.len(), 1);
+        assert_eq!(backup.invalid, 2);
+        let feed = &backup.feeds[0];
+        assert_eq!(feed.interval_minutes, MIN_INTERVAL_MINUTES);
+        assert_eq!(feed.queue, MAIN_QUEUE);
+        assert!(feed.enabled);
+
+        // Backups from before feeds have none.
+        let old = json!({"format": FORMAT, "version": 1, "settings": {}, "downloads": []});
+        assert!(
+            Backup::parse(old.to_string().as_bytes())
+                .unwrap()
+                .feeds
+                .is_empty()
         );
     }
 }

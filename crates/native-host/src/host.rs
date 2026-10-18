@@ -332,6 +332,7 @@ mod tests {
                                 total: Some(2),
                                 speed: 3,
                                 error: None,
+                                error_kind: None,
                                 awaiting_confirmation: false,
                             })
                             .collect(),
@@ -744,6 +745,7 @@ mod tests {
                         total: None,
                         speed: 0,
                         error: None,
+                        error_kind: None,
                         awaiting_confirmation: true,
                     }],
                 },

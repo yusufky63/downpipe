@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "キュー",
     categories: "カテゴリ",
     network: "ネットワーク",
+    sites: "サイト",
     media: "メディア",
     schedule: "スケジュール",
     app: "アプリ",
@@ -24,8 +25,12 @@ export const settings: Messages["settings"] = {
     connectionsHint: "上限です。Downpipe は 2 接続から始め、速くなる間だけ接続を増やします。1～32 の範囲で指定します。",
     speedLimit: "速度制限",
     speedLimitHint: "すべてのダウンロードで共有されます。空欄にすると制限なしになります。すぐに適用されます。",
+    speedLimitInvalid: "1.5 や 1,5 のように数値を入力してください。",
     noLimit: "制限なし",
     unit: "速度制限の単位",
+    duplicate: "リンクが既に一覧にあるとき",
+    duplicateHint: "確認画面の「今後は確認しない」でもこの設定が変わります。",
+    duplicateAsk: "毎回確認する",
   },
   queues: {
     intro:
@@ -161,7 +166,10 @@ export const settings: Messages["settings"] = {
     madeOn: "{date} に作成。",
     madeUnknown: "作成日時はファイルに記録されていません。",
     settings: "設定",
-    settingsHint: "ファイルの設定、キュー ({queues})、カテゴリ ({categories}) を取り込みます。同じ名前のキューとカテゴリは更新され、このパソコンにだけあるものは残ります。FFmpeg、yt-dlp、Deno のパスは変わりません。",
+    settingsHint:
+      "ファイルの設定、キュー ({queues})、カテゴリ ({categories})、サイトごとのルール ({rules}) を取り込みます。名前やサイトが同じものは更新され、このパソコンにだけあるものは残ります。FFmpeg、yt-dlp、Deno のパスとリモート操作は変わりません。",
+    feeds: "フィード",
+    feedsHint: { other: "{total} 件中 {count} 件のフィードが新規です。それぞれ一度読み込み、現在の内容はダウンロードせずに既読として記録します。" },
     downloads: "ダウンロード",
     downloadsHint: { other: "{total} 件中 {count} 件が新規です。未完了のダウンロードは一時停止で追加され、一覧にあるリンクはスキップされ、ファイルが置き換えられることはありません。" },
     invalid: { other: "ファイル内の {count} 件の項目が壊れているため除外されます。" },
@@ -169,6 +177,8 @@ export const settings: Messages["settings"] = {
     result: {
       settings: "設定をインポートしました。",
       added: { other: "{count} 件のダウンロードを追加しました。" },
+      feeds: { other: "{count} 件のフィードを購読しました。" },
+      feedsFailed: { other: "{count} 件のフィードを読み込めなかったため除外しました。" },
       duplicates: { other: "{count} 件はすでに一覧にありました。" },
       invalid: { other: "壊れた {count} 件の項目を除外しました。" },
     },
