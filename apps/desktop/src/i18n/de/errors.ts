@@ -14,6 +14,7 @@ export const errors = {
     different_file: "Der neue Link führt zu einer anderen Datei. Der heruntergeladene Teil wurde behalten.",
     expired_link: "Der Link ist abgelaufen: Der Server hat statt der Datei eine Webseite geschickt. Verwenden Sie einen neuen Link; der heruntergeladene Teil bleibt erhalten.",
     login_required: "Der Server verlangt eine Anmeldung. Melden Sie sich im Browser an und verwenden Sie dann einen neuen Link; der heruntergeladene Teil bleibt erhalten.",
+    private_file: "Die Datei ist nicht öffentlich freigegeben. Bitten Sie den Eigentümer, sie für alle mit dem Link freizugeben, oder laden Sie sie angemeldet im Browser herunter.",
     range_not_honoured: "Der Server sendet die Datei nicht mehr in Teilen. Versuchen Sie es mit einer Verbindung erneut.",
     network: "Die Verbindung zum Server ist fehlgeschlagen. Prüfen Sie Ihr Netzwerk und versuchen Sie es erneut.",
     checksum: "Die heruntergeladene Datei passt nicht zu ihrer Prüfsumme. Sie ist vielleicht beschädigt; laden Sie sie erneut herunter.",

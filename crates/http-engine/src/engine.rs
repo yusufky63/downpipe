@@ -19,6 +19,7 @@ use url::Url;
 use crate::checksum::{self, Checksum};
 use crate::config::{DownloadRequest, EngineConfig};
 use crate::error::status_error;
+use crate::hosts;
 use crate::http::{self, ResourceInfo, header_str};
 use crate::media::resolve::{self, Fetcher};
 use crate::media::{MediaKind, MediaOptions};
@@ -402,6 +403,9 @@ struct Job {
     max_connections: usize,
     /// Final path of the session in progress, for cleanup.
     current: Option<PathBuf>,
+    /// The link the resume data is filed under: the one the user gave, also
+    /// when a file host's share link is downloaded from another address.
+    key: String,
 }
 
 impl Job {
@@ -422,6 +426,7 @@ impl Job {
             tx,
             max_connections,
             current: None,
+            key: String::new(),
         }
     }
 
@@ -431,8 +436,17 @@ impl Job {
     }
 
     async fn run(mut self) -> Result<Outcome, DownloadError> {
-        let url = http::parse_url(&self.req.url)?;
+        let given = http::parse_url(&self.req.url)?;
         let headers = http::build_headers(&self.req.headers)?;
+        self.key = http::redact_url(&given);
+        // Asked on every start: a host's confirmation token expires.
+        // Stopped meanwhile: go on with the link as given, so the usual
+        // paths below see the stop and keep or delete the partial data.
+        let url = tokio::select! {
+            biased;
+            r = hosts::resolve(&self.inner.client, &given, &headers) => r?,
+            _ = self.control.stop.cancelled() => given.clone(),
+        };
         let dir = self.req.output_dir.clone();
         blocking(move || std::fs::create_dir_all(&dir)).await?;
 
@@ -455,7 +469,7 @@ impl Job {
 
     async fn attempt(&mut self, url: &Url, headers: &HeaderMap) -> Result<Outcome, DownloadError> {
         let mut session = None;
-        if let Some((final_path, meta)) = self.find_resume(url).await {
+        if let Some((final_path, meta)) = self.find_resume().await {
             match self.open_resume(url, headers, final_path, meta).await? {
                 Opened::Ready(s) => session = Some(s),
                 // A refreshed link must lead to the same file; starting over
@@ -515,8 +529,8 @@ impl Job {
 
     // ---------------------------------------------------------------- open
 
-    async fn find_resume(&self, url: &Url) -> Option<(PathBuf, ResumeMeta)> {
-        let key = http::redact_url(url);
+    async fn find_resume(&self) -> Option<(PathBuf, ResumeMeta)> {
+        let key = self.key.clone();
         let dir = self.req.output_dir.clone();
         let wanted = self.req.file_name.as_deref().map(filename::sanitize);
         let relink = self.req.relink;
@@ -627,7 +641,7 @@ impl Job {
                 let now = meta::unix_now();
                 let meta = ResumeMeta {
                     version: META_VERSION,
-                    url: http::redact_url(url),
+                    url: self.key.clone(),
                     final_url: info.final_url.clone(),
                     file_name: file_name_of(&final_path),
                     total_size: total,
@@ -798,7 +812,7 @@ impl Job {
         if self.req.relink {
             // Proven to be the same file: from now on the resume data belongs
             // to the new link, so later resumes need no special handling.
-            meta.url = http::redact_url(url);
+            meta.url = self.key.clone();
             meta.final_url = http::redact_url(&work_url);
             meta.touch();
             let path = meta::meta_path(&final_path);

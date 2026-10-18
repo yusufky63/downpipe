@@ -18,6 +18,7 @@ export const FAILURE_KINDS = [
   "different_file",
   "expired_link",
   "login_required",
+  "private_file",
   "range_not_honoured",
   "network",
   "checksum",

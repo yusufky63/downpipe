@@ -7,6 +7,8 @@ import { ContextMenu } from "./components/ContextMenu";
 import { DetailsDialog } from "./components/DetailsDialog";
 import { DownloadList, rowSelector, type DownloadListHandle, type RowActions } from "./components/DownloadList";
 import { DuplicateDialog } from "./components/DuplicateDialog";
+import { FeedsDialog } from "./components/FeedsDialog";
+import { GrabberDialog } from "./components/GrabberDialog";
 import { PauseUntilDialog } from "./components/PauseUntilDialog";
 import { Banner } from "./components/primitives";
 import { RedownloadDialog } from "./components/RedownloadDialog";
@@ -85,6 +87,7 @@ export function App() {
   const [details, setDetails] = useState<{ id: string; relink: boolean } | null>(null);
   const [addText, setAddText] = useState<string | null>(null);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
+  const [webDialog, setWebDialog] = useState<"grabber" | "feeds" | null>(null);
   const [removingIds, setRemovingIds] = useState<string[]>([]);
   const [redownloadId, setRedownloadId] = useState<string | null>(null);
   const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
@@ -282,6 +285,7 @@ export function App() {
   const busyDialog =
     counted ||
     settingsTab !== null ||
+    webDialog !== null ||
     detailsTask !== undefined ||
     removing.length > 0 ||
     redownloading !== undefined ||
@@ -535,6 +539,8 @@ export function App() {
         onPauseAll={() => run(api.pauseAll)}
         onResumeAll={() => run(api.resumeAll)}
         onSettings={() => setSettingsTab("downloads")}
+        onGrabber={() => setWebDialog("grabber")}
+        onFeeds={() => setWebDialog("feeds")}
         hasRunning={tasks.some((t) => isRunning(t.state) || t.state === "queued")}
         hasPaused={tasks.some((t) => (t.state === "paused" && !t.awaiting_confirmation) || t.state === "failed")}
       />
@@ -724,6 +730,20 @@ export function App() {
           onSaved={setSettings}
         />
       )}
+      {webDialog === "grabber" && settings && (
+        <GrabberDialog
+          settings={settings}
+          onClose={() => setWebDialog(null)}
+          onAdded={(added) => {
+            setFilter("all");
+            setQuery("");
+            const first = added[0];
+            if (first) setSelection({ ids: added.map((t) => t.id), anchor: first.id });
+          }}
+          onNotice={(text) => toast(text, "neutral")}
+        />
+      )}
+      {webDialog === "feeds" && settings && <FeedsDialog settings={settings} onClose={() => setWebDialog(null)} />}
       {removing.length > 0 && (
         <RemoveDialog
           tasks={removing}

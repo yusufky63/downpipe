@@ -4,6 +4,7 @@
 mod background;
 mod clipboard;
 mod confirm;
+mod grab;
 mod i18n;
 mod power;
 mod progress;
@@ -13,6 +14,7 @@ mod tray;
 use std::path::PathBuf;
 
 use background::{Background, WhenDone, WhenDoneView};
+use downpipe_core::feeds::Feeds;
 use downpipe_core::providers::ToolsStatus;
 use downpipe_core::providers::install::Tool;
 use downpipe_core::{
@@ -769,6 +771,10 @@ fn main() {
                 tauri::async_runtime::spawn_blocking(register_browser_host);
             }
             start_browser_bridge(manager.clone());
+            let feeds = Feeds::open(&data_dir, manager.clone())?;
+            grab::spawn_feeds(app.handle().clone(), feeds.clone());
+            app.manage(feeds);
+            app.manage(grab::Grabs::default());
             app.manage(Background::default());
             app.manage(confirm::ConfirmWindow::default());
             background::spawn(app.handle().clone(), manager.clone());
@@ -863,6 +869,13 @@ fn main() {
             close_progress_window,
             open_media_settings,
             settings_closed,
+            grab::start_grab,
+            grab::cancel_grab,
+            grab::list_feeds,
+            grab::add_feed,
+            grab::update_feed,
+            grab::remove_feed,
+            grab::check_feed,
         ])
         .build(tauri::generate_context!());
 
@@ -878,6 +891,7 @@ fn main() {
         if let RunEvent::Exit = event {
             // Write final checkpoints so running downloads continue on the
             // next launch instead of losing the last seconds of progress.
+            handle.state::<Feeds>().stop();
             let manager = handle.state::<Manager>().inner().clone();
             tauri::async_runtime::block_on(manager.shutdown());
         }

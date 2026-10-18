@@ -14,6 +14,7 @@ export const errors = {
     different_file: "El enlace nuevo lleva a otro archivo. La parte descargada se conservó.",
     expired_link: "El enlace ha caducado: el servidor envió una página web en lugar del archivo. Usa un enlace nuevo; la parte descargada se conserva.",
     login_required: "El servidor pide iniciar sesión. Inicia sesión en el navegador y luego usa un enlace nuevo; la parte descargada se conserva.",
+    private_file: "El archivo no se ha compartido públicamente. Pide a su propietario que lo comparta con cualquiera que tenga el enlace, o descárgalo en el navegador con tu sesión iniciada.",
     range_not_honoured: "El servidor dejó de enviar el archivo por partes. Vuelve a intentarlo con una sola conexión.",
     network: "Falló la conexión con el servidor. Comprueba tu red y vuelve a intentarlo.",
     checksum: "El archivo descargado no coincide con su suma de comprobación. Puede estar dañado; descárgalo de nuevo.",

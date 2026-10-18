@@ -14,6 +14,7 @@ export const errors = {
     different_file: "Yeni bağlantı başka bir dosyaya gidiyor. İndirilen kısım korundu.",
     expired_link: "Bağlantının süresi dolmuş: sunucu dosya yerine bir web sayfası gönderdi. Yeni bir bağlantı kullanın; indirilen kısım korunur.",
     login_required: "Sunucu oturum açmanızı istiyor. Tarayıcıda oturum açın, ardından yeni bir bağlantı kullanın; indirilen kısım korunur.",
+    private_file: "Dosya herkese açık paylaşılmamış. Sahibinden bağlantıya sahip herkesle paylaşmasını isteyin ya da oturum açıkken tarayıcınızda indirin.",
     range_not_honoured: "Sunucu dosyayı parça parça göndermeyi bıraktı. Tek bağlantıyla yeniden deneyin.",
     network: "Sunucuyla bağlantı kurulamadı. Ağınızı denetleyip yeniden deneyin.",
     checksum: "İndirilen dosya sağlama toplamıyla eşleşmiyor. Dosya bozulmuş olabilir; yeniden indirin.",

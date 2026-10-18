@@ -14,6 +14,7 @@ export const errors = {
     different_file: "Il nuovo link porta a un file diverso. La parte scaricata è stata conservata.",
     expired_link: "Il link è scaduto: il server ha inviato una pagina web invece del file. Usa un nuovo link; la parte scaricata viene conservata.",
     login_required: "Il server chiede di accedere. Accedi nel browser, poi usa un nuovo link; la parte scaricata viene conservata.",
+    private_file: "Il file non è condiviso pubblicamente. Chiedi al proprietario di condividerlo con chiunque abbia il link, oppure scaricalo nel browser dopo aver effettuato l'accesso.",
     range_not_honoured: "Il server ha smesso di inviare il file a parti. Riprova con una sola connessione.",
     network: "La connessione al server non è riuscita. Controlla la rete e riprova.",
     checksum: "Il file scaricato non corrisponde al suo checksum. Potrebbe essere danneggiato; scaricalo di nuovo.",

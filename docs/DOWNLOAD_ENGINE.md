@@ -110,6 +110,16 @@ A web page (`text/html`) in answer to a resume of a file that is not one is chec
 
 A download from a server without range support cannot resume; pausing it deletes the partial file. Pausing while a resume is still waiting for the server's first answer keeps the partial file and its meta untouched.
 
+## File hosts
+
+Some hosts answer a share link with a page instead of the file. `hosts::resolve` runs before every start of a file download and turns such a link into the address of the file, by the same steps a visitor takes in the browser without signing in; ordinary links pass through untouched and cost nothing. The download keeps the link the user gave as its identity: the resume data is filed under it, and the host is asked again on each start because its tokens expire.
+
+| Host | What happens |
+|---|---|
+| Google Drive | Share links (`drive.google.com/file/d/<id>/view`, `open?id=`, `uc?id=`, `drive.usercontent.google.com/download?id=`) become `drive.usercontent.google.com/download?id=<id>&export=download`. For files Drive cannot scan for viruses (above about 100 MB) it sends a warning page; its "Download anyway" form (`id="download-form"`, hidden `confirm` and `uuid` fields) is followed, but only to a Drive address or the host the page came from. A file that is not shared publicly ends in a sign-in or "request access" page and fails with `private_file`; Drive's daily quota ("too many users have viewed or downloaded this file") fails with `unavailable`; a folder link fails at once with `unavailable`, since Drive builds folder archives in the browser. Docs, Sheets and Slides documents are left alone. |
+
+Not handled, on purpose: hosts that need an account, a premium plan, a captcha, a countdown page or client-side decryption (Mega, Rapidgator, Uploaded and the like). Downpipe does not scrape them or work around their limits. Their direct links, once the browser has them, download like any other link.
+
 ## Replacing an expired link
 
 `DownloadRequest::relink` tells the engine that the URL replaces the one the resume data was saved with (the desktop app's **Use a new link**). The meta is then found by file name instead of URL, and the resume goes through the same checks as any other: `If-Range` with the saved validator, then the `206` must report the saved size and ETag. If it does, the meta is rewritten for the new link at once, so later resumes are ordinary. If it does not, the download fails with `different_file` and nothing on disk is touched; a normal resume would have started over instead.

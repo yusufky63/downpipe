@@ -261,6 +261,12 @@ impl Manager {
         self.inner.state.lock().settings.clone()
     }
 
+    /// The HTTP client downloads use, with the proxy and user agent of the
+    /// settings and no cookie store: for the site grabber and feeds.
+    pub fn http_client(&self) -> reqwest::Client {
+        self.inner.engine.lock().client().clone()
+    }
+
     pub fn add(&self, opts: AddOptions) -> Result<TaskSnapshot, CoreError> {
         let url = parse_web_url(&opts.url)?;
         let checksum = match opts

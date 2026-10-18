@@ -14,6 +14,7 @@ export const errors = {
     different_file: "Le nouveau lien mène à un autre fichier. La partie téléchargée a été conservée.",
     expired_link: "Le lien a expiré : le serveur a envoyé une page web au lieu du fichier. Utilisez un nouveau lien ; la partie téléchargée est conservée.",
     login_required: "Le serveur demande de vous connecter. Connectez-vous dans le navigateur, puis utilisez un nouveau lien ; la partie téléchargée est conservée.",
+    private_file: "Le fichier n'est pas partagé publiquement. Demandez à son propriétaire de le partager avec toute personne disposant du lien, ou téléchargez-le dans votre navigateur en étant connecté.",
     range_not_honoured: "Le serveur n'envoie plus le fichier par morceaux. Réessayez avec une seule connexion.",
     network: "La connexion au serveur a échoué. Vérifiez votre réseau et réessayez.",
     checksum: "Le fichier téléchargé ne correspond pas à sa somme de contrôle. Il est peut-être endommagé ; téléchargez-le à nouveau.",

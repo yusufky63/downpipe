@@ -429,6 +429,103 @@ export interface ConfirmOptions {
 
 export type QueueMove = "up" | "down" | "top" | "bottom";
 
+/** What the site grabber reads and collects (downpipe_crawl::GrabOptions). */
+export interface GrabOptions {
+  url: string;
+  /** 1 to 5: 1 reads only the start page. */
+  depth: number;
+  /** Pages read at most, the start page included. */
+  max_pages: number;
+  /** Lower case, without dots. */
+  extensions: string[];
+  /** Follow only pages of the start page's site. */
+  same_host: boolean;
+  respect_robots: boolean;
+  /** Wait between two requests to the same host. */
+  delay_ms: number;
+  /** Ask each file's size with a HEAD request. */
+  check_sizes: boolean;
+}
+
+export interface FoundFile {
+  url: string;
+  name: string;
+  extension: string;
+  size: number | null;
+  /** The page the link was first seen on. */
+  found_on: string;
+}
+
+export type GrabPhase = "pages" | "sizes" | "done";
+
+export interface GrabProgress {
+  phase: GrabPhase;
+  pages_done: number;
+  pages_total: number;
+  files: number;
+  sized: number;
+  to_size: number;
+  current: string | null;
+  /** Left out because robots.txt disallows them. */
+  blocked: number;
+  failed: number;
+}
+
+export interface GrabReport {
+  files: FoundFile[];
+  pages: number;
+  blocked: number;
+  failed: number;
+  /** Stopped by the user; `files` holds what was found until then. */
+  canceled: boolean;
+  hit_page_limit: boolean;
+}
+
+export type GrabEvent =
+  | { kind: "progress"; id: string; progress: GrabProgress }
+  | { kind: "done"; id: string; report: GrabReport }
+  | { kind: "error"; id: string; code: string; message: string };
+
+export interface FeedFilter {
+  /** Lower case, without dots. Empty: any file. */
+  extensions: string[];
+  /** A regular expression titles must contain, case ignored. Empty: any title. */
+  title_pattern: string;
+}
+
+/** An RSS or Atom subscription (downpipe_core::feeds::Feed). */
+export interface Feed {
+  id: string;
+  url: string;
+  /** The feed's own title, from the last good check. */
+  title: string;
+  filter: FeedFilter;
+  interval_minutes: number;
+  queue: string;
+  enabled: boolean;
+  created_at: number;
+  last_checked: number | null;
+  last_error: string | null;
+  last_added: number;
+  added_total: number;
+}
+
+export interface FeedInput {
+  url: string;
+  filter: FeedFilter;
+  interval_minutes: number;
+  queue: string;
+  enabled: boolean;
+  /** When subscribing: also add the matching items the feed holds now. */
+  download_existing: boolean;
+}
+
+export interface FeedCheck {
+  items: number;
+  /** Ids of the downloads added. */
+  added: string[];
+}
+
 export type ManagerEvent =
   | { type: "updated"; task: Task }
   | { type: "removed"; id: string }
@@ -509,7 +606,26 @@ export const api = {
   openMediaSettings: () => invoke<null>("open_media_settings"),
   /** The main window's Settings closed; a question waiting for them returns. */
   settingsClosed: () => invoke<null>("settings_closed"),
+  /** Starts the site grabber; its progress and result arrive as `downpipe://grab` events with this id. */
+  startGrab: (options: GrabOptions) => invoke<string>("start_grab", { options }),
+  /** Stops a grab; it still reports what it found until then. */
+  cancelGrab: (id: string) => invoke<null>("cancel_grab", { id }),
+  feeds: () => invoke<Feed[]>("list_feeds"),
+  /** Reads the feed once; refuses addresses that are not feeds. */
+  addFeed: (input: FeedInput) => invoke<{ feed: Feed; check: FeedCheck }>("add_feed", { input }),
+  updateFeed: (id: string, input: FeedInput) => invoke<Feed>("update_feed", { id, input }),
+  removeFeed: (id: string) => invoke<null>("remove_feed", { id }),
+  checkFeed: (id: string) => invoke<FeedCheck>("check_feed", { id }),
 };
+
+export function onGrabEvent(cb: (event: GrabEvent) => void): Promise<UnlistenFn> {
+  return listen<GrabEvent>("downpipe://grab", (e) => cb(e.payload));
+}
+
+/** The whole list of feeds after any change, also from a check on its interval. */
+export function onFeeds(cb: (feeds: Feed[]) => void): Promise<UnlistenFn> {
+  return listen<Feed[]>("downpipe://feeds", (e) => cb(e.payload));
+}
 
 export function onWhenDone(cb: (view: WhenDoneView) => void): Promise<UnlistenFn> {
   return listen<WhenDoneView>("downpipe://when-done", (e) => cb(e.payload));

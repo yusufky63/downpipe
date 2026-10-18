@@ -16,6 +16,7 @@ export const errors = {
     different_file: "The new link leads to a different file. The downloaded part was kept.",
     expired_link: "The link has expired: the server sent a web page instead of the file. Use a new link; the downloaded part is kept.",
     login_required: "The server asks you to sign in. Sign in in your browser, then use a new link; the downloaded part is kept.",
+    private_file: "The file is not shared publicly. Ask its owner to share it with anyone who has the link, or download it in your browser while signed in.",
     range_not_honoured: "The server stopped sending the file in parts. Try again with one connection.",
     network: "The connection to the server failed. Check your network and try again.",
     checksum: "The downloaded file does not match its checksum. It may be damaged; download it again.",

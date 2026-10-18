@@ -1268,21 +1268,44 @@ dependencies = [
 name = "downpipe-core"
 version = "0.4.0"
 dependencies = [
+ "axum",
  "chrono",
  "dirs 7.0.0",
+ "downpipe-crawl",
  "downpipe-http",
  "downpipe-providers",
  "downpipe-test-server",
  "parking_lot",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "downpipe-crawl"
+version = "0.4.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "parking_lot",
+ "percent-encoding",
+ "regex",
+ "reqwest",
+ "roxmltree",
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -1308,6 +1331,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -1319,6 +1343,7 @@ name = "downpipe-http"
 version = "0.4.0"
 dependencies = [
  "aes",
+ "axum",
  "bytes",
  "cbc",
  "downpipe-test-server",

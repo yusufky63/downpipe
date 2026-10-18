@@ -12,5 +12,6 @@ import { media } from "./media";
 import { remote } from "./remote";
 import { settings } from "./settings";
 import { sites } from "./sites";
+import { feeds, grabber } from "./web";
 
-export const en = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, sites, media, errors, builtin, remote };
+export const en = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, sites, media, errors, builtin, remote, grabber, feeds };
