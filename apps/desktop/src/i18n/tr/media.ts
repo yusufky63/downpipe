@@ -39,7 +39,7 @@ export const media: Messages["media"] = {
     missing: {
       ytDlp: "Sayfalardaki videolar için gerekli.",
       runtime: "Deno (ya da Node) olmadan yt-dlp bazı YouTube kalitelerini kaçırır.",
-      ffmpeg: "Bu olmadan sadece Yalnızca ses ve kendi sesi olan kaliteler çalışır.",
+      ffmpeg: "Bu olmadan sadece “Yalnızca ses” seçeneği ve kendi sesi olan kaliteler çalışır.",
     },
     download: "{tools} indir",
     update: "{tools} güncelle",

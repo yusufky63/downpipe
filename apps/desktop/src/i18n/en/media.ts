@@ -44,7 +44,7 @@ export const media = {
     missing: {
       ytDlp: "Needed for videos on pages.",
       runtime: "Without Deno (or Node) yt-dlp misses some YouTube qualities.",
-      ffmpeg: "Without it only Audio only and qualities with their own sound work.",
+      ffmpeg: "Without it, only “Audio only” and qualities with their own sound work.",
     },
     /** The button; {tools} is a list such as "yt-dlp and Deno". */
     download: "Download {tools}",
