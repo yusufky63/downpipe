@@ -1,6 +1,7 @@
 //! Downpipe's application core: a persistent download queue on top of
 //! [`downpipe_http`]. Desktop, CLI and future web UIs all drive this.
 
+pub mod feeds;
 mod manager;
 pub mod schedule;
 mod settings;
@@ -18,5 +19,6 @@ pub use task::{
     SiteChoices, SiteInfo, SiteOptions, TaskId, TaskRecord, TaskSnapshot, TaskState,
 };
 
+pub use downpipe_crawl as crawl;
 pub use downpipe_http as http;
 pub use downpipe_providers as providers;

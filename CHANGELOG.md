@@ -6,6 +6,13 @@ All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
 The download engine handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names.
 
+### New
+
+- **Site grabber** (the globe button in the header), as in IDM: enter an address, a depth (1 to 5), a page limit and the file types (tick categories or type your own), and Downpipe reads the site's pages and lists the files it finds, with their sizes from a `HEAD` request, to tick and add to a queue. Only pages of the same site are followed unless you switch that off (files linked from other hosts are listed either way), `robots.txt` is honoured unless you switch that off, there is a delay between requests to a site (500 ms by default, or the site's `Crawl-delay`), and no cookies are sent. **Stop** ends it early with what it found.
+- **Feeds** (the RSS button in the header): subscribe to RSS and Atom feeds, choose the file types, a regular expression for titles, how often to check (15 minutes to a day) and the queue, and the files of new items are added by themselves. Each item is added once and never again, also after its download is removed or when the feed changes the item's id. A new subscription starts from the items the feed holds now, unless **Download what the feed holds now** is on. **Check now**, **Edit** and **Remove** per feed; the last check's time or error shows under it.
+- **Google Drive.** Share links (`/file/d/<id>/view` and the others) download the file instead of the page, and the "Google Drive can't scan this file for viruses" page of large public files is confirmed automatically. Files that are not shared publicly fail with a message saying so (new error kind `private_file`), Drive's daily download quota and folder links with their own message. Hosts that need an account, a premium plan or a captcha (Mega and the like) are not handled; [DOWNLOAD_ENGINE.md](docs/DOWNLOAD_ENGINE.md#file-hosts) lists what is.
+- New crate `downpipe-crawl` (HTML links, `robots.txt`, the grabber, RSS/Atom); `downpipe_core::feeds` with its own `feeds.db`; `Manager::http_client`; engine module `hosts`.
+
 ### Fixed
 
 - **Hosts that cap connections.** A server that refuses extra connections with `403`, `429` or `503` while the first one downloads no longer fails the download: Downpipe continues with the connections it accepts and remembers that number for the host until it quits, so the next download from it starts there.

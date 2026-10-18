@@ -1,0 +1,131 @@
+// Dateien im Web finden: der Site-Grabber, Feed-Abonnements und Datei-Hoster.
+import type { Messages } from "../core";
+
+export const grabber: Messages["grabber"] = {
+  open: "Site-Grabber",
+  eyebrow: "Site-Grabber",
+  title: "Dateien auf einer Website finden",
+  address: {
+    label: "Startadresse",
+    hint: "Downpipe liest diese Seite und folgt ihren Links. Es werden keine Cookies gesendet, also sieht es, was ein nicht angemeldeter Besucher sieht.",
+  },
+  depth: {
+    label: "Tiefe",
+    hint: "1 liest nur diese Seite; jede Stufe folgt einer weiteren Ebene von Links.",
+  },
+  pages: {
+    label: "Seitenlimit",
+    hint: "Höchstens gelesene Seiten",
+  },
+  types: {
+    label: "Dateitypen",
+    custom: "Weitere Typen",
+    customPlaceholder: "z. B. iso, torrent",
+  },
+  sameSite: {
+    label: "Auf dieser Website bleiben",
+    hint: "Nur Seiten der Website der Startadresse werden gelesen. Von anderen Websites verlinkte Dateien werden trotzdem aufgeführt.",
+  },
+  robots: {
+    label: "robots.txt beachten",
+    hint: "Überspringt die Seiten, die eine Website Crawlern verbietet.",
+  },
+  sizes: {
+    label: "Dateigrößen abfragen",
+    hint: "Eine kleine Anfrage pro Datei, für die ersten {count} Dateien.",
+  },
+  delay: {
+    label: "Pause",
+    hint: "Millisekunden zwischen zwei Anfragen an dieselbe Website. Websites können Besucher sperren, die es eilig haben.",
+  },
+  start: "Dateien finden",
+  stop: "Anhalten",
+  again: "Neue Suche",
+  progress: {
+    pages: { one: "{done} von {count} Seite gelesen", other: "{done} von {count} Seiten gelesen" },
+    sizes: { one: "Größen werden abgefragt: {done} von {count} Datei", other: "Größen werden abgefragt: {done} von {count} Dateien" },
+    files: { one: "{count} Datei gefunden", other: "{count} Dateien gefunden" },
+  },
+  results: {
+    title: { one: "{count} Datei gefunden", other: "{count} Dateien gefunden" },
+    none: "Es wurden keine Dateien dieser Typen gefunden.",
+    canceled: "Vorzeitig angehalten: Das sind die bis dahin gefundenen Dateien.",
+    pageLimit: "Das Seitenlimit war erreicht, bevor alle Seiten gelesen waren.",
+    blocked: {
+      one: "{count} Seite oder Datei wurde übersprungen, weil robots.txt sie nicht erlaubt.",
+      other: "{count} Seiten oder Dateien wurden übersprungen, weil robots.txt sie nicht erlaubt.",
+    },
+    failed: { one: "{count} Seite konnte nicht gelesen werden.", other: "{count} Seiten konnten nicht gelesen werden." },
+    filter: "Dateien filtern",
+    selectAll: "Alle angezeigten Dateien auswählen",
+    name: "Name",
+    size: "Größe",
+    foundOn: "Gefunden auf",
+    selected: { one: "{count} ausgewählt, {size}", other: "{count} ausgewählt, {size}" },
+    unknownSizes: { one: "{count} mit unbekannter Größe", other: "{count} mit unbekannter Größe" },
+    add: { one: "{count} Datei hinzufügen", other: "{count} Dateien hinzufügen" },
+    added: { one: "{count} Datei hinzugefügt.", other: "{count} Dateien hinzugefügt." },
+    alreadyListed: { one: "{count} war bereits in der Liste.", other: "{count} waren bereits in der Liste." },
+  },
+  errors: {
+    invalid_url: "Geben Sie eine http- oder https-Adresse ein.",
+    no_types: "Wählen Sie mindestens einen Dateityp.",
+    robots_blocked: "Die robots.txt dieser Website bittet Crawler, diese Seite nicht zu lesen. Schalten Sie robots.txt beachten aus, um sie trotzdem zu lesen.",
+    start_page: "Die Startseite konnte nicht gelesen werden: {error}",
+    not_html: "Die Startadresse ist keine Webseite. Fügen Sie sie stattdessen als Download hinzu.",
+  },
+};
+
+export const feeds: Messages["feeds"] = {
+  open: "Feeds",
+  eyebrow: "Feeds",
+  title: "RSS- und Atom-Feeds",
+  intro: "Downpipe prüft jeden Feed in seinem Intervall und fügt die Dateien neuer Einträge der gewählten Warteschlange hinzu. Ein Eintrag wird nur einmal hinzugefügt, auch wenn Sie seinen Download entfernen.",
+  empty: "Noch keine Feeds. Fügen Sie einen Podcast, einen Release-Feed oder eine andere RSS- oder Atom-Adresse hinzu.",
+  add: "Feed hinzufügen",
+  checkNow: "Jetzt prüfen",
+  edit: "Bearbeiten",
+  off: "Aus",
+  checked: "Geprüft {date}",
+  notChecked: "Noch nicht geprüft",
+  error: "Letzte Prüfung fehlgeschlagen: {error}",
+  addedTotal: { one: "Insgesamt {count} Download hinzugefügt", other: "Insgesamt {count} Downloads hinzugefügt" },
+  checkResult: {
+    none: "Keine neuen Einträge in {name}.",
+    added: { one: "{count} Download aus {name} hinzugefügt.", other: "{count} Downloads aus {name} hinzugefügt." },
+  },
+  confirmRemove: "{name} entfernen? Die hinzugefügten Downloads bleiben in der Liste.",
+  form: {
+    newTitle: "Neuer Feed",
+    editTitle: "Feed bearbeiten",
+    url: "Feed-Adresse",
+    types: "Dateitypen",
+    typesHint: "Leer: jede Datei, die die Einträge anbieten. Zum Beispiel mp3, m4a.",
+    pattern: "Titelfilter",
+    patternHint: "Ein regulärer Ausdruck, den der Titel enthalten muss, ohne Beachtung der Groß- und Kleinschreibung, zum Beispiel folge|bonus. Leer: jeder Titel.",
+    interval: "Prüfen alle",
+    queue: "Warteschlange",
+    enabled: "Diesen Feed prüfen",
+    enabledHint: "Aus: Der Feed bleibt in der Liste, wird aber nicht geprüft.",
+    existing: "Aktuellen Inhalt herunterladen",
+    existingHint: "Aus: Nur ab jetzt veröffentlichte Einträge werden heruntergeladen.",
+    save: "Speichern",
+    subscribe: "Feed hinzufügen",
+    subscribed: { one: "Feed hinzugefügt. {count} Download hinzugefügt.", other: "Feed hinzugefügt. {count} Downloads hinzugefügt." },
+    subscribedNone: "Feed hinzugefügt. Neue Einträge werden ab jetzt heruntergeladen.",
+  },
+  interval: {
+    minutes: { one: "{count} Minute", other: "{count} Minuten" },
+    hours: { one: "{count} Stunde", other: "{count} Stunden" },
+    days: { one: "{count} Tag", other: "{count} Tage" },
+  },
+  errors: {
+    duplicate_feed: "Dieser Feed ist bereits in der Liste.",
+    not_a_feed: "Diese Adresse ist eine Webseite, kein RSS- oder Atom-Feed.",
+    invalid_url: "Geben Sie eine http- oder https-Adresse ein.",
+  },
+};
+
+export const hosts: Messages["hosts"] = {
+  privateFile: "Die Datei ist nicht öffentlich freigegeben. Bitten Sie den Eigentümer, sie für alle mit dem Link freizugeben, oder laden Sie sie angemeldet im Browser herunter.",
+};

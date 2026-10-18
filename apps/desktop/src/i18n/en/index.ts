@@ -8,5 +8,6 @@ import { dialogs } from "./dialogs";
 import { app, list } from "./list";
 import { media } from "./media";
 import { settings } from "./settings";
+import { feeds, grabber, hosts } from "./web";
 
-export const en = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, media };
+export const en = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, media, grabber, feeds, hosts };

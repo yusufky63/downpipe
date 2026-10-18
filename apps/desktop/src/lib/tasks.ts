@@ -127,6 +127,7 @@ const NEW_LINK_KINDS = new Set(["expired_link", "login_required", "forbidden"]);
 const FAILURE_TEXTS: Partial<Record<string, MessageKey>> = {
   expired_link: "list.failure.expiredLink",
   login_required: "list.failure.loginRequired",
+  private_file: "hosts.privateFile",
 };
 
 /** What went wrong: in the user's language for the kinds the app knows, else the engine's message. */
