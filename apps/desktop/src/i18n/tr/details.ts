@@ -40,6 +40,8 @@ export const details: Messages["details"] = {
     checksum: "Sağlama toplamı",
     added: "Eklenme",
     finished: "Bitiş",
+    speedLimit: "Hız sınırı",
+    resumes: "Devam",
   },
   relink: {
     button: "Yeni bağlantı kullan…",
@@ -49,4 +51,12 @@ export const details: Messages["details"] = {
   },
   copy: "Kopyala",
   copied: "Kopyalandı",
+  /** The download's own speed limit, set in place. */
+  speedLimit: {
+    none: "Yalnızca genel sınır",
+    change: "Değiştir",
+    set: "Uygula",
+    remove: "Kaldır",
+    label: "Bu indirmenin hız sınırı",
+  },
 };

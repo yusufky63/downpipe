@@ -31,6 +31,10 @@ export const list: Messages["list"] = {
     expiredLink: "Der Link ist abgelaufen: Der Server hat statt der Datei eine Webseite geschickt. Verwenden Sie einen neuen Link; der heruntergeladene Teil bleibt erhalten.",
     loginRequired: "Der Server verlangt eine Anmeldung. Melden Sie sich im Browser an und verwenden Sie dann einen neuen Link; der heruntergeladene Teil bleibt erhalten.",
   },
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "Weiter um {time}",
+  },
   menu: {
     label: "Download-Aktionen",
     labelMany: "Aktionen für {count} Downloads",
@@ -54,6 +58,12 @@ export const list: Messages["list"] = {
     properties: "Eigenschaften",
     remove: "Entfernen…",
     removeMany: { one: "{count} Download entfernen…", other: "{count} Downloads entfernen…" },
+    speedLimit: "Geschwindigkeitslimit…",
+    pauseUntil: "Pausieren bis",
+    until30m: "30 Minuten",
+    until1h: "1 Stunde",
+    untilTonight: "Heute Nacht um {time}",
+    untilCustom: "Zeit wählen…",
   },
 };
 

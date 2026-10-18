@@ -24,7 +24,7 @@ use crate::media::resolve::{self, Fetcher};
 use crate::media::{MediaKind, MediaOptions};
 use crate::meta::{self, META_VERSION, ResumeMeta};
 use crate::progress::{Phase, Progress, SpeedMeter, WaitReason};
-use crate::ratelimit::RateLimiter;
+use crate::ratelimit::{Limits, RateLimiter};
 use crate::segments::{Assignment, SegmentId, SegmentMap};
 use crate::worker::{self, Buffer, Shared, WorkerCtx, WorkerEnd};
 use crate::writer::PartFile;
@@ -389,6 +389,10 @@ impl Job {
             max_connections,
             current: None,
         }
+    }
+
+    fn limits(&self) -> Limits {
+        Limits::new(self.inner.limiter.clone(), self.req.limiter.clone())
     }
 
     async fn run(mut self) -> Result<Outcome, DownloadError> {
@@ -877,7 +881,7 @@ impl Job {
             headers: headers.clone(),
             total: session.total.unwrap_or(0),
             etag: session.etag.clone(),
-            limiter: self.inner.limiter.clone(),
+            limits: self.limits(),
             buffer_size: cfg.buffer_size,
             stall_timeout: cfg.stall_timeout,
             response_timeout: cfg.response_timeout,
@@ -1188,6 +1192,7 @@ impl Job {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let no_data_after = no_data_after(cfg.stall_timeout);
         let mut last_bytes = (Instant::now(), 0u64);
+        let limits = self.limits();
         self.tx.send_modify(|p| {
             p.phase = Phase::Downloading;
             p.waiting = None;
@@ -1236,7 +1241,7 @@ impl Job {
                         }
                         Ok(Some(Ok(chunk))) => chunk,
                     };
-                    self.inner.limiter.acquire(chunk.len()).await;
+                    limits.acquire(chunk.len()).await;
                     // Never write past an announced size.
                     let take = total.map_or(chunk.len() as u64, |t| (t - received).min(chunk.len() as u64));
                     buf.push(received, &chunk[..take as usize]);

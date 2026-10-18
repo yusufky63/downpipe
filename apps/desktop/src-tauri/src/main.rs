@@ -85,6 +85,22 @@ fn resume_download(manager: State<'_, Manager>, id: String) -> CmdResult<()> {
     Ok(manager.resume(&id)?)
 }
 
+/// "Pause until": `at` is Unix seconds; the core queues it again then.
+#[tauri::command]
+fn pause_download_until(manager: State<'_, Manager>, id: String, at: i64) -> CmdResult<()> {
+    Ok(manager.pause_until(&id, at)?)
+}
+
+/// Bytes per second; null or 0 leaves only the global limit.
+#[tauri::command]
+fn set_download_speed_limit(
+    manager: State<'_, Manager>,
+    id: String,
+    limit: Option<u64>,
+) -> CmdResult<()> {
+    Ok(manager.set_speed_limit(&id, limit)?)
+}
+
 #[tauri::command]
 fn cancel_download(manager: State<'_, Manager>, id: String) -> CmdResult<()> {
     Ok(manager.cancel(&id)?)
@@ -695,6 +711,8 @@ fn main() {
             add_download,
             pause_download,
             resume_download,
+            pause_download_until,
+            set_download_speed_limit,
             cancel_download,
             remove_download,
             pause_all,

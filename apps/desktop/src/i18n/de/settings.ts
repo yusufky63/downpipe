@@ -26,6 +26,9 @@ export const settings: Messages["settings"] = {
     speedLimitHint: "Gilt für alle Downloads zusammen. Leer lassen für kein Limit. Wirkt sofort.",
     noLimit: "Kein Limit",
     unit: "Einheit des Geschwindigkeitslimits",
+    duplicate: "Wenn ein Link schon in der Liste ist",
+    duplicateHint: "\"Nicht mehr fragen\" in der Nachfrage setzt das ebenfalls.",
+    duplicateAsk: "Jedes Mal fragen",
   },
   queues: {
     intro:

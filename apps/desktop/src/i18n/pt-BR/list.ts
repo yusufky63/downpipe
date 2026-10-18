@@ -31,6 +31,10 @@ export const list: Messages["list"] = {
     expiredLink: "O link expirou: o servidor enviou uma página da web em vez do arquivo. Use um link novo; a parte baixada é mantida.",
     loginRequired: "O servidor pede que você entre na sua conta. Entre no navegador e depois use um link novo; a parte baixada é mantida.",
   },
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "Retoma: {time}",
+  },
   menu: {
     label: "Ações do download",
     labelMany: "Ações para {count} downloads",
@@ -54,6 +58,12 @@ export const list: Messages["list"] = {
     properties: "Propriedades",
     remove: "Remover…",
     removeMany: { one: "Remover {count} download…", many: "Remover {count} downloads…", other: "Remover {count} downloads…" },
+    speedLimit: "Limite de velocidade…",
+    pauseUntil: "Pausar até",
+    until30m: "30 minutos",
+    until1h: "1 hora",
+    untilTonight: "Hoje à noite às {time}",
+    untilCustom: "Escolher um horário…",
   },
 };
 

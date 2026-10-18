@@ -26,6 +26,9 @@ export const settings: Messages["settings"] = {
     speedLimitHint: "すべてのダウンロードで共有されます。空欄にすると制限なしになります。すぐに適用されます。",
     noLimit: "制限なし",
     unit: "速度制限の単位",
+    duplicate: "リンクが既に一覧にあるとき",
+    duplicateHint: "確認画面の「今後は確認しない」でもこの設定が変わります。",
+    duplicateAsk: "毎回確認する",
   },
   queues: {
     intro:

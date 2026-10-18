@@ -75,6 +75,7 @@ export const confirm: Messages["confirm"] = {
       finished: "Terminé",
       failed: "Échec",
       canceled: "Annulé ; les données téléchargées sont supprimées",
+      pausedUntil: "Suspendu jusqu'à {time}",
     },
     // French writes a space before the percent sign.
     size: "{downloaded} sur {approx}{total} · {percent} %",
@@ -88,6 +89,7 @@ export const confirm: Messages["confirm"] = {
       speed: "Vitesse",
       resume: "Reprise",
       savedTo: "Enregistré dans",
+      limit: "Limite",
     },
     hide: "Masquer",
     hideTitle: "Ferme cette fenêtre ; le téléchargement continue.",

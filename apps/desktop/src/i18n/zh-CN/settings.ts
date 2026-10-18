@@ -26,6 +26,9 @@ export const settings: Messages["settings"] = {
     speedLimitHint: "由所有下载共享。留空表示不限速。立即生效。",
     noLimit: "不限速",
     unit: "速度限制单位",
+    duplicate: "链接已在列表中时",
+    duplicateHint: "询问中的“不再询问”也会设置此项。",
+    duplicateAsk: "每次都询问",
   },
   queues: {
     intro:

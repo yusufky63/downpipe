@@ -24,6 +24,9 @@ export const settings = {
     speedLimitHint: "Shared by all downloads. Leave empty for no limit. Applies immediately.",
     noLimit: "No limit",
     unit: "Speed limit unit",
+    duplicate: "When a link is already in the list",
+    duplicateHint: "\"Don't ask again\" in the question sets this too.",
+    duplicateAsk: "Ask every time",
   },
   queues: {
     intro:

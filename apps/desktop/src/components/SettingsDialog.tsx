@@ -8,6 +8,7 @@ import {
   errorMessage,
   type BridgeRegistration,
   type Category,
+  type DuplicateAnswer,
   type Queue,
   type Settings,
   type ToolsStatus,
@@ -104,6 +105,7 @@ export function SettingsDialog({
   const [ytDlpPath, setYtDlpPath] = useState(settings.yt_dlp_path);
   const [denoPath, setDenoPath] = useState(settings.deno_path);
   const [language, setLanguage] = useState(settings.language);
+  const [duplicateAnswer, setDuplicateAnswer] = useState<DuplicateAnswer>(settings.duplicate_answer);
   const [error, setError] = useState<string | null>(null);
   const tabIds = useId();
 
@@ -131,6 +133,7 @@ export function SettingsDialog({
         ffmpeg_path: ffmpegPath.trim(),
         yt_dlp_path: ytDlpPath.trim(),
         deno_path: denoPath.trim(),
+        duplicate_answer: duplicateAnswer,
       });
       onSaved(saved);
       onClose();
@@ -219,6 +222,21 @@ export function SettingsDialog({
                     <option value="MiB">MiB/s</option>
                   </select>
                 </div>
+              )}
+            </Field>
+            <Field label={t("settings.downloads.duplicate")} hint={t("settings.downloads.duplicateHint")}>
+              {(id) => (
+                <select
+                  id={id}
+                  value={duplicateAnswer}
+                  onChange={(e) => setDuplicateAnswer(e.target.value as DuplicateAnswer)}
+                  className={`${inputClass} h-9`}
+                >
+                  <option value="ask">{t("settings.downloads.duplicateAsk")}</option>
+                  <option value="copy">{t("dialogs.duplicate.copy")}</option>
+                  <option value="overwrite">{t("dialogs.duplicate.overwrite")}</option>
+                  <option value="existing">{t("dialogs.duplicate.existing")}</option>
+                </select>
               )}
             </Field>
           </>

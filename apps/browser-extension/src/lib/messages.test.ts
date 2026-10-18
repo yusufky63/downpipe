@@ -98,7 +98,7 @@ describe("new requests", () => {
 
 describe("parseSettings", () => {
   it("notifies unless switched off", () => {
-    expect(parseSettings(undefined)).toEqual({ notify: true, ...defaultFilters(), ...defaultMediaFilters() });
+    expect(parseSettings(undefined)).toEqual({ notify: true, ...defaultFilters(), ...defaultMediaFilters(), bypassKey: "alt" });
     expect(parseSettings({ notify: false }).notify).toBe(false);
     expect(parseSettings({ notify: "off" }).notify).toBe(true);
   });
@@ -112,6 +112,7 @@ describe("parseSettings", () => {
       excludedSites: [],
       minSizeBytes: 0,
       ...defaultMediaFilters(),
+      bypassKey: "alt",
     });
     expect(isSettings(old)).toBe(true);
   });
@@ -126,6 +127,7 @@ describe("parseSettings", () => {
       mediaOverlay: false,
       mediaTypes: ["mp4"],
       mediaMinBytes: 0,
+      bypassKey: "shift",
     };
     expect(parseSettings(saved)).toEqual(saved);
     expect(parseSettings(JSON.parse(JSON.stringify(saved)))).toEqual(saved);
@@ -136,6 +138,7 @@ describe("parseSettings", () => {
     expect(isSettings({ ...parseSettings(undefined), notify: "yes" })).toBe(false);
     expect(isSettings({ notify: true })).toBe(false);
     expect(isSettings({ ...parseSettings(undefined), mediaTypes: ["MP4"] })).toBe(false);
+    expect(isSettings({ ...parseSettings(undefined), bypassKey: "ctrl" })).toBe(false);
     expect(isSettings(null)).toBe(false);
   });
 });

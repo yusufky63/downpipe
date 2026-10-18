@@ -33,6 +33,15 @@ export const options = {
   mediaSizeLabel: "Leave out media files smaller than",
   mediaSizeHelp:
     "Keeps notification sounds and short previews out. 0 lists every size; files whose size the server does not say are always listed.",
+  /** Alt+click (or Shift+click) on a link leaves that download to the browser. */
+  bypassHeading: "05 — Download in the browser",
+  bypassLabel: "Let the browser download a link clicked with",
+  bypassAlt: "Alt (Option on a Mac)",
+  bypassShift: "Shift",
+  bypassOff: "Off",
+  bypassHelp: "While capture is on, clicking a link with this key held leaves that one download to the browser. Other clicks and the browser's own shortcuts stay as they are.",
+  bypassAccess: "This needs access to the sites you visit, to notice the click. Nothing is read or sent until you click a link this way.",
+  bypassAllow: "Allow access",
   save: "Save",
   /** After the first few errors under a field. */
   moreErrors: { one: "And {count} more.", other: "And {count} more." },

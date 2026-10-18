@@ -26,6 +26,9 @@ export const settings: Messages["settings"] = {
     speedLimitHint: "Tüm indirmeler arasında paylaşılır. Sınır olmaması için boş bırakın. Hemen uygulanır.",
     noLimit: "Sınır yok",
     unit: "Hız sınırı birimi",
+    duplicate: "Bir bağlantı zaten listedeyse",
+    duplicateHint: "Sorudaki \"Bir daha sorma\" seçeneği de bunu ayarlar.",
+    duplicateAsk: "Her seferinde sor",
   },
   queues: {
     intro:

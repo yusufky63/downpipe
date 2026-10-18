@@ -31,6 +31,10 @@ export const list: Messages["list"] = {
     expiredLink: "Bağlantının süresi dolmuş: sunucu dosya yerine bir web sayfası gönderdi. Yeni bir bağlantı kullanın; indirilen kısım korunur.",
     loginRequired: "Sunucu oturum açmanızı istiyor. Tarayıcıda oturum açın, ardından yeni bir bağlantı kullanın; indirilen kısım korunur.",
   },
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "Devam: {time}",
+  },
   menu: {
     label: "İndirme eylemleri",
     labelMany: "{count} indirme için eylemler",
@@ -54,6 +58,12 @@ export const list: Messages["list"] = {
     properties: "Özellikler",
     remove: "Kaldır…",
     removeMany: { one: "{count} indirmeyi kaldır…", other: "{count} indirmeyi kaldır…" },
+    speedLimit: "Hız sınırı…",
+    pauseUntil: "Şu zamana kadar duraklat",
+    until30m: "30 dakika",
+    until1h: "1 saat",
+    untilTonight: "Bu gece {time}",
+    untilCustom: "Zaman seç…",
   },
 };
 

@@ -40,6 +40,8 @@ export const details: Messages["details"] = {
     checksum: "Prüfsumme",
     added: "Hinzugefügt",
     finished: "Abgeschlossen",
+    speedLimit: "Geschwindigkeitslimit",
+    resumes: "Weiter um",
   },
   relink: {
     button: "Neuen Link verwenden…",
@@ -49,4 +51,12 @@ export const details: Messages["details"] = {
   },
   copy: "Kopieren",
   copied: "Kopiert",
+  /** The download's own speed limit, set in place. */
+  speedLimit: {
+    none: "Nur das globale Limit",
+    change: "Ändern",
+    set: "Setzen",
+    remove: "Entfernen",
+    label: "Geschwindigkeitslimit für diesen Download",
+  },
 };

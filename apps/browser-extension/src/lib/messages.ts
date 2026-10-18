@@ -1,6 +1,7 @@
 // What the extension's own pages (popup, options, links page) and the
 // service worker say to each other.
 import { t } from "../i18n/core";
+import { isBypassKey, parseBypassKey, type BypassKey } from "./bypass";
 import { parseFilters, normalizeSitePattern, validFilters, type CaptureFilters } from "./filters";
 import {
   isMediaId,
@@ -34,7 +35,9 @@ export type PopupRequest =
   /** Send one of them to Downpipe. */
   | { kind: "send_media"; tabId: number; mediaId: string }
   /** Send the tab's video page (YouTube) to Downpipe's site provider. */
-  | { kind: "send_page"; tabId: number };
+  | { kind: "send_page"; tabId: number }
+  /** The options page's key for letting the browser download a link itself. */
+  | { kind: "set_bypass_key"; key: BypassKey };
 
 /**
  * What the overlay button in a page may ask. The tab is never part of the
@@ -88,6 +91,8 @@ export function parsePopupRequest(value: unknown): PopupRequest | null {
       const filters = hasKeys(v, "kind", "filters") ? validFilters(v.filters) : null;
       return filters ? { kind: "save_filters", filters } : null;
     }
+    case "set_bypass_key":
+      return hasKeys(v, "kind", "key") && isBypassKey(v.key) ? { kind: "set_bypass_key", key: v.key } : null;
     case "save_media": {
       const media = hasKeys(v, "kind", "media") ? validMediaFilters(v.media) : null;
       return media ? { kind: "save_media", media } : null;
@@ -223,6 +228,8 @@ export function overlayResultText(reply: unknown): { text: string; failed: boole
 export interface Settings extends CaptureFilters, MediaFilters {
   /** Show a notification when a download is handed over, or could not be. */
   notify: boolean;
+  /** Held while clicking a link, the browser downloads it itself (lib/bypass.ts). */
+  bypassKey: BypassKey;
 }
 
 /**
@@ -231,7 +238,7 @@ export interface Settings extends CaptureFilters, MediaFilters {
  */
 export function parseSettings(value: unknown): Settings {
   const v = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-  return { notify: v.notify !== false, ...parseFilters(v), ...parseMediaFilters(v) };
+  return { notify: v.notify !== false, ...parseFilters(v), ...parseMediaFilters(v), bypassKey: parseBypassKey(v.bypassKey) };
 }
 
 export function isSettings(value: unknown): value is Settings {
@@ -239,6 +246,7 @@ export function isSettings(value: unknown): value is Settings {
   const v = value as Record<string, unknown>;
   return (
     typeof v.notify === "boolean" &&
+    isBypassKey(v.bypassKey) &&
     validFilters({
       captureAll: v.captureAll,
       captureTypes: v.captureTypes,

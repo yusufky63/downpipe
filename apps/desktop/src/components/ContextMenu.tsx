@@ -9,9 +9,11 @@ import {
   ChevronRight,
   ChevronsDown,
   ChevronsUp,
+  Clock,
   Copy,
   ExternalLink,
   FolderOpen,
+  Gauge,
   Info,
   Layers,
   Link2,
@@ -45,6 +47,8 @@ const ICONS: Record<MenuIcon, LucideIcon> = {
   info: Info,
   trash: Trash2,
   plus: Plus,
+  clock: Clock,
+  gauge: Gauge,
 };
 
 /** Keeps menus off the window edge. */

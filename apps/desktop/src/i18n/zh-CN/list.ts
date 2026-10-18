@@ -31,6 +31,10 @@ export const list: Messages["list"] = {
     expiredLink: "链接已过期：服务器返回了网页而不是文件。请使用新链接；已下载的部分会保留。",
     loginRequired: "服务器要求登录。请先在浏览器中登录，然后使用新链接；已下载的部分会保留。",
   },
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "{time} 继续",
+  },
   menu: {
     label: "下载操作",
     labelMany: "{count} 个下载的操作",
@@ -54,6 +58,12 @@ export const list: Messages["list"] = {
     properties: "属性",
     remove: "移除…",
     removeMany: { other: "移除 {count} 个下载…" },
+    speedLimit: "速度限制…",
+    pauseUntil: "暂停到",
+    until30m: "30 分钟后",
+    until1h: "1 小时后",
+    untilTonight: "今晚 {time}",
+    untilCustom: "选择时间…",
   },
 };
 

@@ -32,6 +32,10 @@ export const list: Messages["list"] = {
     expiredLink: "Срок действия ссылки истёк: сервер прислал веб-страницу вместо файла. Используйте новую ссылку; загруженная часть сохранена.",
     loginRequired: "Сервер требует войти в аккаунт. Войдите в браузере, затем используйте новую ссылку; загруженная часть сохранена.",
   },
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "Продолжится: {time}",
+  },
   menu: {
     label: "Действия с загрузкой",
     labelMany: "Действия с загрузками: {count}",
@@ -60,6 +64,12 @@ export const list: Messages["list"] = {
       many: "Удалить {count} загрузок…",
       other: "Удалить {count} загрузки…",
     },
+    speedLimit: "Ограничение скорости…",
+    pauseUntil: "Приостановить до",
+    until30m: "30 минут",
+    until1h: "1 час",
+    untilTonight: "Сегодня ночью в {time}",
+    untilCustom: "Выбрать время…",
   },
 };
 
