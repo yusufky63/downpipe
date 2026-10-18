@@ -7,7 +7,7 @@
 // Content-Type and URL, keep what the page's own request sent as Referer
 // and Origin, and list the result per tab. No code is taken from them.
 import { t } from "../i18n";
-import { normalizeType, parseTypeList, type ListParse } from "./filters";
+import { MAX_EXCLUDED_SITES, normalizeSitePattern, normalizeType, parseTypeList, type ListParse } from "./filters";
 import { mimeEssence } from "./protocol";
 import { isSiteMedia } from "./sites";
 import { MAX_URL_LENGTH, baseName, webUrl, withoutSecrets } from "./url";
@@ -64,6 +64,16 @@ export const MAX_TAB_MEDIA = 20;
 export interface MediaFilters {
   /** The Download button over playing videos. */
   mediaOverlay: boolean;
+  /**
+   * The button shows only while the pointer is over the video, not for a
+   * few seconds after a video starts.
+   */
+  overlayHoverOnly: boolean;
+  /**
+   * Sites where the button never shows ("Hide on this site"). Unlike the
+   * excluded sites, detection and capture still work there.
+   */
+  overlaySites: string[];
   /** Extensions of media files that are listed. Streams are always listed. */
   mediaTypes: string[];
   /** Media files smaller than this are left out; 0 lists them all. */
@@ -83,7 +93,24 @@ export const MAX_MEDIA_TYPES = 100;
 export const MAX_MEDIA_MIN_BYTES = 1024 ** 4;
 
 export function defaultMediaFilters(): MediaFilters {
-  return { mediaOverlay: true, mediaTypes: [...DEFAULT_MEDIA_TYPES], mediaMinBytes: DEFAULT_MEDIA_MIN_BYTES };
+  return {
+    mediaOverlay: true,
+    overlayHoverOnly: false,
+    overlaySites: [],
+    mediaTypes: [...DEFAULT_MEDIA_TYPES],
+    mediaMinBytes: DEFAULT_MEDIA_MIN_BYTES,
+  };
+}
+
+function siteList(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: string[] = [];
+  for (const entry of value) {
+    const site = typeof entry === "string" ? normalizeSitePattern(entry) : null;
+    if (site && !out.includes(site)) out.push(site);
+    if (out.length >= MAX_EXCLUDED_SITES) break;
+  }
+  return out;
 }
 
 /** From `storage.local`: missing or malformed fields get their defaults. */
@@ -95,6 +122,8 @@ export function parseMediaFilters(v: Record<string, unknown>): MediaFilters {
   const size = v.mediaMinBytes;
   return {
     mediaOverlay: typeof v.mediaOverlay === "boolean" ? v.mediaOverlay : d.mediaOverlay,
+    overlayHoverOnly: typeof v.overlayHoverOnly === "boolean" ? v.overlayHoverOnly : d.overlayHoverOnly,
+    overlaySites: siteList(v.overlaySites) ?? d.overlaySites,
     mediaTypes: types,
     mediaMinBytes:
       typeof size === "number" && Number.isInteger(size) && size >= 0 && size <= MAX_MEDIA_MIN_BYTES ? size : d.mediaMinBytes,
@@ -105,9 +134,17 @@ export function parseMediaFilters(v: Record<string, unknown>): MediaFilters {
 export function validMediaFilters(value: unknown): MediaFilters | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
-  if (Object.keys(v).length !== 3) return null;
-  const { mediaOverlay, mediaTypes, mediaMinBytes } = v;
-  if (typeof mediaOverlay !== "boolean") return null;
+  if (Object.keys(v).length !== 5) return null;
+  const { mediaOverlay, overlayHoverOnly, overlaySites, mediaTypes, mediaMinBytes } = v;
+  if (typeof mediaOverlay !== "boolean" || typeof overlayHoverOnly !== "boolean") return null;
+  if (
+    !Array.isArray(overlaySites) ||
+    overlaySites.length > MAX_EXCLUDED_SITES ||
+    new Set(overlaySites).size !== overlaySites.length ||
+    !overlaySites.every((s) => typeof s === "string" && normalizeSitePattern(s) === s)
+  ) {
+    return null;
+  }
   if (
     !Array.isArray(mediaTypes) ||
     mediaTypes.length > MAX_MEDIA_TYPES ||
@@ -119,7 +156,7 @@ export function validMediaFilters(value: unknown): MediaFilters | null {
   if (typeof mediaMinBytes !== "number" || !Number.isInteger(mediaMinBytes) || mediaMinBytes < 0 || mediaMinBytes > MAX_MEDIA_MIN_BYTES) {
     return null;
   }
-  return { mediaOverlay, mediaTypes: [...mediaTypes], mediaMinBytes };
+  return { mediaOverlay, overlayHoverOnly, overlaySites: [...overlaySites], mediaTypes: [...mediaTypes], mediaMinBytes };
 }
 
 /** The options page's media type field. Unlike capture, an empty list is allowed: only streams are listed then. */

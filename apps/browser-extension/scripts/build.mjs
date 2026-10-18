@@ -45,6 +45,7 @@ for (const [target, esTarget] of Object.entries(TARGETS)) {
       options: "src/options/options.ts",
       links: "src/links/links.ts",
       overlay: "src/overlay/overlay.ts",
+      bypass: "src/bypass/bypass.ts",
     },
     outdir: out,
     bundle: true,

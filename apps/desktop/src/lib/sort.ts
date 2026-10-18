@@ -1,5 +1,6 @@
 import { currentLocale } from "../i18n/core";
 import type { Task } from "./api";
+import { categoryLabel } from "./categories";
 import { percent } from "./format";
 import { displayName, isRunning, lastActivity } from "./tasks";
 
@@ -63,7 +64,9 @@ export function sortTasks(tasks: readonly Task[], sort: Sort): Task[] {
 export function matchesSearch(task: Task, query: string): boolean {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
-  const haystack = [displayName(task), task.url, task.path ?? task.dir, task.category ?? ""].join("\n").toLowerCase();
+  // The category both as stored and as shown, so either finds it.
+  const category = task.category ? `${task.category}\n${categoryLabel(task.category)}` : "";
+  const haystack = [displayName(task), task.url, task.path ?? task.dir, category].join("\n").toLowerCase();
   return words.every((w) => haystack.includes(w));
 }
 

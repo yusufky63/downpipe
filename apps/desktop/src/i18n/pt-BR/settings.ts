@@ -24,8 +24,12 @@ export const settings: Messages["settings"] = {
     connectionsHint: "Limite máximo. O Downpipe começa com 2 e adiciona mais somente enquanto elas ajudam. De 1 a 32.",
     speedLimit: "Limite de velocidade",
     speedLimitHint: "Compartilhado por todos os downloads. Deixe vazio para não ter limite. Vale imediatamente.",
+    speedLimitInvalid: "Digite um número, como 1,5 ou 1.5.",
     noLimit: "Sem limite",
     unit: "Unidade do limite de velocidade",
+    duplicate: "Quando um link já está na lista",
+    duplicateHint: "\"Não perguntar de novo\" na pergunta também define isto.",
+    duplicateAsk: "Perguntar sempre",
   },
   queues: {
     intro:

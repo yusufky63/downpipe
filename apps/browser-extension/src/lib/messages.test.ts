@@ -8,6 +8,7 @@ import {
   isLinkResult,
   isMediaReply,
   isOverlayItems,
+  isOverlayPrefs,
   isSettings,
   overlayResultText,
   parseActivity,
@@ -98,7 +99,7 @@ describe("new requests", () => {
 
 describe("parseSettings", () => {
   it("notifies unless switched off", () => {
-    expect(parseSettings(undefined)).toEqual({ notify: true, ...defaultFilters(), ...defaultMediaFilters() });
+    expect(parseSettings(undefined)).toEqual({ notify: true, ...defaultFilters(), ...defaultMediaFilters(), bypassKey: "alt" });
     expect(parseSettings({ notify: false }).notify).toBe(false);
     expect(parseSettings({ notify: "off" }).notify).toBe(true);
   });
@@ -112,6 +113,7 @@ describe("parseSettings", () => {
       excludedSites: [],
       minSizeBytes: 0,
       ...defaultMediaFilters(),
+      bypassKey: "alt",
     });
     expect(isSettings(old)).toBe(true);
   });
@@ -124,8 +126,11 @@ describe("parseSettings", () => {
       excludedSites: ["a.org"],
       minSizeBytes: 2048,
       mediaOverlay: false,
+      overlayHoverOnly: true,
+      overlaySites: ["video.example"],
       mediaTypes: ["mp4"],
       mediaMinBytes: 0,
+      bypassKey: "shift",
     };
     expect(parseSettings(saved)).toEqual(saved);
     expect(parseSettings(JSON.parse(JSON.stringify(saved)))).toEqual(saved);
@@ -136,6 +141,7 @@ describe("parseSettings", () => {
     expect(isSettings({ ...parseSettings(undefined), notify: "yes" })).toBe(false);
     expect(isSettings({ notify: true })).toBe(false);
     expect(isSettings({ ...parseSettings(undefined), mediaTypes: ["MP4"] })).toBe(false);
+    expect(isSettings({ ...parseSettings(undefined), bypassKey: "ctrl" })).toBe(false);
     expect(isSettings(null)).toBe(false);
   });
 });
@@ -272,9 +278,38 @@ describe("media requests", () => {
   });
 });
 
+describe("overlay requests", () => {
+  it("accepts the button's own requests in their exact shapes", () => {
+    expect(parseOverlayRequest({ kind: "overlay_prefs" })).toEqual({ kind: "overlay_prefs" });
+    expect(parseOverlayRequest({ kind: "overlay_hide_site" })).toEqual({ kind: "overlay_hide_site" });
+    expect(parseOverlayRequest({ kind: "overlay_place", x: 0.25, y: 1 })).toEqual({ kind: "overlay_place", x: 0.25, y: 1 });
+    for (const bad of [
+      // The page cannot name the site: the service worker takes the sender's tab.
+      { kind: "overlay_hide_site", site: "example.com" },
+      { kind: "overlay_prefs", tabId: 3 },
+      { kind: "overlay_place", x: 1.5, y: 0 },
+      { kind: "overlay_place", x: -0.1, y: 0 },
+      { kind: "overlay_place", x: Number.NaN, y: 0 },
+      { kind: "overlay_place", x: 0.5 },
+    ]) {
+      expect(parseOverlayRequest(bad), JSON.stringify(bad)).toBeNull();
+    }
+    // Only the button asks these, never the extension's pages.
+    expect(parsePopupRequest({ kind: "overlay_hide_site" })).toBeNull();
+  });
+
+  it("reads the prefs answer", () => {
+    expect(isOverlayPrefs({ hoverOnly: true, hidden: false })).toBe(true);
+    expect(isOverlayPrefs({ hoverOnly: true, hidden: false, place: { x: 0.5, y: 0.1 } })).toBe(true);
+    expect(isOverlayPrefs({ hoverOnly: true, hidden: false, place: { x: 2, y: 0 } })).toBe(false);
+    expect(isOverlayPrefs({ hoverOnly: "no", hidden: false })).toBe(false);
+    expect(isOverlayPrefs(null)).toBe(false);
+  });
+});
+
 describe("media settings requests", () => {
   it("accept the options page's media settings exactly", () => {
-    const media = { mediaOverlay: false, mediaTypes: ["mp4", "mp3"], mediaMinBytes: 1024 };
+    const media = { mediaOverlay: false, overlayHoverOnly: false, overlaySites: [], mediaTypes: ["mp4", "mp3"], mediaMinBytes: 1024 };
     expect(parsePopupRequest({ kind: "save_media", media })).toEqual({ kind: "save_media", media });
     expect(parsePopupRequest({ kind: "save_media", media: { ...media, mediaTypes: ["MP4"] } })).toBeNull();
     expect(parsePopupRequest({ kind: "save_media", media, extra: 1 })).toBeNull();

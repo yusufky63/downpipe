@@ -19,11 +19,63 @@ const ERROR_CODES = [
   "app_unavailable",
   "duplicate",
   "invalid_url",
+  "invalid_message",
+  "cookies_not_accepted",
   "version_mismatch",
   "unsupported_version",
   "message_too_large",
   "unsupported_page",
+  "internal",
 ] as const;
+
+/**
+ * The engine's failure kinds (`DownloadError::kind()` in
+ * crates/http-engine/src/error.rs), as the app reports them in `tasks`
+ * answers and as error codes when it refuses a download.
+ */
+export const FAILURE_KINDS = [
+  "invalid_header",
+  "auth_required",
+  "forbidden",
+  "not_found",
+  "throttled",
+  "http_status",
+  "resource_changed",
+  "different_file",
+  "expired_link",
+  "login_required",
+  "range_not_honoured",
+  "network",
+  "checksum",
+  "io",
+  "corrupt_meta",
+  "drm_protected",
+  "live_stream",
+  "invalid_manifest",
+  "unsupported_media",
+  "tool_missing",
+  "unavailable",
+  "extractor",
+] as const;
+
+type FailureKind = (typeof FAILURE_KINDS)[number];
+
+const isFailureKind = (kind: string): kind is FailureKind => (FAILURE_KINDS as readonly string[]).includes(kind);
+
+/**
+ * A failure kind in the browser's language; undefined for one this version
+ * does not know. `invalid_url` is a bridge code and words itself there.
+ */
+export function kindText(kind: string | undefined, raw: string | undefined): string | undefined {
+  if (kind === "invalid_url") return t("errors.code.invalid_url");
+  if (kind === undefined || !isFailureKind(kind)) return undefined;
+  if (kind === "http_status") {
+    const status = raw?.match(/\b([1-5]\d\d)\b/)?.[1];
+    // A string, so the status is not written with a thousands separator.
+    return status ? t("errors.kind.http_status", { status }) : t("errors.serverError");
+  }
+  return t(`errors.kind.${kind}`);
+}
 
 type KnownCode = (typeof ERROR_CODES)[number];
 
@@ -36,7 +88,7 @@ export function failureText(failure: BridgeFailure): string {
 /** Known codes get our wording; anything else falls back to the host's message. */
 export function errorText(code: string, message: string): string {
   if (isKnownCode(code)) return t(`errors.code.${code}`);
-  return message || t("errors.refused", { code });
+  return kindText(code, message) ?? (message || t("errors.refused", { code }));
 }
 
 export function bridgeStatus(result: HostResult): BridgeStatus {

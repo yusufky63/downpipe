@@ -2,8 +2,9 @@
 // task alone. The window itself is ProgressWindow.tsx.
 import { t, type MessageKey } from "../i18n/core";
 import type { Task } from "./api";
-import { formatBytes, formatDuration, formatSpeed, percent } from "./format";
+import { formatBytes, formatDecimal, formatDuration, formatSpeed, percent } from "./format";
 import { displayName, errorText, isRunning, waitingText } from "./tasks";
+import { clockText } from "./until";
 
 /** The download a window follows, from its label (`progress-<id>`, src-tauri/src/progress.rs). */
 export function progressId(label: string): string | null {
@@ -64,7 +65,9 @@ export function statusText(task: Task): string {
     case "verifying":
       return t("confirm.progress.status.verifying");
     case "paused":
-      return t("confirm.progress.status.paused");
+      return task.resume_at !== null
+        ? t("confirm.progress.status.pausedUntil", { time: clockText(task.resume_at) })
+        : t("confirm.progress.status.paused");
     case "completed":
       return t("confirm.progress.status.finished");
     case "failed":
@@ -84,7 +87,8 @@ export function sizeText(task: Task): string {
     downloaded: formatBytes(task.downloaded),
     approx,
     total: formatBytes(task.total),
-    percent: pct.toFixed(1),
+    // The catalog places the sign: "45.3%", Turkish "%45,3", French "45,3 %".
+    percent: formatDecimal(pct, 1),
   });
 }
 
@@ -93,6 +97,12 @@ export function speedText(task: Task): string | null {
   if (!isRunning(task.state)) return null;
   const speed = formatSpeed(task.speed);
   return task.eta_secs === null ? speed : t("confirm.progress.timeLeft", { speed, time: formatDuration(task.eta_secs) });
+}
+
+/** The download's own speed limit, while it has one and is not finished. */
+export function limitText(task: Task): string | null {
+  if (task.speed_limit === null || task.state === "completed" || task.state === "canceled") return null;
+  return formatSpeed(task.speed_limit);
 }
 
 /** IDM's "Resume capability", known once the server answered. */
@@ -114,7 +124,7 @@ export function windowTitle(task: Task | null): string {
       task.state === "queued"
         ? t("confirm.progress.title.queued", { name })
         : pct !== null && task.total !== null && task.total > 0
-          ? t("confirm.progress.title.percent", { percent: Math.floor(pct), name })
+          ? t("confirm.progress.title.percent", { percent: formatDecimal(Math.floor(pct), 0), name })
           : name,
     paused: t("confirm.progress.title.paused", { name }),
     done: t("confirm.progress.title.done", { name }),
