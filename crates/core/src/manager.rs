@@ -32,6 +32,10 @@ const TOOLS_DIR: &str = "tools";
 /// meta file next to the download is the precise record anyway.
 const PERSIST_EVERY: Duration = Duration::from_secs(5);
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+/// How often downloads paused until a time are checked. Times are compared
+/// with the wall clock, so a computer that slept through one still resumes
+/// the download when it wakes.
+const RESUME_CHECK_EVERY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
@@ -126,6 +130,9 @@ struct Entry {
     /// The URL was replaced by the user; the next start must prove the
     /// server still has the same file before resuming.
     relink: bool,
+    /// This download's own speed limit, shared with its running job so a
+    /// change applies at once.
+    limiter: Arc<RateLimiter>,
 }
 
 /// What a stop request should turn into once the engine has stopped.
@@ -178,6 +185,7 @@ impl Manager {
             store.upsert(&record)?;
             tasks.push(Entry {
                 url: record.url.clone(),
+                limiter: Arc::new(RateLimiter::new(record.speed_limit.unwrap_or(0))),
                 record,
                 live: Live::default(),
                 headers: Vec::new(),
@@ -207,6 +215,18 @@ impl Manager {
             }),
         };
         manager.inner.schedule();
+        // Weak, so the timer never keeps a closed manager (and its database)
+        // alive.
+        let weak = Arc::downgrade(&manager.inner);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(RESUME_CHECK_EVERY);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tick.tick().await;
+                let Some(inner) = weak.upgrade() else { break };
+                Manager { inner }.resume_due(unix_now());
+            }
+        });
         Ok(manager)
     }
 
@@ -336,9 +356,12 @@ impl Manager {
                 completed_at: None,
                 media,
                 site,
+                speed_limit: None,
+                resume_at: None,
             };
             st.store.upsert(&record)?;
             let entry = Entry {
+                limiter: Arc::new(RateLimiter::unlimited()),
                 url: url.to_string(),
                 record,
                 live: Live::default(),
@@ -366,6 +389,8 @@ impl Manager {
 
     pub fn pause(&self, id: &str) -> Result<(), CoreError> {
         self.inner.with_entry(id, |st, entry| {
+            // Paused by hand: no longer until a time.
+            let had_timer = entry.record.resume_at.take().is_some();
             if let Some(control) = &entry.control {
                 entry.after_stop = AfterStop::Pause;
                 control.pause();
@@ -377,9 +402,73 @@ impl Manager {
                     st.store.upsert(&entry.record)?;
                     Ok(Some(entry.snapshot()))
                 }
+                TaskState::Paused | TaskState::Failed if had_timer => {
+                    st.store.upsert(&entry.record)?;
+                    Ok(Some(entry.snapshot()))
+                }
                 TaskState::Paused => Ok(None),
                 state => Err(invalid("pause", state)),
             }
+        })
+    }
+
+    /// Pause a download until `at` (Unix seconds); it is queued again by
+    /// itself then. A running download stops with a checkpoint like any
+    /// pause; a failed one keeps its error until it is retried at that time.
+    pub fn pause_until(&self, id: &str, at: i64) -> Result<(), CoreError> {
+        self.inner.with_entry(id, |st, entry| {
+            if entry.live.awaiting_confirmation || entry.record.state.is_finished() {
+                return Err(invalid("pause", entry.record.state));
+            }
+            entry.record.resume_at = Some(at);
+            if let Some(control) = &entry.control {
+                // Stored with the paused state once the job has stopped.
+                entry.after_stop = AfterStop::Pause;
+                control.pause();
+                return Ok(Some(entry.snapshot()));
+            }
+            if entry.record.state == TaskState::Queued {
+                entry.set_state(TaskState::Paused);
+            }
+            st.store.upsert(&entry.record)?;
+            Ok(Some(entry.snapshot()))
+        })
+    }
+
+    /// Queue the downloads paused until `now` or earlier. The manager calls
+    /// this itself every few seconds with the current time.
+    pub fn resume_due(&self, now: i64) {
+        let due: Vec<TaskId> = {
+            let st = self.inner.state.lock();
+            st.tasks
+                .iter()
+                .filter(|e| {
+                    e.record.resume_at.is_some_and(|at| at <= now)
+                        && e.control.is_none()
+                        && e.record.state.can_resume()
+                        && !e.live.awaiting_confirmation
+                })
+                .map(|e| e.record.id.clone())
+                .collect()
+        };
+        for id in due {
+            if let Err(e) = self.resume(&id) {
+                tracing::warn!(task = id, "could not resume at its time: {e}");
+            }
+        }
+    }
+
+    /// Give a download a speed limit of its own (bytes per second), under the
+    /// global one; `None` or 0 removes it. A running download follows the
+    /// change at once, except a video page, whose yt-dlp takes it at its next
+    /// start.
+    pub fn set_speed_limit(&self, id: &str, limit: Option<u64>) -> Result<(), CoreError> {
+        let limit = limit.filter(|&l| l > 0);
+        self.inner.with_entry(id, |st, entry| {
+            entry.record.speed_limit = limit;
+            entry.limiter.set_rate(limit.unwrap_or(0));
+            st.store.upsert(&entry.record)?;
+            Ok(Some(entry.snapshot()))
         })
     }
 
@@ -397,6 +486,7 @@ impl Manager {
                     // Resuming one held for confirmation by hand accepts it
                     // as it is.
                     entry.live.awaiting_confirmation = false;
+                    entry.record.resume_at = None;
                     entry.record.error = None;
                     entry.record.error_kind = None;
                     entry.set_state(TaskState::Queued);
@@ -424,6 +514,7 @@ impl Manager {
                 _ => {
                     remove_partial(&entry.record);
                     entry.record.downloaded = 0;
+                    entry.record.resume_at = None;
                     entry.live = Live::default();
                     entry.set_state(TaskState::Canceled);
                     st.store.upsert(&entry.record)?;
@@ -1141,6 +1232,7 @@ impl Inner {
                     r.completed_at = Some(unix_now());
                     r.error = None;
                     r.error_kind = None;
+                    r.resume_at = None;
                     entry.live.segments.clear();
                     entry.set_state(TaskState::Completed);
                 }
@@ -1158,6 +1250,7 @@ impl Inner {
                 }
                 Ok(Outcome::Canceled) => {
                     r.downloaded = 0;
+                    r.resume_at = None;
                     entry.live = Live::default();
                     entry.set_state(TaskState::Canceled);
                 }
@@ -1205,6 +1298,7 @@ impl Entry {
         req.headers.clone_from(&self.headers);
         req.max_connections = Some(self.record.max_connections.unwrap_or(per_download) as usize);
         req.relink = self.relink;
+        req.limiter = Some(self.limiter.clone());
         req.media = self.record.media.as_ref().map(|info| MediaRequest {
             kind: info.kind,
             selection: info.selection.clone().unwrap_or_default(),
@@ -1221,7 +1315,12 @@ impl Entry {
             selection: self.record.site.as_ref().and_then(|s| s.selection.clone()),
             tools,
             proxy: (!settings.proxy.is_empty()).then(|| settings.proxy.clone()),
-            rate_limit: settings.speed_limit,
+            // yt-dlp has one limit per process: the lower of the two.
+            rate_limit: match (settings.speed_limit, self.record.speed_limit) {
+                (0, own) => own.unwrap_or(0),
+                (global, Some(own)) => global.min(own),
+                (global, None) => global,
+            },
         }
     }
 }

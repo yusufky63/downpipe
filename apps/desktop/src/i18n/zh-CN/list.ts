@@ -27,6 +27,10 @@ export const list: Messages["list"] = {
     more: "更多",
     clear: "取消选择",
   },
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "{time} 继续",
+  },
   menu: {
     label: "下载操作",
     labelMany: "{count} 个下载的操作",
@@ -50,6 +54,12 @@ export const list: Messages["list"] = {
     properties: "属性",
     remove: "移除…",
     removeMany: { other: "移除 {count} 个下载…" },
+    speedLimit: "速度限制…",
+    pauseUntil: "暂停到",
+    until30m: "30 分钟后",
+    until1h: "1 小时后",
+    untilTonight: "今晚 {time}",
+    untilCustom: "选择时间…",
   },
 };
 

@@ -123,6 +123,14 @@ pub struct TaskRecord {
     /// Set when the URL is a video page a site provider downloads (YouTube).
     #[serde(default)]
     pub site: Option<SiteInfo>,
+    /// This download's own limit in bytes per second, under the global one.
+    /// `None`: only the global limit applies.
+    #[serde(default)]
+    pub speed_limit: Option<u64>,
+    /// "Pause until": the paused download is queued again at this time
+    /// (Unix seconds). Cleared when it is resumed or paused by hand.
+    #[serde(default)]
+    pub resume_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
     pub completed_at: Option<i64>,

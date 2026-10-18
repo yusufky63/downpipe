@@ -6,11 +6,13 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ContextMenu } from "./components/ContextMenu";
 import { DetailsDialog } from "./components/DetailsDialog";
 import { DownloadList, rowSelector, type DownloadListHandle, type RowActions } from "./components/DownloadList";
-import { DuplicateDialog, type DuplicateChoice } from "./components/DuplicateDialog";
+import { DuplicateDialog } from "./components/DuplicateDialog";
+import { PauseUntilDialog } from "./components/PauseUntilDialog";
 import { Banner } from "./components/primitives";
 import { RedownloadDialog } from "./components/RedownloadDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
 import { SettingsDialog, type SettingsTab } from "./components/SettingsDialog";
+import { SpeedLimitDialog } from "./components/SpeedLimitDialog";
 import { LocaleProvider, t, useLocale } from "./i18n";
 import {
   api,
@@ -34,7 +36,9 @@ import { EMPTY_SELECTION, clickSelect, contextSelect, edge, focusOf, prune, sele
 import { isTextField, listKey, type ListKey } from "./lib/shortcuts";
 import { DEFAULT_SORT, formatSort, matchesSearch, nextSort, parseSort, sortTasks, type Sort, type SortKey } from "./lib/sort";
 import { applyEvent, awaitingIn, canPause, canResume, countByFilter, isRunning, matchesFilter, totals, type Filter } from "./lib/tasks";
+import { rememberedAnswer, type DuplicateChoice } from "./lib/duplicates";
 import { THEME_KEY, type Theme } from "./lib/theme";
+import { canPauseUntil, presetTime, unixSeconds, type UntilPreset } from "./lib/until";
 import { useAppWindow } from "./lib/window";
 
 const SORT_KEY = "downpipe:sort";
@@ -84,6 +88,8 @@ export function App() {
   const [removingIds, setRemovingIds] = useState<string[]>([]);
   const [redownloadId, setRedownloadId] = useState<string | null>(null);
   const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
+  const [speedLimitIds, setSpeedLimitIds] = useState<string[]>([]);
+  const [pauseUntilIds, setPauseUntilIds] = useState<string[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [theme, setTheme] = useState<Theme>(currentTheme);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -268,11 +274,20 @@ export function App() {
   const detailsTask = details ? tasks.find((t) => t.id === details.id) : undefined;
   const removing = tasks.filter((t) => removingIds.includes(t.id));
   const redownloading = tasks.find((t) => t.id === redownloadId);
+  const limiting = tasks.filter((t) => speedLimitIds.includes(t.id));
+  const pausingUntil = tasks.filter((t) => pauseUntilIds.includes(t.id));
   const counted = countdown !== null && whenDone.action !== "nothing";
   // One dialog at a time; the others wait their turn.
   const duplicateOf = duplicates.length > 0 ? tasks.find((t) => t.id === duplicates[0]?.existing) : undefined;
   const busyDialog =
-    counted || settingsTab !== null || detailsTask !== undefined || removing.length > 0 || redownloading !== undefined || duplicateOf !== undefined;
+    counted ||
+    settingsTab !== null ||
+    detailsTask !== undefined ||
+    removing.length > 0 ||
+    redownloading !== undefined ||
+    duplicateOf !== undefined ||
+    limiting.length > 0 ||
+    pausingUntil.length > 0;
   const showAdd = addText !== null && settings !== null && !busyDialog;
   // What the browser sent is asked in the confirmation window, over the browser.
   const awaiting = useMemo(() => awaitingIn(tasks, "main"), [tasks]);
@@ -304,6 +319,11 @@ export function App() {
       run(() => api.setQueue(ids, target));
       return;
     }
+    if (action.startsWith("pause_until:")) {
+      const at = unixSeconds(presetTime(action.slice("pause_until:".length) as UntilPreset, new Date()));
+      for (const t of selectedTasks.filter(canPauseUntil)) run(() => api.pauseUntil(t.id, at));
+      return;
+    }
     switch (action) {
       case "open":
         if (one) run(() => api.open(one.id));
@@ -319,6 +339,12 @@ export function App() {
         break;
       case "redownload":
         if (one) setRedownloadId(one.id);
+        break;
+      case "pause_until_custom":
+        setPauseUntilIds(selectedTasks.filter(canPauseUntil).map((t) => t.id));
+        break;
+      case "speed_limit":
+        setSpeedLimitIds(selectedTasks.filter((t) => t.state !== "completed").map((t) => t.id));
         break;
       case "relink":
         if (one) setDetails({ id: one.id, relink: true });
@@ -636,6 +662,7 @@ export function App() {
               setDetails(null);
               setRemovingIds([id]);
             },
+            onSpeedLimit: (id, limit) => run(() => api.setSpeedLimit(id, limit)),
             onChangeUrl: async (id, url) => {
               await api.changeUrl(id, url);
             },
@@ -664,7 +691,12 @@ export function App() {
               if (!added.some((t) => t.awaiting_confirmation)) focusRow(first.id);
             }
           }}
-          onDuplicates={setDuplicates}
+          onDuplicates={(items) => {
+            // "Don't ask again" answered it before.
+            const answer = settings ? rememberedAnswer(settings) : null;
+            if (answer) answerDuplicates(items, answer);
+            else setDuplicates(items);
+          }}
         />
       )}
       {asking && settings && (
@@ -708,10 +740,34 @@ export function App() {
           existing={duplicateOf}
           count={duplicates.length}
           onCancel={() => setDuplicates([])}
-          onChoose={(choice) => {
+          onChoose={(choice, remember) => {
             const items = duplicates;
             setDuplicates([]);
             answerDuplicates(items, choice);
+            if (remember && settings) run(async () => setSettings(await api.updateSettings({ ...settings, duplicate_answer: choice })));
+          }}
+        />
+      )}
+      {limiting.length > 0 && settings && (
+        <SpeedLimitDialog
+          tasks={limiting}
+          globalLimit={settings.speed_limit}
+          onClose={() => setSpeedLimitIds([])}
+          onSave={(limit) => {
+            const ids = limiting.map((t) => t.id);
+            setSpeedLimitIds([]);
+            for (const id of ids) run(() => api.setSpeedLimit(id, limit));
+          }}
+        />
+      )}
+      {pausingUntil.length > 0 && (
+        <PauseUntilDialog
+          tasks={pausingUntil}
+          onClose={() => setPauseUntilIds([])}
+          onPause={(at) => {
+            const ids = pausingUntil.map((t) => t.id);
+            setPauseUntilIds([]);
+            for (const id of ids) run(() => api.pauseUntil(id, unixSeconds(at)));
           }}
         />
       )}

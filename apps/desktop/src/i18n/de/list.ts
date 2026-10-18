@@ -27,6 +27,10 @@ export const list: Messages["list"] = {
     more: "Mehr",
     clear: "Auswahl aufheben",
   },
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "Weiter um {time}",
+  },
   menu: {
     label: "Download-Aktionen",
     labelMany: "Aktionen für {count} Downloads",
@@ -50,6 +54,12 @@ export const list: Messages["list"] = {
     properties: "Eigenschaften",
     remove: "Entfernen…",
     removeMany: { one: "{count} Download entfernen…", other: "{count} Downloads entfernen…" },
+    speedLimit: "Geschwindigkeitslimit…",
+    pauseUntil: "Pausieren bis",
+    until30m: "30 Minuten",
+    until1h: "1 Stunde",
+    untilTonight: "Heute Nacht um {time}",
+    untilCustom: "Zeit wählen…",
   },
 };
 

@@ -27,6 +27,9 @@ export const settings: Messages["settings"] = {
     speedLimitInvalid: "Geben Sie eine Zahl ein, etwa 1,5 oder 1.5.",
     noLimit: "Kein Limit",
     unit: "Einheit des Geschwindigkeitslimits",
+    duplicate: "Wenn ein Link schon in der Liste ist",
+    duplicateHint: "\"Nicht mehr fragen\" in der Nachfrage setzt das ebenfalls.",
+    duplicateAsk: "Jedes Mal fragen",
   },
   queues: {
     intro:

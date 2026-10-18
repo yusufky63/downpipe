@@ -4,7 +4,15 @@ All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
 ## Unreleased
 
-The download engine handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names.
+The download engine handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names. Five small features users of other download managers asked for come with it.
+
+### New
+
+- **Alt+click lets the browser download a link.** While capture is on, a click on a link with Alt held (Option on a Mac) leaves that one download to the browser instead of Downpipe. The key is set under the extension's **Filters**, **Download in the browser**: Alt, Shift or off. The click is noticed by a small script in the pages, which needs the optional access to the sites you visit (the same access **Media on this page** asks for); the options page offers **Allow access** while it is missing.
+- **A speed limit per download.** **Speed limit…** in the right-click menu (for one download or several) and **Speed limit** in the details dialog give a download a limit of its own, under the global one. A running download follows the change at once; a YouTube video takes it at its next start. The limit is stored with the download and shown in its progress window.
+- **Request headers and Paste as cURL.** The Add dialog has a **Request headers** field (one `Name: value` per line) and **Paste as cURL**, which reads a command copied from the browser's developer tools (Network, Copy as cURL, in its bash or Windows form) into the link, the headers and, with `-o`, the file name. Cookies are taken only when the pasted command or the field has them. Only GET requests are accepted: a command with `-X POST` or another method, or one that sends data (`-d`, `-F`, `--json`, `-T`), is refused with the reason. Pasting such a command straight into the empty Links field does the same. Headers and cookies stay in memory only, as before, and are never written to disk.
+- **Don't ask again for links already in the list.** The question for a link that is already in the list has **Don't ask again, always do this**; the answer is then given without asking, in the main window and for downloads from the browser. **Settings → Downloads → When a link is already in the list** changes it back.
+- **Pause until a time.** **Pause until** in the right-click menu pauses the selected downloads for 30 minutes, an hour, until 02:00 tonight, or until a time you choose; they resume by themselves then. The list and the progress window say when. The time is stored with the download, so a download whose time passed while Downpipe was closed resumes when it starts. Pausing or resuming by hand cancels it.
 
 ### Fixed
 

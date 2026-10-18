@@ -28,6 +28,10 @@ export const list: Messages["list"] = {
     more: "Еще",
     clear: "Снять выделение",
   },
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "Продолжится: {time}",
+  },
   menu: {
     label: "Действия с загрузкой",
     labelMany: "Действия с загрузками: {count}",
@@ -56,6 +60,12 @@ export const list: Messages["list"] = {
       many: "Удалить {count} загрузок…",
       other: "Удалить {count} загрузки…",
     },
+    speedLimit: "Ограничение скорости…",
+    pauseUntil: "Приостановить до",
+    until30m: "30 минут",
+    until1h: "1 час",
+    untilTonight: "Сегодня ночью в {time}",
+    untilCustom: "Выбрать время…",
   },
 };
 

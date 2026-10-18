@@ -54,10 +54,32 @@ export const add = {
     hint: "Optional, e.g. sha256:9f86d0… The file is only renamed into place if it matches.",
     videoHint: "Only for files: yt-dlp puts a video's file together from the site's formats.",
   },
+  /** Sent with every request, kept in memory only. */
+  headers: {
+    label: "Request headers",
+    hint: "Optional. One per line, as Name: value. Sent with every request and kept in memory only, never saved.",
+  },
+  /** "Paste as cURL": a command from the browser's developer tools. */
+  curl: {
+    button: "Paste as cURL",
+    label: "cURL command",
+    hint: "In the browser's developer tools: Network, right-click the request, Copy as cURL. Only GET requests can be downloaded.",
+    apply: "Fill in",
+    filled: "Filled in from the command: the link and its headers.",
+    ignored: "Left out: {list}.",
+    notCurl: "This is not a cURL command. It has to start with curl.",
+    quote: "A quote in the command is never closed. Copy the whole command again.",
+    noUrl: "The command has no http or https link.",
+    method: "This request uses {method}. Downpipe downloads with GET only, so it cannot repeat it.",
+    data: "This request sends data ({option}), which makes it a POST. Downpipe downloads with GET only.",
+  },
   errors: {
     listTooLarge: "That file is too large for a list of links.",
     noLinks: "Paste at least one http or https link.",
     /** One line per failed link when several were added. */
     forLink: "{url}: {error}",
+    headerFormat: "Line {line}: write it as Name: value.",
+    headerName: "Line {line}: {name} is not a valid header name.",
+    headerManaged: "Line {line}: Downpipe sets {name} itself.",
   },
 };

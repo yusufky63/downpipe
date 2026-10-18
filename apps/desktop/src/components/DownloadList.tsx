@@ -22,6 +22,7 @@ import type { Modifiers } from "../lib/selection";
 import type { Sort, SortKey } from "../lib/sort";
 import { scrollToRow, visibleRange } from "../lib/windowing";
 import { canPause, canResume, displayName, errorText, isRunning, lastActivity, needsNewLink, stateInfo, waitingText } from "../lib/tasks";
+import { resumesText } from "../lib/until";
 import { Badge, IconButton } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
 
@@ -313,7 +314,7 @@ function DownloadRow({
         : "–";
   const detail =
     (task.state === "failed" ? errorText(task) : waitingText(task)) ??
-    [hostOf(task.url), streamLabel(task), task.category && categoryLabel(task.category), queueName].filter(Boolean).join(" · ");
+    [resumesText(task, now), hostOf(task.url), streamLabel(task), task.category && categoryLabel(task.category), queueName].filter(Boolean).join(" · ");
   const done = task.state === "completed";
   const name = displayName(task);
   const dateTitle = [

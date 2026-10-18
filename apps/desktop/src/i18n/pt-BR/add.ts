@@ -67,9 +67,31 @@ export const add: Messages["add"] = {
     hint: "Opcional, por exemplo, sha256:9f86d0… O arquivo só recebe o nome final se a soma corresponder.",
     videoHint: "Somente para arquivos: o yt-dlp monta o arquivo do vídeo a partir dos formatos do site.",
   },
+  /** Sent with every request, kept in memory only. */
+  headers: {
+    label: "Cabeçalhos da requisição",
+    hint: "Opcional. Um por linha, como Nome: valor. Enviados em cada requisição e mantidos só na memória, nunca salvos.",
+  },
+  /** "Paste as cURL": a command from the browser's developer tools. */
+  curl: {
+    button: "Colar como cURL",
+    label: "Comando cURL",
+    hint: "Nas ferramentas de desenvolvedor do navegador: Rede, clique com o botão direito na requisição, Copiar como cURL. Só requisições GET podem ser baixadas.",
+    apply: "Preencher",
+    filled: "Preenchido a partir do comando: o link e seus cabeçalhos.",
+    ignored: "Deixado de fora: {list}.",
+    notCurl: "Isto não é um comando cURL. Ele precisa começar com curl.",
+    quote: "Uma aspa do comando nunca é fechada. Copie o comando inteiro de novo.",
+    noUrl: "O comando não tem nenhum link http ou https.",
+    method: "Esta requisição usa {method}. O Downpipe só baixa com GET, então não consegue repeti-la.",
+    data: "Esta requisição envia dados ({option}), o que a torna um POST. O Downpipe só baixa com GET.",
+  },
   errors: {
     listTooLarge: "Esse arquivo é grande demais para uma lista de links.",
     noLinks: "Cole pelo menos um link http ou https.",
     forLink: "{url}: {error}",
+    headerFormat: "Linha {line}: escreva como Nome: valor.",
+    headerName: "Linha {line}: {name} não é um nome de cabeçalho válido.",
+    headerManaged: "Linha {line}: o Downpipe define {name} sozinho.",
   },
 };

@@ -27,6 +27,9 @@ export const settings: Messages["settings"] = {
     speedLimitInvalid: "Bir sayı girin, örneğin 1,5 ya da 1.5.",
     noLimit: "Sınır yok",
     unit: "Hız sınırı birimi",
+    duplicate: "Bir bağlantı zaten listedeyse",
+    duplicateHint: "Sorudaki \"Bir daha sorma\" seçeneği de bunu ayarlar.",
+    duplicateAsk: "Her seferinde sor",
   },
   queues: {
     intro:

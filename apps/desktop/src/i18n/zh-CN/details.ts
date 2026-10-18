@@ -40,6 +40,8 @@ export const details: Messages["details"] = {
     checksum: "校验和",
     added: "添加时间",
     finished: "完成时间",
+    speedLimit: "速度限制",
+    resumes: "继续时间",
   },
   relink: {
     button: "使用新链接…",
@@ -49,4 +51,12 @@ export const details: Messages["details"] = {
   },
   copy: "复制",
   copied: "已复制",
+  /** The download's own speed limit, set in place. */
+  speedLimit: {
+    none: "仅全局限制",
+    change: "更改",
+    set: "设置",
+    remove: "取消",
+    label: "此下载的速度限制",
+  },
 };

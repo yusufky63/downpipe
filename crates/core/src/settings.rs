@@ -56,7 +56,16 @@ pub struct Settings {
     /// Deno, which yt-dlp needs for YouTube. Empty: the tools folder, then
     /// `PATH` (and Node 22 or newer when there is no Deno at all).
     pub deno_path: String,
+    /// The answer to "this link is already in the list" once the user chose
+    /// "Don't ask again": one of [`DUPLICATE_ANSWERS`]. `ask` asks every
+    /// time. The desktop app applies it; the core still holds a browser's
+    /// duplicate for confirmation, so the answer is given in one place.
+    pub duplicate_answer: String,
 }
+
+/// The values of [`Settings::duplicate_answer`]: ask, a numbered copy, the
+/// old file downloaded again in place, or the download already in the list.
+pub const DUPLICATE_ANSWERS: [&str; 4] = ["ask", "copy", "overwrite", "existing"];
 
 /// The queue every download belongs to unless moved.
 pub const MAIN_QUEUE: &str = "main";
@@ -145,6 +154,7 @@ impl Default for Settings {
             ffmpeg_path: String::new(),
             yt_dlp_path: String::new(),
             deno_path: String::new(),
+            duplicate_answer: "ask".into(),
         }
     }
 }
@@ -173,6 +183,11 @@ impl Settings {
         self.ffmpeg_path = self.ffmpeg_path.trim().trim_matches('"').to_string();
         self.yt_dlp_path = self.yt_dlp_path.trim().trim_matches('"').to_string();
         self.deno_path = self.deno_path.trim().trim_matches('"').to_string();
+        // An answer a newer version knows and this one does not asks again.
+        if !DUPLICATE_ANSWERS.contains(&self.duplicate_answer.as_str()) {
+            self.duplicate_answer = "ask".into();
+        }
+
         self.categories = self
             .categories
             .into_iter()
@@ -426,6 +441,26 @@ mod tests {
         assert_eq!(s.categories[0].extensions, ["epub", "mobi"]);
         assert_eq!(s.schedule.start, "02:00");
         assert_eq!(s.schedule.stop, "");
+    }
+
+    #[test]
+    fn duplicate_answer_is_kept_only_when_known() {
+        for answer in DUPLICATE_ANSWERS {
+            let s = Settings {
+                duplicate_answer: answer.into(),
+                ..Settings::default()
+            }
+            .normalized();
+            assert_eq!(s.duplicate_answer, answer);
+        }
+        let s = Settings {
+            duplicate_answer: "rename".into(),
+            ..Settings::default()
+        }
+        .normalized();
+        assert_eq!(s.duplicate_answer, "ask");
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s.duplicate_answer, "ask");
     }
 
     #[test]

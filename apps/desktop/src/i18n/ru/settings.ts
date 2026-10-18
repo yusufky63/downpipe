@@ -27,6 +27,9 @@ export const settings: Messages["settings"] = {
     speedLimitInvalid: "Введите число, например 1,5 или 1.5.",
     noLimit: "Без ограничения",
     unit: "Единица ограничения скорости",
+    duplicate: "Если ссылка уже есть в списке",
+    duplicateHint: "«Больше не спрашивать» в вопросе тоже меняет этот параметр.",
+    duplicateAsk: "Спрашивать каждый раз",
   },
   queues: {
     intro:

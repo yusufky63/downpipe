@@ -25,6 +25,9 @@ export const settings = {
     speedLimitInvalid: "Enter a number, such as 1.5 or 1,5.",
     noLimit: "No limit",
     unit: "Speed limit unit",
+    duplicate: "When a link is already in the list",
+    duplicateHint: "\"Don't ask again\" in the question sets this too.",
+    duplicateAsk: "Ask every time",
   },
   queues: {
     intro:

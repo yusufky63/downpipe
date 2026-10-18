@@ -27,6 +27,10 @@ export const list: Messages["list"] = {
     more: "Diğer",
     clear: "Seçimi temizle",
   },
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "Devam: {time}",
+  },
   menu: {
     label: "İndirme eylemleri",
     labelMany: "{count} indirme için eylemler",
@@ -50,6 +54,12 @@ export const list: Messages["list"] = {
     properties: "Özellikler",
     remove: "Kaldır…",
     removeMany: { one: "{count} indirmeyi kaldır…", other: "{count} indirmeyi kaldır…" },
+    speedLimit: "Hız sınırı…",
+    pauseUntil: "Şu zamana kadar duraklat",
+    until30m: "30 dakika",
+    until1h: "1 saat",
+    untilTonight: "Bu gece {time}",
+    untilCustom: "Zaman seç…",
   },
 };
 

@@ -187,6 +187,29 @@
             </div>
           </div>
         </section>
+
+        <section class="card" aria-labelledby="bypass-heading">
+          <div class="card-head">
+            <h2 class="eyebrow" id="bypass-heading" data-i18n="options.bypassHeading"></h2>
+          </div>
+          <div class="card-body">
+            <div class="field">
+              <label class="field-label" for="bypass-key" data-i18n="options.bypassLabel"></label>
+              <select class="input" id="bypass-key" aria-describedby="bypass-help">
+                <option value="alt" data-i18n="options.bypassAlt"></option>
+                <option value="shift" data-i18n="options.bypassShift"></option>
+                <option value="off" data-i18n="options.bypassOff"></option>
+              </select>
+              <p class="help" id="bypass-help" data-i18n="options.bypassHelp"></p>
+            </div>
+            <div class="notice" id="bypass-access" hidden>
+              <span data-i18n="options.bypassAccess"></span>
+              <div class="field-actions">
+                <button type="button" class="link" id="bypass-allow" data-i18n="options.bypassAllow"></button>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
 
       <div class="dock">

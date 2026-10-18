@@ -27,6 +27,9 @@ export const settings: Messages["settings"] = {
     speedLimitInvalid: "1.5 や 1,5 のように数値を入力してください。",
     noLimit: "制限なし",
     unit: "速度制限の単位",
+    duplicate: "リンクが既に一覧にあるとき",
+    duplicateHint: "確認画面の「今後は確認しない」でもこの設定が変わります。",
+    duplicateAsk: "毎回確認する",
   },
   queues: {
     intro:

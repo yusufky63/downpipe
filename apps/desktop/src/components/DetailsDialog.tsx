@@ -10,6 +10,7 @@ import { engineQuality, kindName, sizeIsEstimate } from "../lib/media";
 import { canCancel, canPause, canResume, displayName, errorDetail, errorText, isRunning, needsNewLink, stateInfo, waitingText } from "../lib/tasks";
 import { Badge, Banner, Button, Dialog, IconButton, inputClass } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
+import { RateFields, draftBytes, rateDraft } from "./SpeedLimitDialog";
 
 export interface DetailActions {
   onClose: () => void;
@@ -22,6 +23,8 @@ export interface DetailActions {
   /** Rejects with the reason the link was refused. */
   onChangeUrl: (id: string, url: string) => Promise<void>;
   onRedownload: (id: string) => void;
+  /** Bytes per second; null leaves only the global limit. */
+  onSpeedLimit: (id: string, limit: number | null) => void;
 }
 
 export function DetailsDialog({
@@ -184,6 +187,16 @@ export function DetailsDialog({
               </span>
             </Row>
           )}
+          {task.state !== "completed" && (
+            <Row label={t("details.rows.speedLimit")}>
+              <SpeedLimit task={task} onSpeedLimit={actions.onSpeedLimit} />
+            </Row>
+          )}
+          {task.resume_at !== null && (task.state === "paused" || task.state === "failed") && (
+            <Row label={t("details.rows.resumes")}>
+              <span className="num font-mono text-[12px] text-ink-secondary">{longDate(task.resume_at)}</span>
+            </Row>
+          )}
           {queueName && (
             <Row label={t("details.rows.queue")}>
               <span className="text-[13px] text-ink-secondary">{queueName}</span>
@@ -269,6 +282,65 @@ function ChangeLink({ task, startOpen, onChangeUrl }: { task: Task; startOpen: b
         <p className="text-[13px] text-danger-fg">{error}</p>
       ) : (
         <p className="text-[12px] text-ink-muted">{t("details.relink.hint")}</p>
+      )}
+    </form>
+  );
+}
+
+/** The download's own limit, changed in place; a running download follows at once. */
+function SpeedLimit({ task, onSpeedLimit }: { task: Task; onSpeedLimit: DetailActions["onSpeedLimit"] }) {
+  const { t } = useI18n();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(() => rateDraft(task.speed_limit));
+
+  if (!editing) {
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="num truncate font-mono text-[12px] text-ink-secondary">
+          {task.speed_limit !== null ? formatSpeed(task.speed_limit) : t("details.speedLimit.none")}
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setDraft(rateDraft(task.speed_limit));
+            setEditing(true);
+          }}
+        >
+          {t("details.speedLimit.change")}
+        </Button>
+      </div>
+    );
+  }
+
+  const save = (limit: number | null) => {
+    onSpeedLimit(task.id, limit);
+    setEditing(false);
+  };
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2"
+      aria-label={t("details.speedLimit.label")}
+      onSubmit={(e) => {
+        e.preventDefault();
+        save(draftBytes(draft));
+      }}
+    >
+      <div className="min-w-0 flex-1">
+        <RateFields
+          draft={draft}
+          onChange={setDraft}
+          placeholder={t("dialogs.speedLimit.placeholder")}
+          unitLabel={t("dialogs.speedLimit.unit")}
+        />
+      </div>
+      <Button size="sm" type="submit" variant="primary">
+        {t("details.speedLimit.set")}
+      </Button>
+      {task.speed_limit !== null && (
+        <Button size="sm" variant="ghost" onClick={() => save(null)}>
+          {t("details.speedLimit.remove")}
+        </Button>
       )}
     </form>
   );

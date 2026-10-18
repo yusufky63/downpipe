@@ -3,6 +3,7 @@
 // worker for any of them.
 import { activateBrowserLanguage, t } from "./i18n";
 import { ext } from "./lib/browser";
+import { parseBypassRequest } from "./lib/bypass";
 import { linkFields } from "./lib/capture";
 import { collectPageLinks } from "./lib/collect";
 import { hostOf, matchingSite, normalizeSitePattern, withSite } from "./lib/filters";
@@ -401,10 +402,58 @@ function stopCapture(): void {
 startCapture();
 ext.permissions.onAdded.addListener((p) => {
   if (p.permissions?.includes("downloads")) startCapture();
+  void syncBypass();
 });
 ext.permissions.onRemoved.addListener((p) => {
   if (p.permissions?.includes("downloads")) stopCapture();
+  void syncBypass();
 });
+
+// ---------- Letting the browser download a link itself ----------
+// Alt+click (or the key set in the options) on a link: the browser downloads
+// it once, as the extension's own download, which capture leaves alone. The
+// content script that spots the click needs access to the sites (the same
+// optional access media detection asks for), and runs only while capture is
+// on, since otherwise the browser downloads everything itself anyway.
+
+const BYPASS_SCRIPT_ID = "downpipe-bypass";
+
+async function syncBypass(): Promise<void> {
+  const [capture, sites, prefs] = await Promise.all([
+    ext.permissions.contains(DOWNLOADS_PERMISSION).catch(() => false),
+    ext.permissions.contains({ origins: WEB_ORIGINS }).catch(() => false),
+    cachedSettings(),
+  ]);
+  const registered = await ext.scripting
+    .getRegisteredContentScripts({ ids: [BYPASS_SCRIPT_ID] })
+    .catch((): chrome.scripting.RegisteredContentScript[] => []);
+  const wanted = capture && sites && prefs.bypassKey !== "off";
+  if (!wanted) {
+    if (registered.length) await ext.scripting.unregisterContentScripts({ ids: [BYPASS_SCRIPT_ID] }).catch(() => undefined);
+    return;
+  }
+  if (registered.length) return;
+  const script: chrome.scripting.RegisteredContentScript = {
+    id: BYPASS_SCRIPT_ID,
+    js: ["bypass.js"],
+    matches: WEB_ORIGINS,
+    allFrames: true,
+    // Before the page's scripts, so its own click handlers come second.
+    runAt: "document_start",
+  };
+  await ext.scripting
+    .registerContentScripts([{ ...script, persistAcrossSessions: true }])
+    .catch(() => ext.scripting.registerContentScripts([script]))
+    .catch(() => undefined);
+}
+
+/** The browser downloads `url` itself; checked again here, since a page is around the script. */
+async function bypassDownload(url: string): Promise<{ ok: boolean }> {
+  const prefs = await settings();
+  if (prefs.bypassKey === "off" || !ext.downloads) return { ok: false };
+  const id = await ext.downloads.download({ url }).catch(() => undefined);
+  return { ok: id !== undefined };
+}
 
 // ---------- Media detection ----------
 // On only while the optional `webRequest` permission and access to web
@@ -833,9 +882,12 @@ function cachedSettings(): Promise<Settings> {
 ext.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes[SETTINGS_KEY]) return;
   settingsCache = null;
-  // The overlay follows its switch and the excluded sites.
+  // The overlay follows its switch and the excluded sites, the click script its key.
   void syncOverlay();
+  void syncBypass();
 });
+// After the settings cache above exists, which it reads.
+void syncBypass();
 
 async function settings(): Promise<Settings> {
   const stored = await ext.storage.local.get(SETTINGS_KEY).catch((): Record<string, unknown> => ({}));
@@ -992,6 +1044,8 @@ async function answer(request: PopupRequest): Promise<Reply> {
     }
     case "save_media":
       return changeSettings((s) => ({ ...s, ...request.media }));
+    case "set_bypass_key":
+      return changeSettings((s) => ({ ...s, bypassKey: request.key }));
     case "send_media":
       return sendMedia(request.tabId, request.mediaId);
     case "send_page": {
@@ -1013,9 +1067,15 @@ ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
     answer(request).then(sendResponse, () => sendResponse(null));
     return true;
   }
-  // The overlay button inside web pages: three requests, always about the
-  // sender's own tab, which the browser reports and the page cannot choose.
+  // Content scripts inside web pages. The click script asks for one browser
+  // download of a link; the overlay button has three requests, always about
+  // the sender's own tab, which the browser reports and the page cannot choose.
   if (isOwnContentScript(sender, ext.runtime.id)) {
+    const bypass = parseBypassRequest(message);
+    if (bypass) {
+      bypassDownload(bypass.url).then(sendResponse, () => sendResponse({ ok: false }));
+      return true;
+    }
     const request = parseOverlayRequest(message);
     if (!request) return false;
     overlayAnswer(request, sender.tab.id, frameOf({ documentUrl: sender.url }), sender.tab.url).then(sendResponse, () =>

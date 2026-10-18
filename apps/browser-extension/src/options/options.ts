@@ -12,13 +12,16 @@ import {
   type FormErrors,
   type SizeUnit,
 } from "../lib/filters";
-import { DEFAULT_MEDIA_TYPES, MAX_MEDIA_MIN_BYTES, parseMediaTypeList, type MediaFilters } from "../lib/media";
+import { parseBypassKey } from "../lib/bypass";
+import { DEFAULT_MEDIA_TYPES, MAX_MEDIA_MIN_BYTES, WEB_ORIGINS, parseMediaTypeList, type MediaFilters } from "../lib/media";
 import { isSettings, type Settings } from "../lib/messages";
 import { byId, startPage } from "../ui/dom";
 
 startPage();
 
 const DOWNLOADS_PERMISSION: chrome.permissions.Permissions = { permissions: ["downloads"] };
+/** What the click script for Alt+click needs: to run in the pages. */
+const SITES_PERMISSION: chrome.permissions.Permissions = { origins: WEB_ORIGINS };
 /** Longer lists end in "and N more" so one bad paste does not fill the page. */
 const MAX_SHOWN_ERRORS = 5;
 
@@ -48,6 +51,9 @@ const els = {
   mediaSize: byId<HTMLInputElement>("media-size"),
   mediaUnit: byId<HTMLSelectElement>("media-unit"),
   mediaSizeErrors: byId<HTMLUListElement>("media-size-errors"),
+  bypassKey: byId<HTMLSelectElement>("bypass-key"),
+  bypassAccess: byId("bypass-access"),
+  bypassAllow: byId<HTMLButtonElement>("bypass-allow"),
   save: byId<HTMLButtonElement>("save"),
   state: byId("save-state"),
 };
@@ -143,7 +149,9 @@ function fill(s: Settings): void {
   const mediaSize = sizeFields(s.mediaMinBytes);
   els.mediaSize.value = mediaSize.value;
   els.mediaUnit.value = mediaSize.unit;
+  els.bypassKey.value = s.bypassKey;
   syncTypes();
+  void loadAccess();
   paintErrors(NO_ERRORS);
   paintMediaErrors([], []);
   dirty = false;
@@ -159,6 +167,12 @@ async function loadSettings(): Promise<void> {
 
 async function loadCapture(): Promise<void> {
   els.captureOff.hidden = await ext.permissions.contains(DOWNLOADS_PERMISSION).catch(() => true);
+}
+
+/** The key needs access to the sites; say so, with a button, while it is missing. */
+async function loadAccess(): Promise<void> {
+  const granted = await ext.permissions.contains(SITES_PERMISSION).catch(() => false);
+  els.bypassAccess.hidden = granted || els.bypassKey.value === "off";
 }
 
 function edited(): void {
@@ -182,6 +196,17 @@ els.mediaOverlay.addEventListener("change", () => {
 });
 els.overlayHover.addEventListener("change", edited);
 els.overlaySites.addEventListener("input", () => showErrors(els.overlaySitesErrors, els.overlaySites, []));
+els.bypassKey.addEventListener("change", () => {
+  edited();
+  void loadAccess();
+});
+els.bypassAllow.addEventListener("click", () => {
+  // Asked from the click itself: browsers grant permissions only during one.
+  void ext.permissions
+    .request(SITES_PERMISSION)
+    .catch(() => false)
+    .then(() => loadAccess());
+});
 
 els.mediaTypesDefault.addEventListener("click", () => {
   els.mediaTypes.value = DEFAULT_MEDIA_TYPES.join(" ");
@@ -219,10 +244,13 @@ els.form.addEventListener("submit", (event) => {
   }
   els.save.disabled = true;
   setState(t("options.saving"));
-  // Two writes, one after the other: the service worker chains them anyway.
+  // Three writes, one after the other: the service worker chains them anyway.
   void ext.runtime
     .sendMessage({ kind: "save_filters", filters: result.filters })
     .then((reply: unknown) => (isSettings(reply) ? ext.runtime.sendMessage({ kind: "save_media", media: media.media }) : null))
+    .then((reply: unknown) =>
+      isSettings(reply) ? ext.runtime.sendMessage({ kind: "set_bypass_key", key: parseBypassKey(els.bypassKey.value) }) : null,
+    )
     .catch(() => null)
     .then((reply: unknown) => {
       if (!isSettings(reply)) {
@@ -242,8 +270,14 @@ els.form.addEventListener("submit", (event) => {
 ext.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.settings && !dirty) void loadSettings();
 });
-ext.permissions.onAdded.addListener(() => void loadCapture());
-ext.permissions.onRemoved.addListener(() => void loadCapture());
+ext.permissions.onAdded.addListener(() => {
+  void loadCapture();
+  void loadAccess();
+});
+ext.permissions.onRemoved.addListener(() => {
+  void loadCapture();
+  void loadAccess();
+});
 
 window.addEventListener("beforeunload", (event) => {
   if (dirty) event.preventDefault();

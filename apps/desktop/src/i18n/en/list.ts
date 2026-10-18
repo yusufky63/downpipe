@@ -26,7 +26,10 @@ export const list = {
     more: "More",
     clear: "Clear selection",
   },
-  /** Failures a new link fixes, in place of the engine's English message. */
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "Resumes at {time}",
+  },
   menu: {
     label: "Download actions",
     labelMany: "Actions for {count} downloads",
@@ -50,6 +53,12 @@ export const list = {
     properties: "Properties",
     remove: "Remove…",
     removeMany: { one: "Remove {count} download…", other: "Remove {count} downloads…" },
+    speedLimit: "Speed limit…",
+    pauseUntil: "Pause until",
+    until30m: "30 minutes",
+    until1h: "1 hour",
+    untilTonight: "Tonight at {time}",
+    untilCustom: "Choose a time…",
   },
 };
 
