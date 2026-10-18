@@ -3,7 +3,7 @@ import { Fragment, useEffect, useId, useState, type ReactNode } from "react";
 
 import { useI18n } from "../i18n";
 import { api, type RefusedHost, type RuleProxy, type SiteRulesCheck } from "../lib/api";
-import { formatSpeed, rateToBytes, type RateUnit } from "../lib/format";
+import { formatSpeed, parseDecimal, rateToBytes, type RateUnit } from "../lib/format";
 import { newRuleDraft, problemFor, refusedToOffer, ruleForRefusedHost, testVerdict, type RuleDraft } from "../lib/siteRules";
 import { FolderInput } from "./FolderInput";
 import { Badge, Button, Field, IconButton, inputClass } from "./primitives";
@@ -351,7 +351,7 @@ function summary(d: RuleDraft, queueName: string | undefined, t: ReturnType<type
   if (!d.enabled) parts.push(t("sites.summary.off"));
   const connections = Number.parseInt(d.connections, 10);
   if (Number.isFinite(connections)) parts.push(t("sites.summary.connections", { count: Math.min(32, Math.max(1, connections)) }));
-  const limit = rateToBytes(Number.parseFloat(d.limit), d.unit);
+  const limit = d.limit.trim() === "" ? 0 : rateToBytes(parseDecimal(d.limit), d.unit);
   if (limit > 0) parts.push(formatSpeed(limit));
   const retries = Number.parseInt(d.retries, 10);
   if (Number.isFinite(retries)) parts.push(t("sites.summary.retries", { count: Math.min(100, Math.max(0, retries)) }));

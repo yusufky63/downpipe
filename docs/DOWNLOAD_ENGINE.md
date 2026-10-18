@@ -140,11 +140,12 @@ Progress counts finished fragments and the bytes of those in flight. The total i
 
 One token bucket per engine (the desktop app and CLI use one engine). Connections take tokens for each chunk and sleep off any debt, which keeps the total rate exact even with Windows' coarse timer. The rate can change while downloads run.
 
-`DownloadRequest::limiter` adds a second bucket that every chunk of that download must also pass; the desktop app shares one per site rule among the rule's downloads. The tighter of the two limits wins.
+A download can have a bucket of its own as well (`DownloadRequest::limiter`). Its connections take from that one first and then from the engine's, so the download runs at the lower of the two limits while the global one still holds for all of them together. Taking from its own bucket first means a download sleeping off its own debt does not hold tokens other downloads could use. The owner of the bucket (the core) can change its rate while the download runs.
+`DownloadRequest::site_limiter` adds a third bucket, which the desktop app shares among the downloads one site rule applies to. A connection takes from the download's own bucket, then the site's, then the engine's, so the lowest of the three limits wins.
 
 ## Per-download overrides
 
-Besides `max_connections` and `limiter`, a request can set `max_retries` (in place of `EngineConfig::max_retries`, also for the first request and for streams). A proxy is a property of the client, so a download through another proxy runs on an engine from `Engine::derive`, which shares the limiter and the host memory; `EngineConfig::no_proxy` connects directly, ignoring the system proxy. The desktop app's site rules use all of these ([site-rules.md](site-rules.md)).
+Besides `max_connections`, `limiter` and `site_limiter`, a request can set `max_retries` (in place of `EngineConfig::max_retries`, also for the first request and for streams). A proxy is a property of the client, so a download through another proxy runs on an engine from `Engine::derive`, which shares the limiter and the host memory; `EngineConfig::no_proxy` connects directly, ignoring the system proxy. The desktop app's site rules use all of these ([site-rules.md](site-rules.md)).
 
 ## Measuring
 

@@ -1,5 +1,4 @@
-//! Per-download overrides a site rule sets: retries, a speed limit of its
-//! own, and engines derived for another proxy that keep what the first one
+//! Per-download overrides a site rule sets: retries, a site speed limit, and engines derived for another proxy that keep what the first one
 //! learned about hosts.
 
 use std::sync::Arc;
@@ -56,14 +55,14 @@ async fn a_download_can_retry_less_than_the_engine() {
 }
 
 #[tokio::test]
-async fn a_download_limiter_holds_it_below_the_engine() {
+async fn a_site_limiter_holds_it_below_the_engine() {
     let server = TestServer::start().await.unwrap();
     let dir = tempfile::tempdir().unwrap();
     let engine = Engine::new(config()).unwrap();
     let size = 512 * KIB;
 
     let mut req = DownloadRequest::new(server.url(&format!("/file/{size}")), dir.path());
-    req.limiter = Some(Arc::new(RateLimiter::new(MIB)));
+    req.site_limiter = Some(Arc::new(RateLimiter::new(MIB)));
     let start = Instant::now();
     let outcome = engine.start(req).wait().await.unwrap();
     let elapsed = start.elapsed();

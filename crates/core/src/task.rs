@@ -127,6 +127,14 @@ pub struct TaskRecord {
     /// or last started; `None` when no rule matched.
     #[serde(default)]
     pub site_rule: Option<String>,
+    /// This download's own limit in bytes per second, under the global one.
+    /// `None`: only the global limit applies.
+    #[serde(default)]
+    pub speed_limit: Option<u64>,
+    /// "Pause until": the paused download is queued again at this time
+    /// (Unix seconds). Cleared when it is resumed or paused by hand.
+    #[serde(default)]
+    pub resume_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
     pub completed_at: Option<i64>,

@@ -3,7 +3,8 @@ import { useEffect, useEffectEvent, useId, useState, type FormEvent } from "reac
 
 import { useI18n } from "../i18n";
 import { api, errorMessage, isCommandError, onConfirmClose, type Choices, type ConfirmOptions, type Queue, type Task } from "../lib/api";
-import { sentence, withStop } from "../lib/format";
+import { describeError } from "../lib/errors";
+import { withStop } from "../lib/format";
 import { REFUSED_STREAM, audioName, audiosFor, initialChoice, kindName, needsMerge, qualityOption, selectionFor } from "../lib/media";
 import { displayName, knownSize } from "../lib/tasks";
 import { Banner, Button, Dialog, inputClass } from "./primitives";
@@ -15,8 +16,10 @@ type Inspection =
   /**
    * `refused`: it cannot be downloaded at all (DRM, live, unavailable).
    * `setup`: yt-dlp is missing, which Settings can fix.
+   * `detail`: yt-dlp's or the engine's own words (the site's reason, which
+   * tool), kept beside the translated message.
    */
-  | { state: "failed"; message: string; refused: boolean; setup: boolean };
+  | { state: "failed"; message: string; detail: string | null; refused: boolean; setup: boolean };
 
 const UNSAFE_IN_NAMES = '<>:"/\\|?*';
 
@@ -111,7 +114,8 @@ export function ConfirmDialog({
         if (!current) return;
         const refused = isCommandError(err) && REFUSED_STREAM.has(err.code);
         const setup = isCommandError(err) && err.code === "tool_missing";
-        setInspection({ state: "failed", message: withStop(sentence(errorMessage(err))), refused, setup });
+        const { text, detail } = describeError(err);
+        setInspection({ state: "failed", message: withStop(text), detail, refused, setup });
       });
     return () => {
       current = false;
@@ -366,7 +370,17 @@ function StreamNotice({
 }) {
   const { t } = useI18n();
   if (inspection.state === "failed") {
-    if (inspection.refused) return <Banner tone="danger">{inspection.message}</Banner>;
+    const detail = inspection.detail && (
+      <span className="mt-1 block select-text break-words font-mono text-[12px] text-ink-secondary">{inspection.detail}</span>
+    );
+    if (inspection.refused) {
+      return (
+        <Banner tone="danger">
+          {inspection.message}
+          {detail}
+        </Banner>
+      );
+    }
     if (inspection.setup) {
       return (
         <Banner tone="warning">
@@ -374,12 +388,14 @@ function StreamNotice({
           <button type="button" className={linkClass} onClick={onOpenSettings}>
             {t("confirm.openMediaSettings")}
           </button>
+          {detail}
         </Banner>
       );
     }
     return (
       <Banner tone="warning">
         {t(site ? "confirm.readFailedPage" : "confirm.readFailedStream", { message: inspection.message })}
+        {detail}
       </Banner>
     );
   }

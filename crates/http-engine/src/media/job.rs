@@ -164,7 +164,8 @@ impl MediaJob {
         let ctx = Arc::new(FragCtx {
             client: self.inner.client.clone(),
             headers,
-            limiter: Limits::new(self.inner.limiter.clone(), self.req.limiter.clone()),
+            limits: Limits::new(self.inner.limiter.clone(), self.req.limiter.clone())
+                .with_site(self.req.site_limiter.clone()),
             stall_timeout: self.inner.config.stall_timeout,
             response_timeout: self.inner.config.response_timeout,
             buffer_size: self.inner.config.buffer_size,
@@ -857,7 +858,7 @@ fn extension_of(path: &Path) -> String {
 struct FragCtx {
     client: Client,
     headers: HeaderMap,
-    limiter: Limits,
+    limits: Limits,
     stall_timeout: Duration,
     response_timeout: Duration,
     buffer_size: usize,
@@ -1041,7 +1042,7 @@ async fn stream_fragment(
             Ok(Some(Err(e))) => return Err(DownloadError::from_reqwest(&e)),
             Ok(Some(Ok(chunk))) => chunk,
         };
-        ctx.limiter.acquire(chunk.len()).await;
+        ctx.limits.acquire(chunk.len()).await;
         let mut bytes = &chunk[..];
         if skip > 0 {
             let n = skip.min(bytes.len() as u64) as usize;

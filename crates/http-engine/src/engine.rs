@@ -425,6 +425,11 @@ impl Job {
         }
     }
 
+    fn limits(&self) -> Limits {
+        Limits::new(self.inner.limiter.clone(), self.req.limiter.clone())
+            .with_site(self.req.site_limiter.clone())
+    }
+
     async fn run(mut self) -> Result<Outcome, DownloadError> {
         let url = http::parse_url(&self.req.url)?;
         let headers = http::build_headers(&self.req.headers)?;
@@ -911,7 +916,7 @@ impl Job {
             headers: headers.clone(),
             total: session.total.unwrap_or(0),
             etag: session.etag.clone(),
-            limiter: Limits::new(self.inner.limiter.clone(), self.req.limiter.clone()),
+            limits: self.limits(),
             buffer_size: cfg.buffer_size,
             stall_timeout: cfg.stall_timeout,
             response_timeout: cfg.response_timeout,
@@ -1217,13 +1222,13 @@ impl Job {
         let total = session.total;
         let mut stream = resp.bytes_stream();
         let mut buf = Buffer::new(cfg.buffer_size);
-        let limits = Limits::new(self.inner.limiter.clone(), self.req.limiter.clone());
         let mut received: u64 = 0;
         let mut meter = SpeedMeter::new(SPEED_WINDOW);
         let mut tick = tokio::time::interval(TICK);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let no_data_after = no_data_after(cfg.stall_timeout);
         let mut last_bytes = (Instant::now(), 0u64);
+        let limits = self.limits();
         self.tx.send_modify(|p| {
             p.phase = Phase::Downloading;
             p.waiting = None;

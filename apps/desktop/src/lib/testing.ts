@@ -35,6 +35,8 @@ export function makeTask(id: string, patch: Partial<Task> = {}): Task {
     media: null,
     site: null,
     site_rule: null,
+    speed_limit: null,
+    resume_at: null,
     fragments: null,
     eta_secs: null,
     ...patch,

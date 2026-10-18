@@ -45,13 +45,22 @@ impl From<CoreError> for CommandError {
             CoreError::Duplicate(id) => Some(id.clone()),
             _ => None,
         };
+        // "not_found" is also the engine's HTTP 404; a download that left
+        // the list gets a code of its own so the UI words the two apart.
+        let code = match &err {
+            CoreError::NotFound(_) => GONE,
+            _ => err.code(),
+        };
         Self {
-            code: err.code(),
+            code,
             message: err.to_string(),
             id,
         }
     }
 }
+
+/// The download a command names is no longer in the list.
+const GONE: &str = "gone";
 
 impl CommandError {
     fn new(code: &'static str, message: impl Into<String>) -> Self {
@@ -83,6 +92,22 @@ fn pause_download(manager: State<'_, Manager>, id: String) -> CmdResult<()> {
 #[tauri::command]
 fn resume_download(manager: State<'_, Manager>, id: String) -> CmdResult<()> {
     Ok(manager.resume(&id)?)
+}
+
+/// "Pause until": `at` is Unix seconds; the core queues it again then.
+#[tauri::command]
+fn pause_download_until(manager: State<'_, Manager>, id: String, at: i64) -> CmdResult<()> {
+    Ok(manager.pause_until(&id, at)?)
+}
+
+/// Bytes per second; null or 0 leaves only the global limit.
+#[tauri::command]
+fn set_download_speed_limit(
+    manager: State<'_, Manager>,
+    id: String,
+    limit: Option<u64>,
+) -> CmdResult<()> {
+    Ok(manager.set_speed_limit(&id, limit)?)
 }
 
 #[tauri::command]
@@ -272,7 +297,7 @@ fn start_drag(
 ) -> CmdResult<()> {
     let task = manager
         .get(&id)
-        .ok_or_else(|| CommandError::new("not_found", "That download no longer exists"))?;
+        .ok_or_else(|| CommandError::new(GONE, "That download no longer exists"))?;
     let path = match (task.record.state, task.record.path) {
         (TaskState::Completed, Some(path)) if path.is_file() => path,
         _ => {
@@ -456,7 +481,7 @@ async fn pick_folder(
 fn reveal_download(app: AppHandle, manager: State<'_, Manager>, id: String) -> CmdResult<()> {
     let task = manager
         .get(&id)
-        .ok_or_else(|| CommandError::new("not_found", "That download no longer exists"))?;
+        .ok_or_else(|| CommandError::new(GONE, "That download no longer exists"))?;
     let record = task.record;
     let target = match (record.state, record.path) {
         (TaskState::Completed, Some(path)) if path.exists() => path,
@@ -480,7 +505,7 @@ fn reveal_download(app: AppHandle, manager: State<'_, Manager>, id: String) -> C
 fn open_download(app: AppHandle, manager: State<'_, Manager>, id: String) -> CmdResult<()> {
     let task = manager
         .get(&id)
-        .ok_or_else(|| CommandError::new("not_found", "That download no longer exists"))?;
+        .ok_or_else(|| CommandError::new(GONE, "That download no longer exists"))?;
     match (task.record.state, task.record.path) {
         (TaskState::Completed, Some(path)) if path.exists() => app
             .opener()
@@ -720,6 +745,8 @@ fn main() {
             add_download,
             pause_download,
             resume_download,
+            pause_download_until,
+            set_download_speed_limit,
             cancel_download,
             remove_download,
             pause_all,

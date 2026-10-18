@@ -49,9 +49,31 @@ export const add: Messages["add"] = {
     hint: "省略可。例：sha256:9f86d0… 一致した場合にのみ、ファイルが本来の名前に変更されます。",
     videoHint: "ファイルのみ対象です。動画のファイルは、yt-dlp がサイトのフォーマットを組み合わせて作成します。",
   },
+  /** Sent with every request, kept in memory only. */
+  headers: {
+    label: "リクエストヘッダー",
+    hint: "省略可。1 行に 1 つ、名前: 値 の形式で入力します。すべてのリクエストで送信され、メモリーにのみ保持され、保存されることはありません。",
+  },
+  /** "Paste as cURL": a command from the browser's developer tools. */
+  curl: {
+    button: "cURL として貼り付け",
+    label: "cURL コマンド",
+    hint: "ブラウザーの開発者ツールで「ネットワーク」を開き、リクエストを右クリックして「cURL としてコピー」を選びます。ダウンロードできるのは GET リクエストだけです。",
+    apply: "入力",
+    filled: "コマンドからリンクとそのヘッダーを入力しました。",
+    ignored: "除外した項目: {list}。",
+    notCurl: "これは cURL コマンドではありません。curl で始まる必要があります。",
+    quote: "コマンド内の引用符が閉じていません。コマンド全体をもう一度コピーしてください。",
+    noUrl: "コマンドに http または https のリンクがありません。",
+    method: "このリクエストは {method} を使っています。Downpipe は GET でしかダウンロードしないため、再現できません。",
+    data: "このリクエストはデータを送信する（{option}）ため POST になります。Downpipe は GET でしかダウンロードしません。",
+  },
   errors: {
     listTooLarge: "このファイルはリンクのリストとしては大きすぎます。",
     noLinks: "http または https のリンクを 1 つ以上貼り付けてください。",
     forLink: "{url}: {error}",
+    headerFormat: "{line} 行目: 名前: 値 の形式で入力してください。",
+    headerName: "{line} 行目: {name} は有効なヘッダー名ではありません。",
+    headerManaged: "{line} 行目: {name} は Downpipe が自分で設定します。",
   },
 };

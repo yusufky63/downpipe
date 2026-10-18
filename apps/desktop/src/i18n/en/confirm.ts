@@ -73,6 +73,7 @@ export const confirm = {
       finished: "Finished",
       failed: "Failed",
       canceled: "Canceled; what was downloaded is deleted",
+      pausedUntil: "Paused until {time}",
     },
     /** {approx} is "~" while a stream's size is an estimate, else empty. */
     size: "{downloaded} of {approx}{total} · {percent}%",
@@ -88,6 +89,7 @@ export const confirm = {
       speed: "Speed",
       resume: "Resume",
       savedTo: "Saved to",
+      limit: "Limit",
     },
     hide: "Hide",
     hideTitle: "Closes this window; the download goes on.",

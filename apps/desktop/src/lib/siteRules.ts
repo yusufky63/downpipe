@@ -2,7 +2,7 @@
 // in Rust (downpipe_core::rules), reached through `api.checkSiteRules`, so
 // the "test this address" answer is the one downloads get.
 import type { RefusedHost, RuleProblem, RuleProblemCode, RuleProxy, SiteRule, SiteRulesCheck } from "./api";
-import { bytesToRate, rateToBytes, type RateUnit } from "./format";
+import { bytesToRate, decimalField, parseDecimal, rateToBytes, type RateUnit } from "./format";
 
 /** A rule as edited: numbers stay strings until saved, so a field can be empty. */
 export interface RuleDraft {
@@ -41,7 +41,7 @@ export function toRuleDraft(rule: SiteRule): RuleDraft {
     enabled: rule.enabled,
     connections: rule.max_connections === null ? "" : String(rule.max_connections),
     retries: rule.max_retries === null ? "" : String(rule.max_retries),
-    limit: rate.value > 0 ? String(rate.value) : "",
+    limit: rate.value > 0 ? decimalField(rate.value) : "",
     unit: rate.unit,
     user_agent: rule.user_agent,
     referer: rule.referer,
@@ -77,7 +77,8 @@ function whole(text: string, min: number, max: number): number | null {
 }
 
 export function fromRuleDraft(d: RuleDraft): SiteRule {
-  const limit = rateToBytes(Number.parseFloat(d.limit), d.unit);
+  // The language's decimal sign is accepted, as in the global limit.
+  const limit = d.limit.trim() === "" ? 0 : rateToBytes(parseDecimal(d.limit), d.unit);
   return {
     id: d.id,
     pattern: d.pattern.trim(),

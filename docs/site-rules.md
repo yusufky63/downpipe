@@ -43,7 +43,7 @@ When a host refuses connections beyond some number with `403`, `429` or `503`, t
 ## Where it lives
 
 - `crates/core/src/rules.rs`: `SiteRule`, pattern parsing, matching, the tester and the problem codes, with unit tests.
-- `crates/core/src/manager.rs`: the rule's folder and queue in `add`; at every start the rule is looked up again, its pattern stored in the record's `site_rule` (catalog schema 6), and the request built with its headers, connections, retries and limiter, on an engine derived for its proxy.
-- `crates/http-engine`: `DownloadRequest::max_retries` and `DownloadRequest::limiter`, `EngineConfig::no_proxy`, `Engine::derive` and `Engine::connection_limits`.
+- `crates/core/src/manager.rs`: the rule's folder and queue in `add`; at every start the rule is looked up again, its pattern stored in the record's `site_rule` (catalog schema 7), and the request built with its headers, connections, retries and site limiter, on an engine derived for its proxy.
+- `crates/http-engine`: `DownloadRequest::max_retries` and `DownloadRequest::site_limiter`, `EngineConfig::no_proxy`, `Engine::derive` and `Engine::connection_limits`.
 - `apps/desktop/src/components/SiteRules.tsx` and `lib/siteRules.ts` (drafts, "make it a rule", the tester's verdict, with tests).
 - Tests: `crates/core/tests/site_rules.rs` (headers, connections and proxy against the test server, folder and queue, a rule changed while paused, refused settings, a site speed limit, refused hosts), `crates/http-engine/tests/overrides.rs`.

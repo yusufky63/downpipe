@@ -41,6 +41,8 @@ export const details: Messages["details"] = {
     checksum: "Suma de comprobación",
     added: "Agregada",
     finished: "Terminada",
+    speedLimit: "Límite de velocidad",
+    resumes: "Se reanuda",
   },
   relink: {
     button: "Usar un enlace nuevo…",
@@ -50,4 +52,12 @@ export const details: Messages["details"] = {
   },
   copy: "Copiar",
   copied: "Copiado",
+  /** The download's own speed limit, set in place. */
+  speedLimit: {
+    none: "Solo el límite global",
+    change: "Cambiar",
+    set: "Aplicar",
+    remove: "Quitar",
+    label: "Límite de velocidad de esta descarga",
+  },
 };

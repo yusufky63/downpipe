@@ -46,6 +46,8 @@ export const details = {
     checksum: "Checksum",
     added: "Added",
     finished: "Finished",
+    speedLimit: "Speed limit",
+    resumes: "Resumes",
   },
   /** Swapping an expired link for a fresh one. */
   relink: {
@@ -56,4 +58,12 @@ export const details = {
   },
   copy: "Copy",
   copied: "Copied",
+  /** The download's own speed limit, set in place. */
+  speedLimit: {
+    none: "Global limit only",
+    change: "Change",
+    set: "Set",
+    remove: "Remove",
+    label: "Speed limit for this download",
+  },
 };

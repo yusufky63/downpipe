@@ -104,9 +104,13 @@ pub struct DownloadRequest {
     pub media: Option<MediaRequest>,
     /// Per-download override of [`EngineConfig::max_retries`].
     pub max_retries: Option<u32>,
-    /// A second limit this download respects besides the engine's, such as
-    /// one shared by every download from a site.
+    /// A speed limit of this download's own, on top of the engine's global
+    /// one. Shared rather than a number, so its owner can change the rate
+    /// while the download runs.
     pub limiter: Option<Arc<RateLimiter>>,
+    /// A third limit, shared by every download from one site (a site rule's
+    /// speed limit). The download runs at the lowest of the three.
+    pub site_limiter: Option<Arc<RateLimiter>>,
 }
 
 impl DownloadRequest {
@@ -122,6 +126,7 @@ impl DownloadRequest {
             media: None,
             max_retries: None,
             limiter: None,
+            site_limiter: None,
         }
     }
 

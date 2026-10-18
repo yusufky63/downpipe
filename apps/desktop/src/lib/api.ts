@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { t } from "../i18n/core";
+import { describeError } from "./errors";
 
 export type TaskState =
   | "queued"
@@ -77,6 +77,10 @@ export interface Task {
   site: SiteInfo | null;
   /** Pattern of the site rule it was added or last started with. */
   site_rule: string | null;
+  /** Bytes per second of its own, under the global limit; null: only the global one. */
+  speed_limit: number | null;
+  /** "Pause until": Unix seconds when the core queues it again. */
+  resume_at: number | null;
   /** Stream downloads while they run: fragments done and in all. */
   fragments: { done: number; total: number } | null;
   eta_secs: number | null;
@@ -231,6 +235,8 @@ export interface Settings {
   deno_path: string;
   /** Per-site overrides; the most specific matching pattern applies. */
   site_rules: SiteRule[];
+  /** The remembered answer to "this link is already in the list"; "ask" asks every time. */
+  duplicate_answer: DuplicateAnswer;
 }
 
 export type RuleProxy = "inherit" | "direct" | "custom";
@@ -297,6 +303,9 @@ export interface RefusedHost {
   host: string;
   connections: number;
 }
+
+/** "ask", or one of the duplicate question's answers given with "Don't ask again". */
+export type DuplicateAnswer = "ask" | "copy" | "overwrite" | "existing";
 
 export const MAIN_QUEUE = "main";
 
@@ -368,6 +377,8 @@ export interface AddOptions {
   from_app?: boolean;
   /** A link already in the list: refuse (the app then asks), add a copy, or ask in the confirmation window. */
   on_duplicate?: OnDuplicate;
+  /** Sent with every request; kept in memory only, never written to disk. */
+  headers?: [string, string][];
 }
 
 export type OnDuplicate = "refuse" | "add_copy" | "ask";
@@ -402,6 +413,10 @@ export const api = {
   add: (options: AddOptions) => invoke<Task>("add_download", { options }),
   pause: (id: string) => invoke<null>("pause_download", { id }),
   resume: (id: string) => invoke<null>("resume_download", { id }),
+  /** `at` in Unix seconds; the core queues it again then. */
+  pauseUntil: (id: string, at: number) => invoke<null>("pause_download_until", { id, at }),
+  /** Bytes per second; null removes the download's own limit. */
+  setSpeedLimit: (id: string, limit: number | null) => invoke<null>("set_download_speed_limit", { id, limit }),
   cancel: (id: string) => invoke<null>("cancel_download", { id }),
   remove: (id: string, deleteFiles: boolean) => invoke<null>("remove_download", { id, deleteFiles }),
   pauseAll: () => invoke<null>("pause_all"),
@@ -495,11 +510,9 @@ export function isCommandError(err: unknown): err is CommandError {
   return typeof err === "object" && err !== null && "code" in err && "message" in err;
 }
 
+/** A rejected command in the user's language; lib/errors.ts has the details. */
 export function errorMessage(err: unknown): string {
-  if (isCommandError(err)) return err.message;
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  return t("confirm.unknownError");
+  return describeError(err).text;
 }
 
 /** False when the UI is opened in a plain browser instead of the app. */

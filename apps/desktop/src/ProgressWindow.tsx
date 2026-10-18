@@ -5,7 +5,7 @@ import { Button, Dialog } from "./components/primitives";
 import { SegmentBar } from "./components/SegmentBar";
 import { LocaleProvider, useI18n, useLocale } from "./i18n";
 import { api, errorMessage, inTauri, onManagerEvent, onResync, type Settings, type Task } from "./lib/api";
-import { progressEyebrow, progressPhase, resumeText, sizeText, speedText, statusText, windowTitle } from "./lib/progress";
+import { limitText, progressEyebrow, progressPhase, resumeText, sizeText, speedText, statusText, windowTitle } from "./lib/progress";
 import { canPause, canResume, displayName } from "./lib/tasks";
 import { useAppWindow, useThemeFromOtherWindows } from "./lib/window";
 
@@ -176,6 +176,11 @@ export function ProgressWindow({ id }: { id: string }) {
               {speedText(task) !== null && (
                 <Row label={t("confirm.progress.labels.speed")}>
                   <span className="num font-mono text-[12px] text-ink">{speedText(task)}</span>
+                </Row>
+              )}
+              {limitText(task) !== null && (
+                <Row label={t("confirm.progress.labels.limit")}>
+                  <span className="num font-mono text-[12px] text-ink-secondary">{limitText(task)}</span>
                 </Row>
               )}
               {resumeText(task) !== null && (
