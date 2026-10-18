@@ -14,7 +14,9 @@ How `downpipe-http` turns a URL into a complete, verified file. Default values b
 | `ramp_gain` | 1.10 | A doubling must raise throughput by 10 % to be kept. |
 | `checkpoint_interval` | 5 s | How often data is synced and the meta file updated. |
 | `stall_timeout` | 30 s | A connection that delivers nothing for this long is restarted. |
-| `max_retries` | 8 | Consecutive failures per segment before giving up. Progress resets the count. |
+| `response_timeout` | 60 s | How long a request may wait for the response headers before it is sent again. |
+| `max_retries` | 8 | Consecutive server failures per segment before giving up. Progress resets the count. |
+| `offline_grace` | 10 min | How long network failures are retried while no byte arrives at all. |
 | `retry_base_delay` / `retry_max_delay` | 0.5 s / 30 s | Exponential backoff with ±20 % jitter. |
 
 ## Opening a download
@@ -30,9 +32,19 @@ The engine sends `GET` with `Range: bytes=0-` and `Accept-Encoding: identity` (b
 | `403` | Refused | Fails with `forbidden` (expired link, missing Referer or cookies). |
 | `404`, `410` | Gone | Fails with `not_found`. |
 | `429`, `503` | Rate limited | Waits for `Retry-After` (capped at 10 minutes) or backoff, then retries. |
-| other `5xx`, `408`, network errors | Transient | Retried with backoff (up to 5 attempts for the first request). |
+| other `5xx`, `408`, network errors, no headers within `response_timeout` | Transient | Retried with backoff (up to 5 attempts for the first request of a new download). |
+| `200`/`206` with `text/html` for a file named like a binary (`.zip`, `.exe`, `.pdf`, `.mp4`, ...) | A sign-in or "link expired" page | Fails with `login_required` when the URL it ended at looks like a sign-in page (`/login`, `accounts.`, `sso`, ...), else `expired_link`. Nothing is saved. |
 
-The file name comes from `Content-Disposition` (`filename*` preferred over `filename`), then the last URL path segment, then `download`; an extension is added from the MIME type when the name has none. The name is sanitized and made unique in the target folder.
+### File names
+
+The name comes from `Content-Disposition`, then the URLs, then `download`, and is sanitized and made unique in the target folder (`name (1).ext`).
+
+- `Content-Disposition` follows RFC 6266 with the leniency browsers show: `filename*` (RFC 5987, UTF-8 or ISO-8859-1, quoted or not, `filename*0*=` continuations) wins over `filename` in any order. A plain `filename` may be raw UTF-8 (read from the header's bytes, with ISO-8859-1 as the fallback), percent-encoded UTF-8, or an RFC 2047 word (`=?UTF-8?B?...?=`). The disposition type may be missing and a closing quote forgotten. A broken `filename*` falls back to `filename`.
+- From URLs, the last path segment, percent-decoded (kept encoded if it is not UTF-8). After a redirect to a storage URL named by a hash, the link's own name wins when only it has an extension.
+- An extension is added from the MIME type when the name has none (a version number such as `v1.2` is not one).
+- Sanitizing replaces `< > : " / \ | ? *` and control characters with `_`, removes invisible direction and zero-width marks (U+202E makes `exe.pdf` read as `fdp.exe`), trims trailing dots and spaces and leading spaces, prefixes Windows device names (`CON`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, also with `¹²³` and an extension) with `_`, and cuts the name to 200 bytes keeping the extension. A table of real-world headers and a seeded random test hold `filename.rs` to this.
+
+A single-connection download that fails deletes its partial file: without resume data it is useless, and left behind it would push the retry to `name (1)`.
 
 Data is written to `name.part`. On NTFS the part file is marked sparse first: otherwise writing at the end of a large file makes Windows zero-fill everything before it synchronously.
 
@@ -58,6 +70,20 @@ All connections run HTTP/1.1. Under HTTP/2 every segment would share one TCP con
 4. If the new rate is less than `ramp_gain` times the previous one, go back to the previous count and stop probing.
 5. A `429` or `503` reduces the count to the connections still running and stops probing for this download.
 
+Many hosts cap connections per client and refuse one too many with `403`, `429` or `503` while the others are served. A refusal of that kind, while other connections of the same download are running, is not a failure: the count drops to the connections that work, the segment goes to the next free one, and probing stops. The engine remembers the working count per host (`host:port`) for as long as it runs, so later downloads from that host start within it instead of tripping the limit again (`Engine::connection_limit`). A `403` with no other connection left is retried like a server failure once the host has shown such a limit (it may still count a connection that just closed); a link that really expired runs out of retries and fails with `forbidden`.
+
+## Retries, silence and network outages
+
+A segment that fails is handed back and retried after a backoff. How long it keeps trying depends on the failure:
+
+- **Server failures** (`5xx`, `429` with no other connection, a range the server stops honouring) count against `max_retries`, per segment and in a row. Bytes written reset the count; re-arming a segment after its backoff does not.
+- **Network failures** (offline, DNS, connection refused or reset, a response cut short, silence) are retried until no byte has arrived from any connection for `offline_grace`, however many attempts that takes. A dropped Wi-Fi, a switch between networks or a VPN reconnect therefore does not fail a download: it waits, and continues by itself once requests get through again. As soon as one connection delivers bytes, segments still sitting out a long backoff from the outage are retried at once.
+- **Silence.** A connection that delivers nothing for `stall_timeout` is closed and its segment retried; a request that gets no response headers within `response_timeout` is sent again. Without these, a server that accepts a connection and then says nothing would hold it forever.
+
+The first request of a new download gives up after 5 attempts, so a mistyped or dead host is reported quickly. A resume, or the restart of a single-connection download, waits out network failures like a running download: the host served the file before.
+
+A running download never shows as downloading while no bytes move. `Progress::phase` becomes `Waiting`, and `Progress::waiting` says why: `network` (requests fail before reaching the server), `no_data` (connections are open but silent for 10 s, or half the stall timeout if shorter), `throttled` (`429`, `503`), or `server`. The desktop app shows it under the download's name.
+
 ## Resume
 
 `name.part.meta` (JSON) holds the request URL (credentials removed), the size, ETag, Last-Modified, MIME type, optional checksum and the merged list of finished ranges:
@@ -79,6 +105,8 @@ All connections run HTTP/1.1. Under HTTP/2 every segment would share one TCP con
 Checkpoints sync the part file *before* writing the meta (write to `.tmp`, then rename), so the meta never claims bytes a power cut could lose. They run beside the transfer loop, so a slow disk flush does not stall connection management.
 
 Starting the same URL into the same folder finds the meta and sends the first missing range with `If-Range` set to the strong ETag (weak ETags are not allowed there, so Last-Modified is used instead). The resume is accepted only if the server answers `206` for exactly that offset and total size with the same ETag. Anything else (`200`, `416`, a different size or ETag, a missing or truncated part file) discards the old data and starts over, with a notice explaining why.
+
+A web page (`text/html`) in answer to a resume of a file that is not one is checked first: it is a sign-in or "link expired" page, not a new version of the file, so the download fails with `login_required` or `expired_link` and the partial file and its meta stay as they were. The same goes for a web page arriving on any later connection or fragment request. The desktop app offers **Use a new link…** for these failures (and for `forbidden`) in place of **Retry**, which would get the same page.
 
 A download from a server without range support cannot resume; pausing it deletes the partial file. Pausing while a resume is still waiting for the server's first answer keeps the partial file and its meta untouched.
 
@@ -114,7 +142,7 @@ One token bucket per engine (the desktop app and CLI use one engine). Connection
 
 ## Measuring
 
-`tools/test-server` can cap the rate per connection (`rate=`), slow down part of a file (`slow_from=`, `slow_rate=`), drop connections (`drop_after=`, `drop_times=`) or fail requests (`fail=`, `fail_times=`, `retry_after=`). Example, with a per-connection cap of 8 MiB/s, where the engine ramps 2 -> 4 -> 8 connections:
+`tools/test-server` can cap the rate per connection (`rate=`), slow down part of a file (`slow_from=`, `slow_rate=`), drop connections (`drop_after=`, `drop_times=`), fail requests (`fail=`, `fail_times=`, `fail_from=`, `retry_after=`), refuse more than N bodies at once (`max_conns=`, `limit_status=`), go silent mid-body (`stall_at=`, `stall_times=`) or before the headers (`hang_times=`), answer with a "link expired" page (`html=1`, `html_after=`) or redirect to a sign-in page (`/redirect?to=/login`), and send a `Content-Disposition` exactly as given (`cd=`). `TestServer::stop` and `restart` take it off the network and back, killing open connections too, as a Wi-Fi switch would. The tests in `crates/http-engine/tests/robustness.rs` use these. Example, with a per-connection cap of 8 MiB/s, where the engine ramps 2 -> 4 -> 8 connections:
 
 ```powershell
 cargo run --release -p downpipe-test-server

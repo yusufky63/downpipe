@@ -5,9 +5,9 @@ import { useI18n } from "../i18n";
 import { longDate } from "../i18n/format";
 import { errorMessage, type Task } from "../lib/api";
 import { canRelink } from "../lib/menu";
-import { formatBytes, formatDuration, formatSpeed, percent, sentence } from "../lib/format";
+import { formatBytes, formatDuration, formatSpeed, percent } from "../lib/format";
 import { engineQuality, kindName, sizeIsEstimate } from "../lib/media";
-import { canCancel, canPause, canResume, displayName, isRunning, stateInfo } from "../lib/tasks";
+import { canCancel, canPause, canResume, displayName, errorText, isRunning, needsNewLink, stateInfo, waitingText } from "../lib/tasks";
 import { Badge, Banner, Button, Dialog, IconButton, inputClass } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
 
@@ -41,6 +41,7 @@ export function DetailsDialog({
   const info = stateInfo(task);
   const pct = percent(task.downloaded, task.total);
   const running = isRunning(task.state);
+  const waiting = waitingText(task);
   const tone = task.state === "completed" ? "positive" : task.state === "failed" ? "danger" : running ? "primary" : "neutral";
 
   return (
@@ -107,9 +108,10 @@ export function DetailsDialog({
           )}
         </section>
 
-        {(task.state === "failed" && task.error) || task.notices.length > 0 ? (
+        {(task.state === "failed" && task.error) || waiting || task.notices.length > 0 ? (
           <div className="flex flex-col gap-2">
-            {task.state === "failed" && task.error && <Banner tone="danger">{sentence(task.error)}</Banner>}
+            {task.state === "failed" && task.error && <Banner tone="danger">{errorText(task)}</Banner>}
+            {waiting && <Banner tone="warning">{waiting}</Banner>}
             {task.notices.map((n) => (
               <Banner key={n} tone="warning">
                 {n}
@@ -201,7 +203,7 @@ export function DetailsDialog({
  */
 function ChangeLink({ task, startOpen, onChangeUrl }: { task: Task; startOpen: boolean; onChangeUrl: DetailActions["onChangeUrl"] }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(startOpen || task.error_kind === "forbidden" || task.error_kind === "not_found");
+  const [open, setOpen] = useState(startOpen || needsNewLink(task) || task.error_kind === "not_found");
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

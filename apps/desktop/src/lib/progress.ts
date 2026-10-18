@@ -2,8 +2,8 @@
 // task alone. The window itself is ProgressWindow.tsx.
 import { t, type MessageKey } from "../i18n/core";
 import type { Task } from "./api";
-import { formatBytes, formatDuration, formatSpeed, percent, sentence } from "./format";
-import { displayName, isRunning } from "./tasks";
+import { formatBytes, formatDuration, formatSpeed, percent } from "./format";
+import { displayName, errorText, isRunning, waitingText } from "./tasks";
 
 /** The download a window follows, from its label (`progress-<id>`, src-tauri/src/progress.rs). */
 export function progressId(label: string): string | null {
@@ -60,7 +60,7 @@ export function statusText(task: Task): string {
       if (task.connections > 1) return t("confirm.progress.status.connections", { count: task.connections });
       return t("confirm.progress.status.receiving");
     case "waiting":
-      return t("confirm.progress.status.waiting");
+      return waitingText(task) ?? t("confirm.progress.status.waiting");
     case "verifying":
       return t("confirm.progress.status.verifying");
     case "paused":
@@ -68,7 +68,7 @@ export function statusText(task: Task): string {
     case "completed":
       return t("confirm.progress.status.finished");
     case "failed":
-      return task.error ? sentence(task.error) : t("confirm.progress.status.failed");
+      return errorText(task) ?? t("confirm.progress.status.failed");
     case "canceled":
       return t("confirm.progress.status.canceled");
   }

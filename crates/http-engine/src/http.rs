@@ -34,20 +34,21 @@ impl ResourceInfo {
         self.accepts_ranges && self.total_size.is_some_and(|t| t > 0)
     }
 
-    pub(crate) fn from_response(resp: &Response, accepts_ranges: bool, total: Option<u64>) -> Self {
+    /// `request_url` is the link as given, before redirects.
+    pub(crate) fn from_response(
+        resp: &Response,
+        request_url: &Url,
+        accepts_ranges: bool,
+        total: Option<u64>,
+    ) -> Self {
         let headers = resp.headers();
         let content_type = header_str(headers, &CONTENT_TYPE);
-        let mut name = header_str(headers, &CONTENT_DISPOSITION)
-            .and_then(|v| filename::from_content_disposition(&v))
-            .or_else(|| filename::from_url(resp.url()))
-            .unwrap_or_else(|| "download".to_string());
-        if !name.contains('.')
-            && let Some(ext) = content_type
-                .as_deref()
-                .and_then(filename::extension_for_mime)
-        {
-            name = format!("{name}.{ext}");
-        }
+        let file_name = filename::pick(
+            header_text(headers, &CONTENT_DISPOSITION).as_deref(),
+            request_url,
+            resp.url(),
+            content_type.as_deref(),
+        );
         Self {
             final_url: redact_url(resp.url()),
             total_size: total,
@@ -55,7 +56,7 @@ impl ResourceInfo {
             etag: header_str(headers, &ETAG),
             last_modified: header_str(headers, &LAST_MODIFIED),
             content_type,
-            file_name: filename::sanitize(&name),
+            file_name,
         }
     }
 }
@@ -184,12 +185,84 @@ pub(crate) fn header_str(headers: &HeaderMap, name: &HeaderName) -> Option<Strin
         .filter(|s| !s.is_empty())
 }
 
+/// A header that may carry text outside ASCII. Plenty of servers put raw
+/// UTF-8 into `Content-Disposition`, which `HeaderValue::to_str` refuses;
+/// bytes that are not UTF-8 are read as Latin-1, which RFC 9110 calls the
+/// historical encoding of header values.
+pub(crate) fn header_text(headers: &HeaderMap, name: &HeaderName) -> Option<String> {
+    let bytes = headers.get(name)?.as_bytes();
+    let text = match std::str::from_utf8(bytes) {
+        Ok(s) => s.to_string(),
+        Err(_) => bytes.iter().map(|&b| char::from(b)).collect(),
+    };
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+/// The body is a web page (`text/html`, `application/xhtml+xml`).
+pub(crate) fn is_html(resp: &Response) -> bool {
+    header_str(resp.headers(), &CONTENT_TYPE).is_some_and(|v| is_html_type(&v))
+}
+
+pub(crate) fn is_html_type(content_type: &str) -> bool {
+    let essence = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    essence == "text/html" || essence == "application/xhtml+xml"
+}
+
+/// The error for a web page that came back instead of the file: a sign-in
+/// page when the URL it ended at looks like one, an expired link otherwise.
+pub(crate) fn page_error(resp: &Response) -> DownloadError {
+    if looks_like_login(resp.url()) {
+        DownloadError::LoginRequired
+    } else {
+        DownloadError::ExpiredLink
+    }
+}
+
+fn looks_like_login(url: &Url) -> bool {
+    const WORDS: &[&str] = &[
+        "login",
+        "logon",
+        "signin",
+        "auth",
+        "authorize",
+        "oauth",
+        "oauth2",
+        "sso",
+        "account",
+        "accounts",
+        "session",
+    ];
+    let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+    let rest = format!("{}?{}", url.path(), url.query().unwrap_or("")).to_ascii_lowercase();
+    host.split('.').any(|w| WORDS.contains(&w))
+        || rest
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|w| WORDS.contains(&w))
+        || rest.contains("sign-in")
+        || rest.contains("sign_in")
+}
+
 pub(crate) fn content_range(resp: &Response) -> Option<ContentRange> {
     header_str(resp.headers(), &CONTENT_RANGE).and_then(|v| parse_content_range(&v))
 }
 
 pub(crate) fn retry_after(resp: &Response) -> Option<Duration> {
     header_str(resp.headers(), &RETRY_AFTER).and_then(|v| retry::parse_retry_after(&v))
+}
+
+/// `host:port`, what per-host connection limits are kept under.
+pub(crate) fn host_key(url: &Url) -> String {
+    format!(
+        "{}:{}",
+        url.host_str().unwrap_or("").to_ascii_lowercase(),
+        url.port_or_known_default().unwrap_or(0)
+    )
 }
 
 pub(crate) fn parse_url(input: &str) -> Result<Url, DownloadError> {
@@ -253,6 +326,42 @@ mod tests {
         assert!(build_headers(&[("Range".into(), "bytes=0-".into())]).is_err());
         assert!(build_headers(&[("Bad Name".into(), "x".into())]).is_err());
         assert!(build_headers(&[("X-A".into(), "line\nbreak".into())]).is_err());
+    }
+
+    #[test]
+    fn web_pages_and_sign_in_pages() {
+        assert!(is_html_type("text/html; charset=utf-8"));
+        assert!(is_html_type("Application/XHTML+XML"));
+        assert!(!is_html_type("application/octet-stream"));
+        assert!(!is_html_type("text/plain"));
+        let login = |u: &str| looks_like_login(&Url::parse(u).unwrap());
+        assert!(login("https://example.org/login?next=/f.zip"));
+        assert!(login("https://accounts.example.com/ServiceLogin"));
+        assert!(login("https://example.org/users/sign_in"));
+        assert!(login("https://sso.example.org/"));
+        assert!(!login("https://example.org/files/expired"));
+        assert!(!login("https://example.org/authors/list"));
+    }
+
+    #[test]
+    fn header_text_reads_raw_utf8_and_latin1() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONTENT_DISPOSITION,
+            HeaderValue::from_bytes("attachment; filename=\"özet.pdf\"".as_bytes()).unwrap(),
+        );
+        assert_eq!(
+            header_text(&headers, &CONTENT_DISPOSITION).as_deref(),
+            Some("attachment; filename=\"özet.pdf\"")
+        );
+        headers.insert(
+            CONTENT_DISPOSITION,
+            HeaderValue::from_bytes(b"attachment; filename=\"caf\xe9.txt\"").unwrap(),
+        );
+        assert_eq!(
+            header_text(&headers, &CONTENT_DISPOSITION).as_deref(),
+            Some("attachment; filename=\"café.txt\"")
+        );
     }
 
     #[test]

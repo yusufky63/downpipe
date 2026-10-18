@@ -39,6 +39,9 @@ pub(crate) struct WorkerCtx {
     pub limiter: Arc<RateLimiter>,
     pub buffer_size: usize,
     pub stall_timeout: Duration,
+    pub response_timeout: Duration,
+    /// The file itself is a web page, so `text/html` answers are expected.
+    pub accept_html: bool,
 }
 
 #[derive(Debug)]
@@ -78,10 +81,15 @@ async fn stream_segment(
                 Some(a.end),
                 None,
             );
+            // connect_timeout only covers the TCP connect: a server that accepts
+            // and then never answers would hold this connection forever.
             let resp = tokio::select! {
                 biased;
                 () = stop.cancelled() => return Ok(WorkerEnd::Stopped),
-                r = req.send() => r.map_err(|e| DownloadError::from_reqwest(&e))?,
+                r = tokio::time::timeout(ctx.response_timeout, req.send()) => match r {
+                    Err(_) => return Err(DownloadError::Stalled(ctx.response_timeout)),
+                    Ok(r) => r.map_err(|e| DownloadError::from_reqwest(&e))?,
+                },
             };
             ctx.validate(&resp, a.start)?;
             resp
@@ -129,6 +137,11 @@ impl WorkerCtx {
     /// A follow-up range response must describe the same file we started
     /// with; anything else would silently corrupt the output.
     fn validate(&self, resp: &Response, start: u64) -> Result<(), DownloadError> {
+        // A login or "link expired" page in place of the bytes: retrying
+        // will not help, and writing it would corrupt the file.
+        if resp.status().is_success() && !self.accept_html && http::is_html(resp) {
+            return Err(http::page_error(resp));
+        }
         match resp.status() {
             StatusCode::PARTIAL_CONTENT => {
                 let cr = http::content_range(resp).ok_or(DownloadError::RangeNotHonoured)?;

@@ -27,6 +27,10 @@ export const list: Messages["list"] = {
     more: "更多",
     clear: "取消选择",
   },
+  failure: {
+    expiredLink: "链接已过期：服务器返回了网页而不是文件。请使用新链接；已下载的部分会保留。",
+    loginRequired: "服务器要求登录。请先在浏览器中登录，然后使用新链接；已下载的部分会保留。",
+  },
   menu: {
     label: "下载操作",
     labelMany: "{count} 个下载的操作",

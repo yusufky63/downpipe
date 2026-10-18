@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use downpipe_http::media::{AudioOption, MediaKind, MediaOptions, MediaSelection, VideoOption};
-use downpipe_http::{Phase, Progress, SegmentView};
+use downpipe_http::{Phase, Progress, SegmentView, WaitReason};
 use serde::{Deserialize, Serialize};
 
 pub type TaskId = String;
@@ -225,6 +225,8 @@ pub struct Live {
     pub resumable: bool,
     pub segments: Vec<SegmentView>,
     pub notices: Vec<String>,
+    /// Why it waits, while its state is `Waiting`.
+    pub waiting: Option<WaitReason>,
     /// Waiting for the user to confirm its name, folder and queue (and a
     /// stream's or video page's quality) before it starts: sent by the
     /// browser, or a video page added in the app.
@@ -252,6 +254,7 @@ impl Live {
             resumable: p.resumable,
             segments: p.segments.clone(),
             notices: p.notices.clone(),
+            waiting: p.waiting,
             awaiting_confirmation: false,
             from_app: false,
             duplicate_of: None,

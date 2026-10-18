@@ -2,6 +2,25 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
+## Unreleased
+
+The download engine handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names.
+
+### Fixed
+
+- **Hosts that cap connections.** A server that refuses extra connections with `403`, `429` or `503` while the first one downloads no longer fails the download: Downpipe continues with the connections it accepts and remembers that number for the host until it quits, so the next download from it starts there.
+- **Network drops.** Downloads waiting to retry after the network dropped or changed (Wi-Fi, a switch to another network, a VPN reconnect) continue by themselves once requests get through again. Network failures are retried for up to 10 minutes without a byte arriving instead of a fixed number of attempts, so a short outage no longer fails a download. A resume started while offline waits too.
+- **Silent connections.** A download never shows as downloading while nothing arrives: after 10 seconds without data it shows **Retrying** with the reason (no data from the server, network unavailable, the server asked to slow down, server error), in the list, the details and the progress window. A server that accepts a connection but never answers is asked again after 60 seconds instead of holding the download forever.
+- **Web pages instead of files.** When a new download, a resume or a new link gets a web page (a sign-in or "link expired" page) where a file is expected, the download stops with **The link has expired** or **The server asks you to sign in** instead of saving the page or throwing away the downloaded part. The partial data is kept, and the list offers **Use a new link…** in place of **Retry** (also for `403` failures).
+- A segment that kept failing could retry forever, because each retry reset its failure count; only progress resets it now.
+- **File names.** Raw UTF-8 names in `Content-Disposition` (which servers send although the standard does not allow it) are read instead of falling back to the URL; percent-encoded and RFC 2047 (`=?UTF-8?B?...?=`) names, `filename*0*=` continuations, a missing disposition type and an unterminated quote are understood. After a redirect to a storage URL named by a hash, the link's own name (`setup.exe`) is kept. Invisible direction marks that disguise extensions are removed, `COM¹`-style device names are made safe, and a name cut to length no longer ends in a dot. A single-connection download that fails no longer leaves its partial file behind, which pushed the retry to `name (1)`.
+- `downpipe get` says why it is waiting (`network down, retrying`, `no data, reconnecting`).
+
+### Engine
+
+- New error kinds `expired_link` and `login_required`; `Progress::waiting` and the snapshot's `waiting` give the reason while a download waits; `EngineConfig::offline_grace` (10 min) and `response_timeout` (60 s); `Engine::connection_limit` reports a host's remembered limit.
+- Test server: `max_conns` and `limit_status` (refuse connections beyond N), `stall_at`/`stall_times` and `hang_times` (silence mid-body or before the headers), `html`/`html_after` and `/login` (web pages instead of the file), `cd` (a raw `Content-Disposition`), `fail_from`, and `TestServer::stop`/`restart` to take the server off the network and back.
+
 ## 0.4.0 — 2026-10-18
 
 Media detection: the videos and audio a web page plays, including HLS and DASH streams behind `blob:` players, download in Downpipe. YouTube pages download through yt-dlp.

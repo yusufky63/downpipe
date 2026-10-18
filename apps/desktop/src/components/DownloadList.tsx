@@ -1,14 +1,14 @@
-import { ArrowDown, ArrowUp, FolderOpen, MoreHorizontal, Pause, Play, RotateCw } from "lucide-react";
+import { ArrowDown, ArrowUp, FolderOpen, Link2, MoreHorizontal, Pause, Play, RotateCw } from "lucide-react";
 import type { DragEvent, MouseEvent } from "react";
 
 import { useI18n, type MessageKey } from "../i18n";
 import { longDate, shortDate } from "../i18n/format";
 import { MAIN_QUEUE, type Task } from "../lib/api";
-import { formatBytes, formatDuration, formatSpeed, hostOf, percent, sentence } from "../lib/format";
+import { formatBytes, formatDuration, formatSpeed, hostOf, percent } from "../lib/format";
 import { sizeIsEstimate, streamLabel } from "../lib/media";
 import type { Modifiers } from "../lib/selection";
 import type { Sort, SortKey } from "../lib/sort";
-import { canPause, canResume, displayName, isRunning, lastActivity, stateInfo } from "../lib/tasks";
+import { canPause, canResume, displayName, errorText, isRunning, lastActivity, needsNewLink, stateInfo, waitingText } from "../lib/tasks";
 import { Badge, IconButton } from "./primitives";
 import { SegmentBar } from "./SegmentBar";
 
@@ -31,6 +31,8 @@ export interface RowActions {
   onMenu: (id: string, x: number, y: number, keyboard: boolean) => void;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
+  /** A failure only a fresh link fixes: the details dialog with its form open. */
+  onRelink: (id: string) => void;
   onReveal: (id: string) => void;
   /** Start dragging a finished file out of the window. */
   onDragOut: (id: string) => void;
@@ -169,9 +171,8 @@ function DownloadRow({
         ? formatBytes(task.downloaded)
         : "–";
   const detail =
-    task.state === "failed" && task.error
-      ? sentence(task.error)
-      : [hostOf(task.url), streamLabel(task), task.category, queueName].filter(Boolean).join(" · ");
+    (task.state === "failed" ? errorText(task) : waitingText(task)) ??
+    [hostOf(task.url), streamLabel(task), task.category, queueName].filter(Boolean).join(" · ");
   const done = task.state === "completed";
   const name = displayName(task);
   const dateTitle = [
@@ -272,7 +273,11 @@ function DownloadRow({
             <Pause size={16} strokeWidth={1.75} />
           </IconButton>
         )}
-        {canResume(task) && (
+        {needsNewLink(task) ? (
+          <IconButton label={t("details.relink.button")} onClick={() => actions.onRelink(task.id)}>
+            <Link2 size={16} strokeWidth={1.75} />
+          </IconButton>
+        ) : canResume(task) && (
           <IconButton label={task.state === "paused" ? t("common.resume") : t("common.retry")} onClick={() => actions.onResume(task.id)}>
             {task.state === "paused" ? <Play size={16} strokeWidth={1.75} /> : <RotateCw size={16} strokeWidth={1.75} />}
           </IconButton>

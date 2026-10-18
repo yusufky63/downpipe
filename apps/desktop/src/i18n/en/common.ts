@@ -33,6 +33,13 @@ export const states = {
   completed: "Done",
   failed: "Failed",
   canceled: "Canceled",
+  /** Why a download is retrying, under its name. */
+  why: {
+    noData: "No data from the server, reconnecting",
+    network: "Network unavailable, retrying when it is back",
+    throttled: "The server asked to slow down, waiting",
+    server: "Server error, trying again",
+  },
   filters: {
     all: "All",
     active: "Active",

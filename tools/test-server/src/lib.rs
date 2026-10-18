@@ -13,13 +13,24 @@
 //! | `slow_from=O&slow_rate=N`    | bytes past offset O trickle at N bytes/s               |
 //! | `drop_after=N&drop_times=K`  | the first K responses die after N bytes                |
 //! | `fail=S&fail_times=K`        | the first K requests get status S                      |
+//! | `fail_from=N`                | ... counting from request N (0 is the first)           |
 //! | `retry_after=SECS`           | `Retry-After` on injected failures                     |
 //! | `name=NAME`                  | `Content-Disposition: attachment` with that name       |
 //! | `type=MIME`                  | `Content-Type`                                         |
 //! | `chunked=1`                  | no `Content-Length` (chunked transfer)                 |
 //! | `auth=user:pass`             | require HTTP Basic auth                                |
+//! | `max_conns=N`                | refuse bodies beyond N at once (403, see `limit_status`)|
+//! | `limit_status=S`             | status for `max_conns` refusals (429, 503, ...)        |
+//! | `stall_at=O&stall_times=K`   | the first K responses covering offset O go silent there|
+//! | `hang_times=K`               | the first K requests never get an answer               |
+//! | `html=1`                     | a "link expired" page (`200 text/html`) instead        |
+//! | `html_after=N`               | the same, after the first N requests                   |
+//! | `cd=VALUE`                   | `Content-Disposition` exactly as given (raw UTF-8 too) |
 //!
-//! `/redirect?to=/file/100` answers `302` to the given path.
+//! `/redirect?to=/file/100` answers `302` to the given path; `/login` is a
+//! sign-in page, for links that redirect there once a session expired.
+//! [`TestServer::stop`] and [`TestServer::restart`] take the whole server off
+//! the network and back, like a Wi-Fi switch.
 //!
 //! HLS and DASH streams with checkable fragments are under `/hls/` and
 //! `/dash/`; see [`streams`]. `/files/...` serves a folder set with
@@ -86,6 +97,14 @@ pub struct ServerState {
     max_active: AtomicU64,
     drops: AtomicU64,
     failures: AtomicU64,
+    stalls: AtomicU64,
+    hangs: AtomicU64,
+    html_requests: AtomicU64,
+    /// Requests refused by `max_conns`.
+    refused: AtomicU64,
+    /// Bumped by [`TestServer::stop`]: connections and bodies of an older
+    /// generation fail at their next read or write.
+    generation: AtomicU64,
     /// Injected failures per fragment path, for `fail_seg` (see [`streams`]).
     fragment_failures: Mutex<HashMap<String, u64>>,
     /// Folder `/files/` serves, if any.
@@ -110,12 +129,21 @@ impl ServerState {
         self.bytes_served.load(Ordering::SeqCst)
     }
 
+    /// Requests turned away by `max_conns`.
+    pub fn refused(&self) -> u64 {
+        self.refused.load(Ordering::SeqCst)
+    }
+
     pub fn reset_stats(&self) {
         self.log.lock().clear();
         self.bytes_served.store(0, Ordering::SeqCst);
         self.max_active.store(0, Ordering::SeqCst);
         self.drops.store(0, Ordering::SeqCst);
         self.failures.store(0, Ordering::SeqCst);
+        self.stalls.store(0, Ordering::SeqCst);
+        self.hangs.store(0, Ordering::SeqCst);
+        self.html_requests.store(0, Ordering::SeqCst);
+        self.refused.store(0, Ordering::SeqCst);
         self.fragment_failures.lock().clear();
     }
 
@@ -156,11 +184,36 @@ impl TestServer {
         let state = Arc::new(ServerState::default());
         let listener = TcpListener::bind(addr).await?;
         let addr = listener.local_addr()?;
-        let app = router(state.clone());
-        let task = tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
-        });
+        let task = serve(listener, state.clone());
         Ok(Self { addr, state, task })
+    }
+
+    /// Go off the network: new connections are refused and every open one
+    /// (idle keep-alive connections and bodies in flight) fails at its next
+    /// read or write, as when Wi-Fi drops.
+    pub async fn stop(&mut self) {
+        self.state.generation.fetch_add(1, Ordering::SeqCst);
+        self.task.abort();
+        let _ = (&mut self.task).await;
+    }
+
+    /// Come back on the same address after [`stop`](Self::stop), with the
+    /// same files and counters.
+    pub async fn restart(&mut self) -> anyhow::Result<()> {
+        // The port can stay busy for a moment after the old listener closed.
+        let mut tries = 0;
+        let listener = loop {
+            match TcpListener::bind(self.addr).await {
+                Ok(l) => break l,
+                Err(_) if tries < 50 => {
+                    tries += 1;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        };
+        self.task = serve(listener, self.state.clone());
+        Ok(())
     }
 
     /// Serve the files of `dir` under `/files/`.
@@ -180,7 +233,129 @@ impl TestServer {
 
 impl Drop for TestServer {
     fn drop(&mut self) {
+        self.state.generation.fetch_add(1, Ordering::SeqCst);
         self.task.abort();
+    }
+}
+
+fn serve(listener: TcpListener, state: Arc<ServerState>) -> JoinHandle<()> {
+    let app = router(state.clone());
+    let listener = KillableListener {
+        inner: listener,
+        state,
+    };
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    })
+}
+
+/// Hands out connections that die when the server's generation changes.
+/// Aborting `axum::serve` alone closes the listener but leaves accepted
+/// connections running in their own tasks, so a "stopped" server would go
+/// on answering over keep-alive connections.
+struct KillableListener {
+    inner: TcpListener,
+    state: Arc<ServerState>,
+}
+
+impl axum::serve::Listener for KillableListener {
+    type Io = KillableStream;
+    type Addr = SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            match self.inner.accept().await {
+                Ok((stream, addr)) => {
+                    let generation = self.state.generation.load(Ordering::SeqCst);
+                    return (
+                        KillableStream {
+                            inner: stream,
+                            state: self.state.clone(),
+                            generation,
+                        },
+                        addr,
+                    );
+                }
+                // Too many open files and the like: try again shortly, as
+                // axum's own listener does.
+                Err(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+            }
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        self.inner.local_addr()
+    }
+}
+
+struct KillableStream {
+    inner: tokio::net::TcpStream,
+    state: Arc<ServerState>,
+    generation: u64,
+}
+
+impl KillableStream {
+    fn check(&self) -> std::io::Result<()> {
+        if self.state.generation.load(Ordering::SeqCst) == self.generation {
+            Ok(())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionReset,
+                "server stopped",
+            ))
+        }
+    }
+}
+
+impl tokio::io::AsyncRead for KillableStream {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        self.check()?;
+        std::pin::Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl tokio::io::AsyncWrite for KillableStream {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        self.check()?;
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    // Forwarded, not defaulted: without vectored writes hyper switches to
+    // buffering whole chunks of the body before writing, which changes when
+    // a client sees an injected drop.
+    fn poll_write_vectored(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        self.check()?;
+        std::pin::Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 
@@ -224,6 +399,7 @@ pub fn router(state: Arc<ServerState>) -> Router {
         // the URL (`/file/1000/archive.zip`).
         .route("/file/{size}/{name}", get(file_named))
         .route("/redirect", get(redirect))
+        .route("/login", get(login_page))
         .with_state(state)
 }
 
@@ -239,12 +415,21 @@ struct FileQuery {
     drop_times: Option<u64>,
     fail: Option<u16>,
     fail_times: Option<u64>,
+    fail_from: Option<u64>,
     retry_after: Option<u64>,
     name: Option<String>,
     #[serde(rename = "type")]
     mime: Option<String>,
     chunked: Option<u8>,
     auth: Option<String>,
+    max_conns: Option<u64>,
+    limit_status: Option<u16>,
+    stall_at: Option<u64>,
+    stall_times: Option<u64>,
+    hang_times: Option<u64>,
+    html: Option<u8>,
+    html_after: Option<u64>,
+    cd: Option<String>,
 }
 
 /// A page of links to the samples, for right-clicking in a browser.
@@ -318,6 +503,25 @@ struct RedirectQuery {
     to: String,
 }
 
+fn html_page(title: &str, text: &str) -> Response {
+    let mut resp = format!(
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{title}</title></head><body><h1>{title}</h1><p>{text}</p></body></html>\n"
+    )
+    .into_response();
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    resp
+}
+
+/// Where file hosts send a link whose session expired.
+async fn login_page(State(state): State<Arc<ServerState>>, headers: HeaderMap) -> Response {
+    let resp = html_page("Sign in", "Sign in to continue to your download.");
+    state.record("/login", &headers, resp.status());
+    resp
+}
+
 async fn redirect(Query(q): Query<RedirectQuery>) -> Response {
     let mut resp = StatusCode::FOUND.into_response();
     if let Ok(v) = HeaderValue::from_str(&q.to) {
@@ -333,6 +537,7 @@ async fn file(
     headers: HeaderMap,
 ) -> Response {
     let path = format!("/file/{size}");
+    hang(&state, &q).await;
     let resp = build_file_response(&state, size, &q, &headers);
     state.record(&path, &headers, resp.status());
     resp
@@ -345,9 +550,26 @@ async fn file_named(
     headers: HeaderMap,
 ) -> Response {
     let path = format!("/file/{size}/{name}");
+    hang(&state, &q).await;
     let resp = build_file_response(&state, size, &q, &headers);
     state.record(&path, &headers, resp.status());
     resp
+}
+
+/// `hang_times`: accept the request, then never answer it (not for two
+/// minutes, or until the server stops), like a server stuck before headers.
+async fn hang(state: &ServerState, q: &FileQuery) {
+    if let Some(times) = q.hang_times
+        && state.hangs.fetch_add(1, Ordering::SeqCst) < times
+    {
+        let generation = state.generation.load(Ordering::SeqCst);
+        for _ in 0..1200 {
+            if state.generation.load(Ordering::SeqCst) != generation {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
 }
 
 fn build_file_response(
@@ -374,7 +596,9 @@ fn build_file_response(
 
     if let Some(status) = q.fail {
         let times = q.fail_times.unwrap_or(u64::MAX);
-        if state.failures.fetch_add(1, Ordering::SeqCst) < times {
+        let from = q.fail_from.unwrap_or(0);
+        let n = state.failures.fetch_add(1, Ordering::SeqCst);
+        if n >= from && n - from < times {
             let mut resp = StatusCode::from_u16(status)
                 .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
                 .into_response();
@@ -384,6 +608,16 @@ fn build_file_response(
             }
             return resp;
         }
+    }
+
+    let html_now = q.html == Some(1)
+        || q.html_after
+            .is_some_and(|after| state.html_requests.fetch_add(1, Ordering::SeqCst) >= after);
+    if html_now {
+        return html_page(
+            "Link expired",
+            "This download link has expired. Go back to the page and start the download again.",
+        );
     }
 
     let version = state.version.load(Ordering::SeqCst);
@@ -422,12 +656,24 @@ fn build_file_response(
         None => (StatusCode::OK, 0, size),
     };
 
+    // Before anything else is counted, so a refused request leaves no trace
+    // in the statistics but the refusal itself.
+    let Some(guard) = ActiveGuard::try_new(state.clone(), q.max_conns) else {
+        state.refused.fetch_add(1, Ordering::SeqCst);
+        return StatusCode::from_u16(q.limit_status.unwrap_or(403))
+            .unwrap_or(StatusCode::FORBIDDEN)
+            .into_response();
+    };
     let drop_at = q.drop_after.filter(|_| {
         let times = q.drop_times.unwrap_or(u64::MAX);
         state.drops.fetch_add(1, Ordering::SeqCst) < times
     });
+    let stall_at = q.stall_at.filter(|&at| {
+        let times = q.stall_times.unwrap_or(u64::MAX);
+        start <= at && at < end && state.stalls.fetch_add(1, Ordering::SeqCst) < times
+    });
     let body = body_stream(
-        state.clone(),
+        guard,
         BodyPlan {
             start,
             end,
@@ -436,6 +682,7 @@ fn build_file_response(
             slow_from: q.slow_from,
             slow_rate: q.slow_rate,
             drop_after: drop_at,
+            stall_at,
         },
     );
 
@@ -465,7 +712,12 @@ fn build_file_response(
     {
         h.insert(header::CONTENT_RANGE, v);
     }
-    if let Some(name) = &q.name {
+    if let Some(raw) = &q.cd {
+        // from_bytes, not from_str: raw UTF-8 is what some servers send.
+        if let Ok(v) = HeaderValue::from_bytes(raw.as_bytes()) {
+            h.insert(header::CONTENT_DISPOSITION, v);
+        }
+    } else if let Some(name) = &q.name {
         let encoded: String = name
             .bytes()
             .map(|b| {
@@ -535,15 +787,32 @@ struct BodyPlan {
     slow_from: Option<u64>,
     slow_rate: Option<u64>,
     drop_after: Option<u64>,
+    /// Absolute offset where the body goes silent.
+    stall_at: Option<u64>,
 }
 
 struct ActiveGuard(Arc<ServerState>);
 
 impl ActiveGuard {
-    fn new(state: Arc<ServerState>) -> Self {
-        let now = state.active.fetch_add(1, Ordering::SeqCst) + 1;
-        state.max_active.fetch_max(now, Ordering::SeqCst);
-        Self(state)
+    /// One more body in flight, unless `limit` are running already.
+    fn try_new(state: Arc<ServerState>, limit: Option<u64>) -> Option<Self> {
+        let mut current = state.active.load(Ordering::SeqCst);
+        loop {
+            if limit.is_some_and(|n| current >= n) {
+                return None;
+            }
+            match state.active.compare_exchange(
+                current,
+                current + 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break,
+                Err(now) => current = now,
+            }
+        }
+        state.max_active.fetch_max(current + 1, Ordering::SeqCst);
+        Some(Self(state))
     }
 }
 
@@ -553,9 +822,10 @@ impl Drop for ActiveGuard {
     }
 }
 
-fn body_stream(state: Arc<ServerState>, plan: BodyPlan) -> Body {
+fn body_stream(guard: ActiveGuard, plan: BodyPlan) -> Body {
     struct Cursor {
         guard: ActiveGuard,
+        generation: u64,
         pos: u64,
         sent: u64,
         /// `(started, bytes sent when started, rate)` of the current pacing
@@ -563,8 +833,10 @@ fn body_stream(state: Arc<ServerState>, plan: BodyPlan) -> Body {
         /// the rate accurate even with Windows' ~15 ms timer granularity.
         pace: Option<(tokio::time::Instant, u64, u64)>,
     }
+    let generation = guard.0.generation.load(Ordering::SeqCst);
     let cursor = Cursor {
-        guard: ActiveGuard::new(state),
+        guard,
+        generation,
         pos: plan.start,
         sent: 0,
         pace: None,
@@ -573,6 +845,23 @@ fn body_stream(state: Arc<ServerState>, plan: BodyPlan) -> Body {
         if c.pos >= plan.end {
             return None;
         }
+        let stopped = |c: &Cursor| c.guard.0.generation.load(Ordering::SeqCst) != c.generation;
+        if stopped(&c) {
+            let err = std::io::Error::new(std::io::ErrorKind::ConnectionReset, "server stopped");
+            return Some((Err(err), Cursor { pos: plan.end, ..c }));
+        }
+        if plan.stall_at == Some(c.pos) {
+            // Silent, not closed: the client has to notice by itself. Ends
+            // after a minute (or when the server stops) so tasks do not pile up.
+            for _ in 0..600 {
+                if stopped(&c) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            let err = std::io::Error::new(std::io::ErrorKind::TimedOut, "injected stall");
+            return Some((Err(err), Cursor { pos: plan.end, ..c }));
+        }
         if plan.drop_after.is_some_and(|limit| c.sent >= limit) {
             let err = std::io::Error::new(std::io::ErrorKind::ConnectionReset, "injected drop");
             return Some((Err(err), Cursor { pos: plan.end, ..c }));
@@ -580,6 +869,9 @@ fn body_stream(state: Arc<ServerState>, plan: BodyPlan) -> Body {
         let mut len = (CHUNK as u64).min(plan.end - c.pos);
         if let Some(limit) = plan.drop_after {
             len = len.min(limit - c.sent).max(1);
+        }
+        if let Some(at) = plan.stall_at.filter(|&at| at > c.pos) {
+            len = len.min(at - c.pos);
         }
         let rate = match (plan.slow_from, plan.slow_rate) {
             (Some(from), Some(rate)) if c.pos >= from => Some(rate),

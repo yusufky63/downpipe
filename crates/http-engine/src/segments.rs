@@ -43,7 +43,10 @@ pub struct Segment {
     pub reserved: u64,
     pub end: u64,
     pub active: bool,
+    /// Consecutive failed attempts without progress; reset by progress only.
     pub failures: u32,
+    /// Failed and waiting for its backoff: not handed out until re-armed.
+    pub cooling: bool,
 }
 
 impl Segment {
@@ -135,7 +138,7 @@ impl SegmentMap {
     pub fn has_assignable_work(&self, min_split: u64) -> bool {
         self.segments
             .iter()
-            .any(|s| !s.active && !s.is_done() && s.failures == 0)
+            .any(|s| !s.active && !s.is_done() && !s.cooling)
             || self.best_victim(min_split).is_some()
     }
 
@@ -146,7 +149,7 @@ impl SegmentMap {
         if let Some(seg) = self
             .segments
             .iter_mut()
-            .filter(|s| !s.active && !s.is_done() && s.failures == 0)
+            .filter(|s| !s.active && !s.is_done() && !s.cooling)
             .max_by_key(|s| s.unclaimed())
         {
             seg.active = true;
@@ -250,21 +253,24 @@ impl SegmentMap {
         seg.reserved = seg.written;
         if failed {
             seg.failures += 1;
+            seg.cooling = true;
         }
         seg.failures
     }
 
-    /// Clear the failure mark so [`assign`](Self::assign) picks it up again.
+    /// End the backoff so [`assign`](Self::assign) picks it up again. The
+    /// failure count stays: only progress clears it, so a segment that keeps
+    /// failing does run out of retries.
     pub fn rearm(&mut self, id: SegmentId) {
         if let Some(seg) = self.get_mut(id) {
-            seg.failures = 0;
+            seg.cooling = false;
         }
     }
 
-    /// Clear every failure mark on idle segments.
+    /// End the backoff of every idle segment.
     pub fn rearm_all(&mut self) {
         for seg in self.segments.iter_mut().filter(|s| !s.active) {
-            seg.failures = 0;
+            seg.cooling = false;
         }
     }
 
@@ -348,6 +354,7 @@ impl SegmentMap {
             end,
             active: false,
             failures: 0,
+            cooling: false,
         });
         id
     }
@@ -487,6 +494,20 @@ mod tests {
         map.release(a.id, false);
         map.rearm(a.id);
         assert_eq!(map.assign(MIB).unwrap().start, 2 * MIB);
+    }
+
+    #[test]
+    fn failures_survive_retries_until_progress() {
+        let mut map = SegmentMap::new(10 * MIB, &[]);
+        let a = map.assign(MIB).unwrap();
+        for expected in 1..=3 {
+            assert_eq!(map.release(a.id, true), expected);
+            map.rearm(a.id);
+            assert_eq!(map.assign(MIB).unwrap().id, a.id);
+        }
+        map.reserve(a.id, MIB);
+        map.commit(a.id, MIB);
+        assert_eq!(map.release(a.id, true), 1, "progress clears the count");
     }
 
     #[test]

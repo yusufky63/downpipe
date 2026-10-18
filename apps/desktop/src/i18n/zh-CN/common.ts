@@ -34,6 +34,12 @@ export const states: Messages["states"] = {
   completed: "已完成",
   failed: "失败",
   canceled: "已取消",
+  why: {
+    noData: "服务器没有发送数据，正在重新连接",
+    network: "网络不可用，恢复后将重试",
+    throttled: "服务器要求降低速度，正在等待",
+    server: "服务器错误，正在重试",
+  },
   filters: {
     all: "全部",
     active: "进行中",

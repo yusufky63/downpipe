@@ -35,7 +35,7 @@ One `Engine` owns an HTTP client (connection pool, proxy, user agent) and a `Rat
 - `pause()` / `cancel()` (also available as a cloneable `DownloadControl`),
 - `wait()` resolving to `Outcome::{Completed, Paused, Canceled}` or a `DownloadError`.
 
-Errors carry a stable `kind()` (`auth_required`, `forbidden`, `not_found`, `throttled`, `resource_changed`, `network`, `checksum`, `io`, `drm_protected`, `live_stream`, ...) so UIs can explain failures without parsing messages.
+Errors carry a stable `kind()` (`auth_required`, `forbidden`, `not_found`, `throttled`, `resource_changed`, `expired_link`, `login_required`, `network`, `checksum`, `io`, `drm_protected`, `live_stream`, ...) so UIs can explain failures without parsing messages.
 
 **Streams.** A `DownloadRequest` with `media` set (`MediaRequest`: HLS or DASH, the chosen tracks, an optional FFmpeg) runs the stream job in `media/` instead of the file job, behind the same `DownloadHandle` and `Progress` (which then carries `media`: quality, chosen tracks, fragments done). `media/hls.rs` and `media/dash.rs` parse manifests into fragment lists and refuse DRM and live streams while parsing; `media/resolve.rs` fetches manifests and turns a choice into a `Plan` of one or two tracks; `media/job.rs` downloads the fragments; `media/mux.rs` finds and runs FFmpeg. `Engine::media_options` lists a stream's qualities without downloading media, for the quality chooser.
 

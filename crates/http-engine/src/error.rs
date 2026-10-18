@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use crate::progress::WaitReason;
+
 /// Everything that can stop a download, grouped so callers can tell the user
 /// *why* it failed instead of showing a bare status code.
 #[derive(Debug, thiserror::Error)]
@@ -38,6 +40,20 @@ pub enum DownloadError {
 
     #[error("the new link points to a different file ({0}); the partial download was kept")]
     DifferentFile(String),
+
+    /// A web page came back where the file was expected: what file hosts
+    /// send once a link's token or session ran out.
+    #[error(
+        "the server sent a web page instead of the file; the link has probably expired (the partial download was kept)"
+    )]
+    ExpiredLink,
+
+    /// Like [`ExpiredLink`](Self::ExpiredLink), but the page is a sign-in
+    /// page.
+    #[error(
+        "the server sent a sign-in page instead of the file; sign in in the browser, then use a new link (the partial download was kept)"
+    )]
+    LoginRequired,
 
     #[error("the server stopped honouring byte ranges")]
     RangeNotHonoured,
@@ -110,6 +126,29 @@ impl DownloadError {
         ) || matches!(self, Self::HttpStatus { status } if *status == 408 || *status >= 500)
     }
 
+    /// The network between us and the server failed rather than the server:
+    /// offline, DNS, refused, reset, or silence. These are retried for as
+    /// long as [`EngineConfig::offline_grace`](crate::EngineConfig) allows,
+    /// not a fixed number of times, so a Wi-Fi switch or a VPN reconnect
+    /// does not fail a download.
+    pub fn is_connectivity(&self) -> bool {
+        matches!(
+            self,
+            Self::Network(_) | Self::Stalled(_) | Self::PrematureEnd
+        )
+    }
+
+    /// What a download waiting to retry after this error tells the user.
+    pub fn wait_reason(&self) -> WaitReason {
+        match self {
+            Self::Stalled(_) => WaitReason::NoData,
+            Self::Network(_) | Self::PrematureEnd => WaitReason::Network,
+            Self::Throttled { .. } => WaitReason::Throttled,
+            Self::RetriesExhausted { last, .. } => last.wait_reason(),
+            _ => WaitReason::Server,
+        }
+    }
+
     /// Server-provided delay, if the error carried one (`Retry-After`).
     pub fn retry_after(&self) -> Option<Duration> {
         match self {
@@ -130,6 +169,8 @@ impl DownloadError {
             Self::HttpStatus { .. } => "http_status",
             Self::ResourceChanged(_) => "resource_changed",
             Self::DifferentFile(_) => "different_file",
+            Self::ExpiredLink => "expired_link",
+            Self::LoginRequired => "login_required",
             Self::RangeNotHonoured => "range_not_honoured",
             Self::PrematureEnd | Self::Stalled(_) | Self::Network(_) => "network",
             Self::ChecksumMismatch { .. } | Self::InvalidChecksum(_) => "checksum",

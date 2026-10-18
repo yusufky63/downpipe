@@ -34,6 +34,12 @@ export const states: Messages["states"] = {
   completed: "完了",
   failed: "失敗",
   canceled: "キャンセル済み",
+  why: {
+    noData: "サーバーからデータが届きません。再接続しています",
+    network: "ネットワークに接続できません。復旧したら再試行します",
+    throttled: "サーバーから速度を落とすよう求められました。待機しています",
+    server: "サーバーエラー。再試行しています",
+  },
   filters: {
     all: "すべて",
     active: "進行中",

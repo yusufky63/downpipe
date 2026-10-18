@@ -20,10 +20,28 @@ pub enum Phase {
     Done,
 }
 
+/// Why a running download is in [`Phase::Waiting`], so a UI can say more
+/// than "retrying".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WaitReason {
+    /// Connections are open but no bytes arrive; they are being replaced.
+    NoData,
+    /// Requests fail before reaching the server: offline, DNS, refused,
+    /// reset. Retried until the network is back.
+    Network,
+    /// The server asked to slow down (`429`, `503`).
+    Throttled,
+    /// The server failed (`5xx`) or sent something unusable.
+    Server,
+}
+
 /// Snapshot published on a `watch` channel several times per second.
 #[derive(Debug, Clone, Serialize)]
 pub struct Progress {
     pub phase: Phase,
+    /// Set while `phase` is [`Phase::Waiting`].
+    pub waiting: Option<WaitReason>,
     pub file_name: Option<String>,
     /// Final destination (the data lives in `<path>.part` until done).
     pub path: Option<PathBuf>,
@@ -59,6 +77,7 @@ impl Progress {
     pub fn starting() -> Self {
         Self {
             phase: Phase::Starting,
+            waiting: None,
             file_name: None,
             path: None,
             total: None,

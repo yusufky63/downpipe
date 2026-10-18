@@ -1,6 +1,7 @@
 //! The download controller: opens or resumes a download, runs the adaptive
 //! connection loop, checkpoints, verifies and atomically publishes the file.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -22,7 +23,7 @@ use crate::http::{self, ResourceInfo, header_str};
 use crate::media::resolve::{self, Fetcher};
 use crate::media::{MediaKind, MediaOptions};
 use crate::meta::{self, META_VERSION, ResumeMeta};
-use crate::progress::{Phase, Progress, SpeedMeter};
+use crate::progress::{Phase, Progress, SpeedMeter, WaitReason};
 use crate::ratelimit::RateLimiter;
 use crate::segments::{Assignment, SegmentId, SegmentMap};
 use crate::worker::{self, Buffer, Shared, WorkerCtx, WorkerEnd};
@@ -35,6 +36,10 @@ const SPEED_WINDOW: Duration = Duration::from_secs(2);
 /// unreachable the user should hear about it quickly.
 const MAX_INITIAL_ATTEMPTS: u32 = 5;
 const MAX_CONNECTIONS_CAP: usize = 32;
+/// A download that received nothing for this long shows as waiting, not
+/// downloading (capped at half the stall timeout, so it shows before the
+/// silent connections are replaced).
+const NO_DATA_AFTER: Duration = Duration::from_secs(10);
 
 type WorkerSet = JoinSet<(SegmentId, Result<WorkerEnd, DownloadError>)>;
 
@@ -49,6 +54,25 @@ pub(crate) struct Inner {
     pub(crate) client: Client,
     pub(crate) config: EngineConfig,
     pub(crate) limiter: Arc<RateLimiter>,
+    /// Connections a host accepted when it refused more (`host:port` to
+    /// count), so later downloads from it start there instead of tripping
+    /// the limit again. Lives as long as the engine: a session.
+    hosts: Mutex<HashMap<String, usize>>,
+}
+
+impl Inner {
+    fn host_limit(&self, url: &Url) -> Option<usize> {
+        self.hosts.lock().get(&http::host_key(url)).copied()
+    }
+
+    fn remember_host_limit(&self, url: &Url, connections: usize) {
+        let connections = connections.max(1);
+        self.hosts
+            .lock()
+            .entry(http::host_key(url))
+            .and_modify(|n| *n = (*n).min(connections))
+            .or_insert(connections);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,8 +223,15 @@ impl Engine {
                 client,
                 config,
                 limiter,
+                hosts: Mutex::new(HashMap::new()),
             }),
         })
+    }
+
+    /// Connections the host of `url` accepted when it refused more during
+    /// this session; downloads from it never open more than this.
+    pub fn connection_limit(&self, url: &str) -> Option<usize> {
+        self.inner.host_limit(&http::parse_url(url).ok()?)
     }
 
     pub fn config(&self) -> &EngineConfig {
@@ -283,7 +314,7 @@ impl Engine {
             s if s.is_success() => (false, resp.content_length()),
             s => return Err(status_error(s.as_u16(), http::retry_after(&resp))),
         };
-        Ok(ResourceInfo::from_response(&resp, accepts, total))
+        Ok(ResourceInfo::from_response(&resp, &url, accepts, total))
     }
 }
 
@@ -298,6 +329,9 @@ struct Session {
     /// URL after redirects, used by every connection of this session.
     work_url: Url,
     etag: Option<String>,
+    /// The file is a web page itself, so `text/html` answers are not a
+    /// sign of an expired link.
+    accept_html: bool,
     body: Body,
 }
 
@@ -423,7 +457,16 @@ impl Job {
                 self.run_segmented(&mut session, headers, map, first)
                     .await?
             }
-            Body::Stream { first } => self.run_stream(&session, url, headers, first).await?,
+            Body::Stream { first } => match self.run_stream(&session, url, headers, first).await {
+                Ok(flow) => flow,
+                Err(err) => {
+                    // Without resume data the partial file is useless, and
+                    // left behind it would push the retry to `name (1)`.
+                    drop(session);
+                    self.discard_current().await;
+                    return Err(err);
+                }
+            },
         };
         match flow {
             Flow::Complete => self.finalize(*session).await,
@@ -461,7 +504,10 @@ impl Job {
         self.set_phase(Phase::Starting);
         let client = self.inner.client.clone();
         let Some(mut resp) = self
-            .send_initial(|| http::range_get(&client, url, headers, 0, None, None))
+            .send_initial(
+                || http::range_get(&client, url, headers, 0, None, None),
+                false,
+            )
             .await?
         else {
             return Ok(Opened::Stopped);
@@ -474,7 +520,7 @@ impl Job {
                 // A partial answer we cannot place; fetch the whole thing.
                 _ => {
                     let Some(r) = self
-                        .send_initial(|| http::plain_get(&client, url, headers))
+                        .send_initial(|| http::plain_get(&client, url, headers), false)
                         .await?
                     else {
                         return Ok(Opened::Stopped);
@@ -485,7 +531,7 @@ impl Job {
             // `bytes=0-` on an empty file. Ask again without a range.
             StatusCode::RANGE_NOT_SATISFIABLE => {
                 let Some(r) = self
-                    .send_initial(|| http::plain_get(&client, url, headers))
+                    .send_initial(|| http::plain_get(&client, url, headers), false)
                     .await?
                 else {
                     return Ok(Opened::Stopped);
@@ -500,6 +546,11 @@ impl Job {
                 http::retry_after(&resp),
             ));
         }
+        // A link to `setup.exe` that answers with a web page is a sign-in
+        // or "link expired" page; saving it as setup.exe helps nobody.
+        if http::is_html(&resp) && self.expects_file(url) {
+            return Err(http::page_error(&resp));
+        }
         let accepts = range.is_some();
         let total = range.or_else(|| {
             (resp.status() == StatusCode::OK)
@@ -507,7 +558,7 @@ impl Job {
                 .flatten()
         });
 
-        let info = ResourceInfo::from_response(&resp, accepts, total);
+        let info = ResourceInfo::from_response(&resp, url, accepts, total);
         let name = self
             .req
             .file_name
@@ -565,6 +616,7 @@ impl Job {
         });
 
         let work_url = resp.url().clone();
+        let accept_html = info.content_type.as_deref().is_some_and(http::is_html_type);
         let body = match total {
             Some(total) if resumable => {
                 let mut map = SegmentMap::new(total, &[]);
@@ -584,9 +636,19 @@ impl Job {
             total,
             work_url,
             etag: meta.as_ref().and_then(|m| m.etag.clone()),
+            accept_html,
             meta,
             body,
         })))
+    }
+
+    /// The name the download will get says it is not a web page.
+    fn expects_file(&self, url: &Url) -> bool {
+        self.req
+            .file_name
+            .clone()
+            .or_else(|| filename::from_url(url))
+            .is_some_and(|name| filename::is_binary_name(&name))
     }
 
     async fn open_resume(
@@ -611,6 +673,7 @@ impl Job {
             }
         };
         let mut map = SegmentMap::new(total, &meta.completed);
+        let accept_html = meta.content_type.as_deref().is_some_and(http::is_html_type);
         self.tx.send_modify(|p| {
             p.file_name = Some(file_name_of(&final_path));
             p.path = Some(final_path.clone());
@@ -633,21 +696,32 @@ impl Job {
                     self.notice("Resuming without a validator: the server gives no way to confirm the file is unchanged".into());
                 }
                 let client = self.inner.client.clone();
+                // Patient: the host served this file before, so a network
+                // failure here is an outage to wait out, not a typo.
                 let Some(resp) = self
-                    .send_initial(|| {
-                        http::range_get(
-                            &client,
-                            url,
-                            headers,
-                            a.start,
-                            Some(a.end),
-                            validator.as_deref(),
-                        )
-                    })
+                    .send_initial(
+                        || {
+                            http::range_get(
+                                &client,
+                                url,
+                                headers,
+                                a.start,
+                                Some(a.end),
+                                validator.as_deref(),
+                            )
+                        },
+                        true,
+                    )
                     .await?
                 else {
                     return Ok(Opened::Stopped);
                 };
+                // Checked before anything else: a sign-in page answering
+                // `200` would otherwise read as "the file changed" and throw
+                // the partial data away.
+                if resp.status().is_success() && !accept_html && http::is_html(&resp) {
+                    return Err(http::page_error(&resp));
+                }
                 match resp.status() {
                     StatusCode::PARTIAL_CONTENT => {
                         let cr = http::content_range(&resp);
@@ -699,6 +773,7 @@ impl Job {
             total: Some(total),
             work_url,
             etag: meta.etag.clone(),
+            accept_html,
             meta: Some(meta),
             body: Body::Segmented { map, first },
         })))
@@ -706,49 +781,69 @@ impl Job {
 
     /// Send the request that opens a session, retrying transient failures.
     /// `Ok(None)` means the download was stopped meanwhile.
-    async fn send_initial<F>(&self, build: F) -> Result<Option<Response>, DownloadError>
+    ///
+    /// A new download gives up after a few attempts, so a mistyped or dead
+    /// host is reported quickly. A `patient` one (a resume, a restart) waits
+    /// out network failures for `offline_grace`: the host worked before.
+    async fn send_initial<F>(
+        &self,
+        build: F,
+        patient: bool,
+    ) -> Result<Option<Response>, DownloadError>
     where
         F: Fn() -> RequestBuilder,
     {
         let cfg = &self.inner.config;
         let attempts = (cfg.max_retries + 1).min(MAX_INITIAL_ATTEMPTS);
-        let mut last = None;
-        for attempt in 0..attempts {
+        let budget = retry::Budget::new(attempts - 1, cfg.offline_grace);
+        let mut failures = 0;
+        loop {
+            // connect_timeout only covers the TCP connect; a server that
+            // accepts and never answers would otherwise hang here forever.
             let sent = tokio::select! {
                 biased;
                 () = self.control.stop.cancelled() => return Ok(None),
-                r = build().send() => r,
+                r = tokio::time::timeout(cfg.response_timeout, build().send()) => r,
             };
             let err = match sent {
-                Ok(resp)
+                Err(_) => DownloadError::Stalled(cfg.response_timeout),
+                Ok(Ok(resp))
                     if resp.status().is_success()
                         || resp.status() == StatusCode::RANGE_NOT_SATISFIABLE =>
                 {
                     self.set_phase(Phase::Downloading);
                     return Ok(Some(resp));
                 }
-                Ok(resp) => status_error(resp.status().as_u16(), http::retry_after(&resp)),
-                Err(e) => DownloadError::from_reqwest(&e),
+                Ok(Ok(resp)) => status_error(resp.status().as_u16(), http::retry_after(&resp)),
+                Ok(Err(e)) => DownloadError::from_reqwest(&e),
             };
-            if !err.is_retryable() {
-                return Err(err);
+            failures += 1;
+            let allowed = if patient {
+                budget.allows(&err, failures, Instant::now())
+            } else {
+                err.is_retryable() && failures < attempts
+            };
+            if !allowed {
+                return Err(if err.is_retryable() {
+                    DownloadError::RetriesExhausted {
+                        attempts: failures,
+                        last: Box::new(err),
+                    }
+                } else {
+                    err
+                });
             }
             let delay = err.retry_after().unwrap_or_else(|| {
-                retry::backoff(attempt, cfg.retry_base_delay, cfg.retry_max_delay)
+                retry::backoff(failures - 1, cfg.retry_base_delay, cfg.retry_max_delay)
             });
-            tracing::debug!(attempt, ?delay, "initial request failed: {err}");
-            self.set_phase(Phase::Waiting);
+            tracing::debug!(failures, ?delay, "initial request failed: {err}");
+            self.set_waiting(err.wait_reason());
             tokio::select! {
                 biased;
                 () = self.control.stop.cancelled() => return Ok(None),
                 () = tokio::time::sleep(delay) => {}
             }
-            last = Some(err);
         }
-        Err(DownloadError::RetriesExhausted {
-            attempts,
-            last: Box::new(last.unwrap_or(DownloadError::PrematureEnd)),
-        })
     }
 
     // ------------------------------------------------------------ transfer
@@ -761,7 +856,15 @@ impl Job {
         first: Option<(Response, Assignment)>,
     ) -> Result<Flow, DownloadError> {
         let cfg = &self.inner.config;
-        let max = self.max_connections;
+        let mut max = self.max_connections;
+        if let Some(limit) = self.inner.host_limit(&session.work_url)
+            && limit < max
+        {
+            max = limit;
+            self.notice(format!(
+                "This server refused more than {limit} connection(s) earlier; using {limit}"
+            ));
+        }
         let min_split = cfg.min_split_size;
         let shared = Arc::new(Shared {
             downloaded: AtomicU64::new(map.written_bytes()),
@@ -777,6 +880,8 @@ impl Job {
             limiter: self.inner.limiter.clone(),
             buffer_size: cfg.buffer_size,
             stall_timeout: cfg.stall_timeout,
+            response_timeout: cfg.response_timeout,
+            accept_html: session.accept_html,
         });
         let stop_workers = self.control.stop.child_token();
         let spawn = |workers: &mut WorkerSet, a: Assignment, first: Option<Response>| {
@@ -792,8 +897,18 @@ impl Job {
         let mut workers = WorkerSet::new();
         let mut target = cfg.initial_connections.clamp(1, max);
         let mut ramp = Ramp::new(cfg.ramp_window, cfg.ramp_gain);
-        let mut retries: Vec<(Instant, SegmentId)> = Vec::new();
+        let mut budget = retry::Budget::new(cfg.max_retries, cfg.offline_grace);
+        // (due, segment, failed on the network): network retries are pulled
+        // forward as soon as bytes flow again.
+        let mut retries: Vec<(Instant, SegmentId, bool)> = Vec::new();
         let mut hold_until: Option<Instant> = None;
+        // The host refused extra connections during this download.
+        let mut limited = false;
+        // The latest failure and when it happened: what a waiting download
+        // shows, unless nothing failed since the bytes stopped.
+        let mut last_failure = (Instant::now(), WaitReason::Network);
+        let mut last_bytes = (Instant::now(), shared.downloaded.load(Ordering::Relaxed));
+        let no_data_after = no_data_after(cfg.stall_timeout);
         let mut meter = SpeedMeter::new(SPEED_WINDOW);
         let mut tick = tokio::time::interval(TICK);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -851,13 +966,47 @@ impl Job {
                         }
                         Err(err) => err,
                     };
+                    let others = workers.len();
+                    if !stopping && others > 0 && is_refusal(&err) {
+                        // Refused while other connections of this download
+                        // are being served: the host caps connections per
+                        // client. Not a failure; continue with the ones it
+                        // accepts and hand this segment to the next free one.
+                        shared.map.lock().release(id, false);
+                        limited = true;
+                        ramp.disable();
+                        if others < target {
+                            self.notice(format!(
+                                "The server allows only {others} connection(s) at a time; continuing with {others}"
+                            ));
+                            self.inner.remember_host_limit(&session.work_url, others);
+                        }
+                        target = target.min(others);
+                        max = max.min(others);
+                        if let Some(after) = err.retry_after() {
+                            hold_until = Some(Instant::now() + after);
+                        }
+                        tracing::debug!(segment = id, others, "connection refused, host limit: {err}");
+                        continue;
+                    }
                     let failures = shared.map.lock().release(id, true);
                     if stopping {
                         continue;
                     }
-                    if !err.is_retryable() || failures > cfg.max_retries {
+                    let now = Instant::now();
+                    // A refusal with no other connection left is usually the
+                    // server still counting one that just closed, once it
+                    // showed a limit; retried like a server failure. A link
+                    // that really expired runs out of retries and fails.
+                    let lingering = limited && matches!(err, DownloadError::Forbidden);
+                    let allowed = if lingering {
+                        failures <= cfg.max_retries
+                    } else {
+                        budget.allows(&err, failures, now)
+                    };
+                    if !allowed {
                         tracing::debug!(segment = id, failures, "segment failed: {err}");
-                        fatal = Some(if err.is_retryable() {
+                        fatal = Some(if err.is_retryable() || lingering {
                             DownloadError::RetriesExhausted { attempts: failures, last: Box::new(err) }
                         } else {
                             err
@@ -870,20 +1019,31 @@ impl Job {
                         retry::backoff(failures.saturating_sub(1), cfg.retry_base_delay, cfg.retry_max_delay)
                     });
                     if matches!(err, DownloadError::Throttled { .. }) {
-                        let reduced = workers.len().max(1);
+                        let reduced = others.max(1);
                         if reduced < target {
                             self.notice(format!("The server is rate limiting; reduced to {reduced} connection(s)"));
                         }
                         target = reduced.min(target);
                         ramp.disable();
-                        hold_until = Some(Instant::now() + delay);
+                        hold_until = Some(now + delay);
                     }
+                    last_failure = (Instant::now(), err.wait_reason());
                     tracing::debug!(segment = id, failures, ?delay, "segment will retry: {err}");
-                    retries.push((Instant::now() + delay, id));
+                    retries.push((now + delay, id, err.is_connectivity()));
                 }
                 _ = tick.tick() => {
                     let now = Instant::now();
-                    retries.retain(|&(at, id)| {
+                    let downloaded = shared.downloaded.load(Ordering::Relaxed);
+                    if downloaded > last_bytes.1 {
+                        last_bytes = (now, downloaded);
+                        budget.progressed(now);
+                        // The network is back: segments sitting out a long
+                        // backoff from the outage need not wait any longer.
+                        for retry in retries.iter_mut().filter(|r| r.2) {
+                            retry.0 = retry.0.min(now);
+                        }
+                    }
+                    retries.retain(|&(at, id, _)| {
                         if at <= now {
                             shared.map.lock().rearm(id);
                             false
@@ -891,7 +1051,6 @@ impl Job {
                             true
                         }
                     });
-                    let downloaded = shared.downloaded.load(Ordering::Relaxed);
                     let speed = meter.record(now, downloaded);
                     if !stopping {
                         ramp.observe(now, downloaded, workers.len(), &mut target, max);
@@ -909,9 +1068,20 @@ impl Job {
                         last_checkpoint = now;
                     }
                     let segments = shared.map.lock().views();
-                    let phase = if workers.is_empty() { Phase::Waiting } else { Phase::Downloading };
+                    // Never "downloading" while nothing moves: either every
+                    // connection is backing off, or the open ones are silent.
+                    let waiting = if workers.is_empty() {
+                        Some(last_failure.1)
+                    } else if now.duration_since(last_bytes.0) >= no_data_after {
+                        // Connections are open (or opening) but nothing comes:
+                        // silence, unless they keep failing, as while offline.
+                        Some(if last_failure.0 > last_bytes.0 { last_failure.1 } else { WaitReason::NoData })
+                    } else {
+                        None
+                    };
                     self.tx.send_modify(|p| {
-                        p.phase = phase;
+                        p.phase = if waiting.is_some() { Phase::Waiting } else { Phase::Downloading };
+                        p.waiting = waiting;
                         p.downloaded = downloaded;
                         p.speed = speed;
                         p.connections = workers.len();
@@ -968,8 +1138,10 @@ impl Job {
             let resp = match next.take() {
                 Some(resp) => resp,
                 None => {
+                    // Patient: an outage is waited out here, while failures
+                    // mid-body are counted below, since each one starts over.
                     let Some(resp) = self
-                        .send_initial(|| http::plain_get(&client, url, headers))
+                        .send_initial(|| http::plain_get(&client, url, headers), true)
                         .await?
                     else {
                         return Ok(Flow::Stopped);
@@ -979,6 +1151,9 @@ impl Job {
                             resp.status().as_u16(),
                             http::retry_after(&resp),
                         ));
+                    }
+                    if !session.accept_html && http::is_html(&resp) {
+                        return Err(http::page_error(&resp));
                     }
                     let part = session.part.clone();
                     blocking(move || part.truncate(0)).await?;
@@ -990,7 +1165,7 @@ impl Job {
                     let delay = retry::backoff(attempt, cfg.retry_base_delay, cfg.retry_max_delay);
                     attempt += 1;
                     tracing::debug!(attempt, ?delay, "stream failed, restarting: {err}");
-                    self.set_phase(Phase::Waiting);
+                    self.set_waiting(err.wait_reason());
                     tokio::select! {
                         biased;
                         () = self.control.stop.cancelled() => return Ok(Flow::Stopped),
@@ -1011,8 +1186,11 @@ impl Job {
         let mut meter = SpeedMeter::new(SPEED_WINDOW);
         let mut tick = tokio::time::interval(TICK);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let no_data_after = no_data_after(cfg.stall_timeout);
+        let mut last_bytes = (Instant::now(), 0u64);
         self.tx.send_modify(|p| {
             p.phase = Phase::Downloading;
+            p.waiting = None;
             p.downloaded = 0;
             p.connections = 1;
             p.target_connections = 1;
@@ -1026,8 +1204,15 @@ impl Job {
                     return Ok(Flow::Stopped);
                 }
                 _ = tick.tick() => {
-                    let speed = meter.record(Instant::now(), received);
+                    let now = Instant::now();
+                    if received > last_bytes.1 {
+                        last_bytes = (now, received);
+                    }
+                    let silent = now.duration_since(last_bytes.0) >= no_data_after;
+                    let speed = meter.record(now, received);
                     self.tx.send_modify(|p| {
+                        p.phase = if silent { Phase::Waiting } else { Phase::Downloading };
+                        p.waiting = silent.then_some(WaitReason::NoData);
                         p.downloaded = received;
                         p.speed = speed;
                     });
@@ -1186,8 +1371,18 @@ impl Job {
 
     fn set_phase(&self, phase: Phase) {
         self.tx.send_if_modified(|p| {
-            let changed = p.phase != phase;
+            let changed = p.phase != phase || p.waiting.is_some();
             p.phase = phase;
+            p.waiting = None;
+            changed
+        });
+    }
+
+    fn set_waiting(&self, reason: WaitReason) {
+        self.tx.send_if_modified(|p| {
+            let changed = p.phase != Phase::Waiting || p.waiting != Some(reason);
+            p.phase = Phase::Waiting;
+            p.waiting = Some(reason);
             changed
         });
     }
@@ -1315,6 +1510,19 @@ async fn finish_checkpoint(
         .map_err(|e| DownloadError::Io(std::io::Error::other(e)))??;
     session.meta = Some(saved);
     Ok(())
+}
+
+/// `403` or `429`/`503`: what hosts that cap connections per client answer
+/// to one connection too many.
+fn is_refusal(err: &DownloadError) -> bool {
+    matches!(
+        err,
+        DownloadError::Forbidden | DownloadError::Throttled { .. }
+    )
+}
+
+fn no_data_after(stall_timeout: Duration) -> Duration {
+    NO_DATA_AFTER.min(stall_timeout / 2)
 }
 
 fn file_name_of(path: &Path) -> String {

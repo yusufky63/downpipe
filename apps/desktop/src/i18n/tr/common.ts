@@ -34,6 +34,12 @@ export const states: Messages["states"] = {
   completed: "Tamamlandı",
   failed: "Başarısız",
   canceled: "İptal edildi",
+  why: {
+    noData: "Sunucudan veri gelmiyor, yeniden bağlanılıyor",
+    network: "Ağ bağlantısı yok, geri gelince yeniden denenecek",
+    throttled: "Sunucu yavaşlamayı istedi, bekleniyor",
+    server: "Sunucu hatası, yeniden deneniyor",
+  },
   filters: {
     all: "Tümü",
     active: "Etkin",

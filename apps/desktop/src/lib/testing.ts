@@ -28,6 +28,7 @@ export function makeTask(id: string, patch: Partial<Task> = {}): Task {
     resumable: false,
     segments: [],
     notices: [],
+    waiting: null,
     awaiting_confirmation: false,
     duplicate_of: null,
     from_app: false,

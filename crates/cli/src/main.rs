@@ -7,7 +7,8 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use downpipe_http::media::{MediaKind, MediaRequest, MediaSelection, mux};
 use downpipe_http::{
-    Checksum, DownloadRequest, Engine, EngineConfig, Outcome, Phase, RateLimiter, meta, parse_rate,
+    Checksum, DownloadRequest, Engine, EngineConfig, Outcome, Phase, RateLimiter, WaitReason, meta,
+    parse_rate,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -246,7 +247,12 @@ async fn download(mut req: DownloadRequest, tuning: &Tuning) -> Result<ExitCode>
                 let name = p.file_name.as_deref().unwrap_or("connecting");
                 let status = match p.phase {
                     Phase::Starting => "starting".to_string(),
-                    Phase::Waiting => "waiting to retry".to_string(),
+                    Phase::Waiting => match p.waiting {
+                        Some(WaitReason::NoData) => "no data, reconnecting".to_string(),
+                        Some(WaitReason::Network) => "network down, retrying".to_string(),
+                        Some(WaitReason::Throttled) => "server busy, waiting".to_string(),
+                        Some(WaitReason::Server) | None => "waiting to retry".to_string(),
+                    },
                     Phase::Verifying => "verifying checksum".to_string(),
                     Phase::Finalizing | Phase::Done => "finishing".to_string(),
                     Phase::Downloading => {

@@ -27,7 +27,7 @@ use super::{Container, MediaRequest, Segment, crypto, mux};
 use crate::config::DownloadRequest;
 use crate::engine::{Control, Inner, Outcome};
 use crate::error::status_error;
-use crate::progress::{MediaProgress, Phase, Progress, SpeedMeter};
+use crate::progress::{MediaProgress, Phase, Progress, SpeedMeter, WaitReason};
 use crate::ratelimit::RateLimiter;
 use crate::segments::SegmentView;
 use crate::{DownloadError, blocking, filename, http, retry};
@@ -166,6 +166,7 @@ impl MediaJob {
             headers,
             limiter: self.inner.limiter.clone(),
             stall_timeout: self.inner.config.stall_timeout,
+            response_timeout: self.inner.config.response_timeout,
             buffer_size: self.inner.config.buffer_size,
             work: work.clone(),
             fetcher,
@@ -331,8 +332,14 @@ impl MediaJob {
         let stop_workers = self.control.stop.child_token();
         let mut workers: JoinSet<(usize, Result<FragEnd, DownloadError>)> = JoinSet::new();
         let mut failures = vec![0u32; total_count];
-        let mut retries: Vec<(Instant, usize)> = Vec::new();
+        let mut retries: Vec<(Instant, usize, bool)> = Vec::new();
         let mut hold_until: Option<Instant> = None;
+        let mut budget = retry::Budget::new(cfg.max_retries, cfg.offline_grace);
+        // The latest failure and when it happened: what a waiting download
+        // shows, unless nothing failed since the bytes stopped.
+        let mut last_failure = (Instant::now(), WaitReason::Network);
+        let mut last_bytes = (Instant::now(), done_bytes);
+        let no_data_after = Duration::from_secs(10).min(cfg.stall_timeout / 2);
         let mut meter = SpeedMeter::new(SPEED_WINDOW);
         let mut tick = tokio::time::interval(TICK);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -375,7 +382,7 @@ impl MediaJob {
                         Err(_) if stopping => {}
                         Err(err) => {
                             failures[i] += 1;
-                            if !err.is_retryable() || failures[i] > cfg.max_retries {
+                            if !budget.allows(&err, failures[i], Instant::now()) {
                                 tracing::debug!(fragment = i, failures = failures[i], "fragment failed: {err}");
                                 fatal = Some(if err.is_retryable() {
                                     DownloadError::RetriesExhausted { attempts: failures[i], last: Box::new(err) }
@@ -398,13 +405,26 @@ impl MediaJob {
                                 hold_until = Some(Instant::now() + delay);
                             }
                             tracing::debug!(fragment = i, failures = failures[i], ?delay, "fragment will retry: {err}");
-                            retries.push((Instant::now() + delay, i));
+                            last_failure = (Instant::now(), err.wait_reason());
+                            retries.push((Instant::now() + delay, i, err.is_connectivity()));
                         }
                     }
                 }
                 _ = tick.tick() => {
                     let now = Instant::now();
-                    retries.retain(|&(at, i)| {
+                    let downloaded = done_bytes + ctx.in_flight.load(Ordering::Relaxed);
+                    if downloaded > last_bytes.1 {
+                        last_bytes = (now, downloaded);
+                        budget.progressed(now);
+                        // Back online: no need to sit out the outage's backoff.
+                        for retry in retries.iter_mut().filter(|r| r.2) {
+                            retry.0 = retry.0.min(now);
+                        }
+                    }
+                    // In-flight bytes are taken out again when an attempt
+                    // fails, so the count can go down.
+                    last_bytes.1 = last_bytes.1.min(downloaded);
+                    retries.retain(|&(at, i, _)| {
                         if at <= now {
                             pending.push_front(i);
                             false
@@ -412,13 +432,21 @@ impl MediaJob {
                             true
                         }
                     });
-                    let downloaded = done_bytes + ctx.in_flight.load(Ordering::Relaxed);
                     let speed = meter.record(now, downloaded);
                     let total = estimated_total(done_bytes, done_count, total_count, estimate);
                     let views = fragment_views(&done, total);
-                    let phase = if workers.is_empty() { Phase::Waiting } else { Phase::Downloading };
+                    let waiting = if workers.is_empty() {
+                        Some(last_failure.1)
+                    } else if now.duration_since(last_bytes.0) >= no_data_after {
+                        // Connections are open (or opening) but nothing comes:
+                        // silence, unless they keep failing, as while offline.
+                        Some(if last_failure.0 > last_bytes.0 { last_failure.1 } else { WaitReason::NoData })
+                    } else {
+                        None
+                    };
                     self.tx.send_modify(|p| {
-                        p.phase = phase;
+                        p.phase = if waiting.is_some() { Phase::Waiting } else { Phase::Downloading };
+                        p.waiting = waiting;
                         p.downloaded = downloaded;
                         p.total = total;
                         p.speed = speed;
@@ -665,8 +693,9 @@ impl MediaJob {
 
     fn set_phase(&self, phase: Phase) {
         self.tx.send_if_modified(|p| {
-            let changed = p.phase != phase;
+            let changed = p.phase != phase || p.waiting.is_some();
             p.phase = phase;
+            p.waiting = None;
             changed
         });
     }
@@ -830,6 +859,7 @@ struct FragCtx {
     headers: HeaderMap,
     limiter: Arc<RateLimiter>,
     stall_timeout: Duration,
+    response_timeout: Duration,
     buffer_size: usize,
     work: PathBuf,
     /// For AES keys, which are small and fetched once each. An async lock,
@@ -947,9 +977,17 @@ async fn stream_fragment(
     let resp = tokio::select! {
         biased;
         () = stop.cancelled() => return Ok(FragEnd::Stopped),
-        r = request.send() => r.map_err(|e| DownloadError::from_reqwest(&e))?,
+        r = tokio::time::timeout(ctx.response_timeout, request.send()) => match r {
+            Err(_) => return Err(DownloadError::Stalled(ctx.response_timeout)),
+            Ok(r) => r.map_err(|e| DownloadError::from_reqwest(&e))?,
+        },
     };
     let status = resp.status();
+    // Media fragments are never web pages; one means the tokens in the
+    // stream's URLs ran out.
+    if status.is_success() && http::is_html(&resp) {
+        return Err(http::page_error(&resp));
+    }
     let (append, mut skip, mut take) = match status {
         StatusCode::PARTIAL_CONTENT => {
             if http::content_range(&resp).map(|c| c.first) != Some(start) {

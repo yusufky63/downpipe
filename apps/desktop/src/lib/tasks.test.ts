@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import type { Task } from "./api";
-import { applyEvent, awaitingIn, canPause, canResume, countByFilter, displayName, knownSize, sortForDisplay, totals } from "./tasks";
+import {
+  applyEvent,
+  awaitingIn,
+  canPause,
+  canResume,
+  countByFilter,
+  displayName,
+  errorText,
+  knownSize,
+  needsNewLink,
+  sortForDisplay,
+  totals,
+  waitingText,
+} from "./tasks";
 import { makeTask as task } from "./testing";
 
 describe("applyEvent", () => {
@@ -98,5 +111,30 @@ describe("knownSize", () => {
   it("shows nothing for a file nobody asked yet", () => {
     expect(knownSize(null, undefined)).toBeNull();
     expect(knownSize(0, 0)).toBeNull();
+  });
+});
+
+describe("failures and waits", () => {
+  it("offers a new link only where retrying cannot help", () => {
+    expect(needsNewLink(task("a", { state: "failed", error_kind: "expired_link" }))).toBe(true);
+    expect(needsNewLink(task("b", { state: "failed", error_kind: "login_required" }))).toBe(true);
+    expect(needsNewLink(task("c", { state: "failed", error_kind: "forbidden" }))).toBe(true);
+    expect(needsNewLink(task("d", { state: "failed", error_kind: "network" }))).toBe(false);
+    expect(needsNewLink(task("e", { state: "paused", error_kind: null }))).toBe(false);
+    // A video page's address does not expire.
+    expect(needsNewLink(task("f", { state: "failed", error_kind: "forbidden", site: { site: "YouTube" } }))).toBe(false);
+  });
+
+  it("explains expired links in the user's language and keeps other messages", () => {
+    const expired = task("a", { state: "failed", error_kind: "expired_link", error: "the server sent a web page instead of the file" });
+    expect(errorText(expired)).toMatch(/^The link has expired/);
+    expect(errorText(task("b", { state: "failed", error_kind: "network", error: "network error: timed out" }))).toBe("Network error: timed out");
+    expect(errorText(task("c"))).toBeNull();
+  });
+
+  it("says why a download is retrying", () => {
+    expect(waitingText(task("a", { state: "waiting", waiting: "network" }))).toBe("Network unavailable, retrying when it is back");
+    expect(waitingText(task("b", { state: "waiting", waiting: "no_data" }))).toBe("No data from the server, reconnecting");
+    expect(waitingText(task("c", { state: "downloading", waiting: null }))).toBeNull();
   });
 });

@@ -436,6 +436,10 @@ export function App() {
     },
     onPause: (id) => run(() => api.pause(id)),
     onResume: (id) => run(() => api.resume(id)),
+    onRelink: (id) => {
+      setSelection({ ids: [id], anchor: id });
+      setDetails({ id, relink: true });
+    },
     onReveal: (id) => run(() => api.reveal(id)),
     onDragOut: (id) => run(() => api.startDrag(id)),
   };

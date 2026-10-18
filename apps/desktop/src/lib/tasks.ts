@@ -1,6 +1,6 @@
-import { t } from "../i18n/core";
-import type { ManagerEvent, Task, TaskState } from "./api";
-import { formatBytes, nameFromUrl } from "./format";
+import { t, type MessageKey } from "../i18n/core";
+import type { ManagerEvent, Task, TaskState, WaitReason } from "./api";
+import { formatBytes, nameFromUrl, sentence } from "./format";
 
 export type Filter = "all" | "active" | "queued" | "completed" | "failed";
 
@@ -111,6 +111,41 @@ export function knownSize(total: number | null, estimate: number | undefined): s
   if (total !== null && total > 0) return formatBytes(total);
   if (estimate !== undefined && estimate > 0) return `~${formatBytes(estimate)}`;
   return null;
+}
+
+/**
+ * Failures only a fresh link fixes: the old one expired (a web page came
+ * back instead of the file, or a 403) or now leads to a sign-in page.
+ * Retrying would get the same answer, so the list offers a new link instead.
+ */
+export function needsNewLink(task: Task): boolean {
+  return task.state === "failed" && task.site === null && task.error_kind !== null && NEW_LINK_KINDS.has(task.error_kind);
+}
+
+const NEW_LINK_KINDS = new Set(["expired_link", "login_required", "forbidden"]);
+
+const FAILURE_TEXTS: Partial<Record<string, MessageKey>> = {
+  expired_link: "list.failure.expiredLink",
+  login_required: "list.failure.loginRequired",
+};
+
+/** What went wrong: in the user's language for the kinds the app knows, else the engine's message. */
+export function errorText(task: Task): string | null {
+  const key = task.error_kind === null ? undefined : FAILURE_TEXTS[task.error_kind];
+  if (key) return t(key);
+  return task.error ? sentence(task.error) : null;
+}
+
+const WAIT_TEXTS: Record<WaitReason, MessageKey> = {
+  no_data: "states.why.noData",
+  network: "states.why.network",
+  throttled: "states.why.throttled",
+  server: "states.why.server",
+};
+
+/** Why a download is retrying; null unless it is. */
+export function waitingText(task: Task): string | null {
+  return task.state === "waiting" && task.waiting ? t(WAIT_TEXTS[task.waiting]) : null;
 }
 
 export const canPause = (t: Task) => isRunning(t.state) || t.state === "queued";

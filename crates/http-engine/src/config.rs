@@ -23,8 +23,18 @@ pub struct EngineConfig {
     pub connect_timeout: Duration,
     /// A connection that delivers no bytes for this long is restarted.
     pub stall_timeout: Duration,
-    /// Attempts per segment before the download fails.
+    /// How long to wait for a response's headers. Longer than
+    /// `stall_timeout` because servers that build the file on the fly (an
+    /// archive of a folder) may think for a while before answering.
+    pub response_timeout: Duration,
+    /// Consecutive failed attempts per segment before the download fails.
+    /// Network failures (offline, reset, silence) are not limited by this but
+    /// by `offline_grace`.
     pub max_retries: u32,
+    /// How long network failures are retried while no byte arrives at all,
+    /// so a dropped Wi-Fi, a switch between networks or a VPN reconnect
+    /// does not fail a download. Any byte that arrives starts it over.
+    pub offline_grace: Duration,
     /// How often progress is synced to disk and recorded in the meta file.
     /// Only matters after a crash: pausing always writes a final checkpoint.
     pub checkpoint_interval: Duration,
@@ -49,7 +59,9 @@ impl Default for EngineConfig {
             buffer_size: 256 * KIB as usize,
             connect_timeout: Duration::from_secs(15),
             stall_timeout: Duration::from_secs(30),
+            response_timeout: Duration::from_secs(60),
             max_retries: 8,
+            offline_grace: Duration::from_secs(10 * 60),
             checkpoint_interval: Duration::from_secs(5),
             ramp_window: Duration::from_secs(2),
             ramp_gain: 1.10,

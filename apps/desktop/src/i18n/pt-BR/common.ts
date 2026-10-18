@@ -34,6 +34,12 @@ export const states: Messages["states"] = {
   completed: "Concluído",
   failed: "Falhou",
   canceled: "Cancelado",
+  why: {
+    noData: "O servidor não está enviando dados, reconectando",
+    network: "Sem rede, nova tentativa quando ela voltar",
+    throttled: "O servidor pediu para ir mais devagar, aguardando",
+    server: "Erro do servidor, tentando de novo",
+  },
   filters: {
     all: "Todos",
     active: "Ativos",

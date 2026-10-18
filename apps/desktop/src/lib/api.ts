@@ -16,6 +16,9 @@ export type TaskState =
   | "failed"
   | "canceled";
 
+/** Why a running download is waiting (downpipe_http::WaitReason). */
+export type WaitReason = "no_data" | "network" | "throttled" | "server";
+
 export interface SegmentView {
   start: number;
   end: number;
@@ -53,6 +56,8 @@ export interface Task {
   resumable: boolean;
   segments: SegmentView[];
   notices: string[];
+  /** Why it waits, while its state is "waiting". */
+  waiting: WaitReason | null;
   /**
    * Waiting for the user to pick its name and folder: sent by the browser,
    * or a video page added here whose quality is still to be chosen.
