@@ -4,6 +4,7 @@ import type { MouseEvent, RefObject } from "react";
 
 import { useI18n } from "../i18n";
 import type { Queue, Settings, WhenDone } from "../lib/api";
+import { categoryLabel } from "../lib/categories";
 import { formatSpeed } from "../lib/format";
 import { FILTERS, filterLabel, type Filter } from "../lib/tasks";
 import { Button, Dialog, IconButton } from "./primitives";
@@ -194,7 +195,7 @@ export function FilterBar({
             <option value="">{t("chrome.allTypes")}</option>
             {categories.map((c) => (
               <option key={c} value={c}>
-                {c}
+                {categoryLabel(c)}
               </option>
             ))}
             <option value="-">{t("chrome.uncategorized")}</option>

@@ -122,7 +122,3 @@ export const feeds: Messages["feeds"] = {
     invalid_url: "请输入 http 或 https 地址。",
   },
 };
-
-export const hosts: Messages["hosts"] = {
-  privateFile: "该文件未公开共享。请让所有者将其共享给任何拥有链接的人，或在浏览器中登录后下载。",
-};

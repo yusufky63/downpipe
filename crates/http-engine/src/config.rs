@@ -1,8 +1,10 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::checksum::Checksum;
 use crate::media::MediaRequest;
+use crate::ratelimit::RateLimiter;
 
 pub const KIB: u64 = 1024;
 pub const MIB: u64 = 1024 * KIB;
@@ -96,6 +98,10 @@ pub struct DownloadRequest {
     /// itself. `file_name` then names the result without its extension
     /// mattering; the stream decides it.
     pub media: Option<MediaRequest>,
+    /// A speed limit of this download's own, on top of the engine's global
+    /// one. Shared rather than a number, so its owner can change the rate
+    /// while the download runs.
+    pub limiter: Option<Arc<RateLimiter>>,
 }
 
 impl DownloadRequest {
@@ -109,6 +115,7 @@ impl DownloadRequest {
             max_connections: None,
             relink: false,
             media: None,
+            limiter: None,
         }
     }
 }

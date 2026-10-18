@@ -122,7 +122,3 @@ export const feeds: Messages["feeds"] = {
     invalid_url: "Bir http ya da https adresi girin.",
   },
 };
-
-export const hosts: Messages["hosts"] = {
-  privateFile: "Dosya herkese açık paylaşılmamış. Sahibinden bağlantıya sahip herkesle paylaşmasını isteyin ya da oturum açıkken tarayıcınızda indirin.",
-};

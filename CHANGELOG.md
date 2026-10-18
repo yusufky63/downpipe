@@ -4,7 +4,15 @@ All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
 ## Unreleased
 
-The download engine handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names.
+The download engine handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names. Five small features users of other download managers asked for come with it.
+
+### New
+
+- **Alt+click lets the browser download a link.** While capture is on, a click on a link with Alt held (Option on a Mac) leaves that one download to the browser instead of Downpipe. The key is set under the extension's **Filters**, **Download in the browser**: Alt, Shift or off. The click is noticed by a small script in the pages, which needs the optional access to the sites you visit (the same access **Media on this page** asks for); the options page offers **Allow access** while it is missing.
+- **A speed limit per download.** **Speed limit…** in the right-click menu (for one download or several) and **Speed limit** in the details dialog give a download a limit of its own, under the global one. A running download follows the change at once; a YouTube video takes it at its next start. The limit is stored with the download and shown in its progress window.
+- **Request headers and Paste as cURL.** The Add dialog has a **Request headers** field (one `Name: value` per line) and **Paste as cURL**, which reads a command copied from the browser's developer tools (Network, Copy as cURL, in its bash or Windows form) into the link, the headers and, with `-o`, the file name. Cookies are taken only when the pasted command or the field has them. Only GET requests are accepted: a command with `-X POST` or another method, or one that sends data (`-d`, `-F`, `--json`, `-T`), is refused with the reason. Pasting such a command straight into the empty Links field does the same. Headers and cookies stay in memory only, as before, and are never written to disk.
+- **Don't ask again for links already in the list.** The question for a link that is already in the list has **Don't ask again, always do this**; the answer is then given without asking, in the main window and for downloads from the browser. **Settings → Downloads → When a link is already in the list** changes it back.
+- **Pause until a time.** **Pause until** in the right-click menu pauses the selected downloads for 30 minutes, an hour, until 02:00 tonight, or until a time you choose; they resume by themselves then. The list and the progress window say when. The time is stored with the download, so a download whose time passed while Downpipe was closed resumes when it starts. Pausing or resuming by hand cancels it.
 
 ### New
 
@@ -27,6 +35,17 @@ The download engine handles what users of other download managers keep running i
 
 - New error kinds `expired_link` and `login_required`; `Progress::waiting` and the snapshot's `waiting` give the reason while a download waits; `EngineConfig::offline_grace` (10 min) and `response_timeout` (60 s); `Engine::connection_limit` reports a host's remembered limit.
 - Test server: `max_conns` and `limit_status` (refuse connections beyond N), `stall_at`/`stall_times` and `hang_times` (silence mid-body or before the headers), `html`/`html_after` and `/login` (web pages instead of the file), `cd` (a raw `Content-Disposition`), `fail_from`, and `TestServer::stop`/`restart` to take the server off the network and back.
+
+### App and extension
+
+- **Failures in your language.** Every reason the engine gives for a failed download (file not found, the server refused it, network failure, disk full, DRM, a live stream, yt-dlp could not read the page and so on) is shown translated in the list, the details, the progress window, the confirmation dialog and messages. The engine's own English text stays under **Technical details** in the details dialog (and the confirmation dialog), for searching or reporting. The popup words the same reasons, with the app's text in the row's tooltip, and words the bridge's remaining codes too.
+- **Numbers in your language.** Sizes, speeds, percents and bit rates follow the language: `1,5 MiB` and `%50` in Turkish, `50 %` in German and French. English is unchanged.
+- **Decimal commas.** The speed limit in Settings and the minimum sizes in the extension's Filters accept `1,5` as well as `1.5`, and show stored values with the language's decimal sign. An invalid speed limit is pointed out instead of quietly meaning "no limit".
+- **Category names in your language.** The built-in categories (Compressed, Documents, Music, Video, Programs, Disk images) show translated until you rename them; their folders on disk keep their names. Searching finds a category by either name.
+- **A smaller Download button over videos.** The button is now a small icon with a menu arrow, and you can drag it anywhere inside the video; the place is remembered per site. Its menu has **Hide on this site**, which adds the site to a list of its own under Filters → Media on pages (detection and capture still work there), and Filters has **Show it only while the pointer is over the video**.
+- **No double downloads.** A capture the app accepts after the browser stopped waiting for it (the app was slow to answer) now removes the browser's copy too, in Chrome, Edge and Firefox, unless the browser already finished it. In Firefox, a download that finished before it could be paused is no longer handed to the app a second time. Each browser download is offered once, also when the extension's service worker restarts in the middle.
+- **Large lists stay fast.** The download list draws only the rows in view, so thousands of downloads scroll and update like a few. Keyboard selection, checkboxes, the right-click menu and dragging files out work as before.
+- Bridge: `tasks` answers carry `error_kind` next to `error` for failed downloads.
 
 ## 0.4.0 — 2026-10-18
 

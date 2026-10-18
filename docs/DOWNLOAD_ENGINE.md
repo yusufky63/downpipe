@@ -150,6 +150,8 @@ Progress counts finished fragments and the bytes of those in flight. The total i
 
 One token bucket per engine (the desktop app and CLI use one engine). Connections take tokens for each chunk and sleep off any debt, which keeps the total rate exact even with Windows' coarse timer. The rate can change while downloads run.
 
+A download can have a bucket of its own as well (`DownloadRequest::limiter`). Its connections take from that one first and then from the engine's, so the download runs at the lower of the two limits while the global one still holds for all of them together. Taking from its own bucket first means a download sleeping off its own debt does not hold tokens other downloads could use. The owner of the bucket (the core) can change its rate while the download runs.
+
 ## Measuring
 
 `tools/test-server` can cap the rate per connection (`rate=`), slow down part of a file (`slow_from=`, `slow_rate=`), drop connections (`drop_after=`, `drop_times=`), fail requests (`fail=`, `fail_times=`, `fail_from=`, `retry_after=`), refuse more than N bodies at once (`max_conns=`, `limit_status=`), go silent mid-body (`stall_at=`, `stall_times=`) or before the headers (`hang_times=`), answer with a "link expired" page (`html=1`, `html_after=`) or redirect to a sign-in page (`/redirect?to=/login`), and send a `Content-Disposition` exactly as given (`cd=`). `TestServer::stop` and `restart` take it off the network and back, killing open connections too, as a Wi-Fi switch would. The tests in `crates/http-engine/tests/robustness.rs` use these. Example, with a per-connection cap of 8 MiB/s, where the engine ramps 2 -> 4 -> 8 connections:

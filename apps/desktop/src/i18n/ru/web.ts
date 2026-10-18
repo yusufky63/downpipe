@@ -167,7 +167,3 @@ export const feeds: Messages["feeds"] = {
     invalid_url: "Введите адрес http или https.",
   },
 };
-
-export const hosts: Messages["hosts"] = {
-  privateFile: "Файл не открыт для общего доступа. Попросите владельца открыть его всем, у кого есть ссылка, или скачайте его в браузере, войдя в аккаунт.",
-};

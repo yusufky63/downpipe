@@ -125,7 +125,3 @@ export const feeds: Messages["feeds"] = {
     invalid_url: "Geben Sie eine http- oder https-Adresse ein.",
   },
 };
-
-export const hosts: Messages["hosts"] = {
-  privateFile: "Die Datei ist nicht öffentlich freigegeben. Bitten Sie den Eigentümer, sie für alle mit dem Link freizugeben, oder laden Sie sie angemeldet im Browser herunter.",
-};

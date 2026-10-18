@@ -1,6 +1,7 @@
 // What the extension's own pages (popup, options, links page) and the
 // service worker say to each other.
 import { t } from "../i18n/core";
+import { isBypassKey, parseBypassKey, type BypassKey } from "./bypass";
 import { parseFilters, normalizeSitePattern, validFilters, type CaptureFilters } from "./filters";
 import {
   isMediaId,
@@ -34,7 +35,9 @@ export type PopupRequest =
   /** Send one of them to Downpipe. */
   | { kind: "send_media"; tabId: number; mediaId: string }
   /** Send the tab's video page (YouTube) to Downpipe's site provider. */
-  | { kind: "send_page"; tabId: number };
+  | { kind: "send_page"; tabId: number }
+  /** The options page's key for letting the browser download a link itself. */
+  | { kind: "set_bypass_key"; key: BypassKey };
 
 /**
  * What the overlay button in a page may ask. The tab is never part of the
@@ -50,7 +53,40 @@ export type OverlayRequest =
   | { kind: "overlay_list"; src?: string; poster?: string }
   | { kind: "overlay_send"; mediaId: string }
   /** Send this frame's or tab's video page; its item has `PAGE_ITEM_ID`. */
-  | { kind: "overlay_page" };
+  | { kind: "overlay_page" }
+  /** How the button behaves on this tab's site: `OverlayPrefs`. */
+  | { kind: "overlay_prefs" }
+  /** "Hide on this site": the tab's site joins the overlay's own exclude list. */
+  | { kind: "overlay_hide_site" }
+  /** Where the user dragged the button, as fractions of the video's width and height. */
+  | { kind: "overlay_place"; x: number; y: number };
+
+/** The answer to `overlay_prefs`. */
+export interface OverlayPrefs {
+  hoverOnly: boolean;
+  /** The tab's site is on the list (the frame itself may be another site). */
+  hidden: boolean;
+  /** The button's top right corner in the video, as fractions; none until dragged there. */
+  place?: { x: number; y: number };
+}
+
+export function isOverlayPrefs(value: unknown): value is OverlayPrefs {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.hoverOnly === "boolean" &&
+    typeof v.hidden === "boolean" &&
+    (v.place === undefined || isPlace(v.place))
+  );
+}
+
+const isFraction = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
+
+export function isPlace(value: unknown): value is { x: number; y: number } {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return Object.keys(v).length === 2 && isFraction(v.x) && isFraction(v.y);
+}
 
 /** The overlay menu's entry for the page itself, next to detected media ids. */
 export const PAGE_ITEM_ID = "page";
@@ -88,6 +124,8 @@ export function parsePopupRequest(value: unknown): PopupRequest | null {
       const filters = hasKeys(v, "kind", "filters") ? validFilters(v.filters) : null;
       return filters ? { kind: "save_filters", filters } : null;
     }
+    case "set_bypass_key":
+      return hasKeys(v, "kind", "key") && isBypassKey(v.key) ? { kind: "set_bypass_key", key: v.key } : null;
     case "save_media": {
       const media = hasKeys(v, "kind", "media") ? validMediaFilters(v.media) : null;
       return media ? { kind: "save_media", media } : null;
@@ -135,7 +173,11 @@ export function parseOverlayRequest(value: unknown): OverlayRequest | null {
     case "overlay_send":
       return hasKeys(v, "kind", "mediaId") && isMediaId(v.mediaId) ? { kind: "overlay_send", mediaId: v.mediaId } : null;
     case "overlay_page":
-      return hasKeys(v, "kind") ? { kind: "overlay_page" } : null;
+    case "overlay_prefs":
+    case "overlay_hide_site":
+      return hasKeys(v, "kind") ? { kind: v.kind } : null;
+    case "overlay_place":
+      return hasKeys(v, "kind", "x", "y") && isFraction(v.x) && isFraction(v.y) ? { kind: "overlay_place", x: v.x, y: v.y } : null;
     default:
       return null;
   }
@@ -223,6 +265,8 @@ export function overlayResultText(reply: unknown): { text: string; failed: boole
 export interface Settings extends CaptureFilters, MediaFilters {
   /** Show a notification when a download is handed over, or could not be. */
   notify: boolean;
+  /** Held while clicking a link, the browser downloads it itself (lib/bypass.ts). */
+  bypassKey: BypassKey;
 }
 
 /**
@@ -231,7 +275,7 @@ export interface Settings extends CaptureFilters, MediaFilters {
  */
 export function parseSettings(value: unknown): Settings {
   const v = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-  return { notify: v.notify !== false, ...parseFilters(v), ...parseMediaFilters(v) };
+  return { notify: v.notify !== false, ...parseFilters(v), ...parseMediaFilters(v), bypassKey: parseBypassKey(v.bypassKey) };
 }
 
 export function isSettings(value: unknown): value is Settings {
@@ -239,13 +283,20 @@ export function isSettings(value: unknown): value is Settings {
   const v = value as Record<string, unknown>;
   return (
     typeof v.notify === "boolean" &&
+    isBypassKey(v.bypassKey) &&
     validFilters({
       captureAll: v.captureAll,
       captureTypes: v.captureTypes,
       excludedSites: v.excludedSites,
       minSizeBytes: v.minSizeBytes,
     }) !== null &&
-    validMediaFilters({ mediaOverlay: v.mediaOverlay, mediaTypes: v.mediaTypes, mediaMinBytes: v.mediaMinBytes }) !== null
+    validMediaFilters({
+      mediaOverlay: v.mediaOverlay,
+      overlayHoverOnly: v.overlayHoverOnly,
+      overlaySites: v.overlaySites,
+      mediaTypes: v.mediaTypes,
+      mediaMinBytes: v.mediaMinBytes,
+    }) !== null
   );
 }
 

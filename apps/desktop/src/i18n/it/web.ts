@@ -142,7 +142,3 @@ export const feeds: Messages["feeds"] = {
     invalid_url: "Inserisci un indirizzo http o https.",
   },
 };
-
-export const hosts: Messages["hosts"] = {
-  privateFile: "Il file non è condiviso pubblicamente. Chiedi al proprietario di condividerlo con chiunque abbia il link, oppure scaricalo nel browser dopo aver effettuato l'accesso.",
-};

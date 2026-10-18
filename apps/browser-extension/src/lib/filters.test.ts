@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { CATALOGS } from "../i18n/catalogs";
+import { activate } from "../i18n/core";
 import {
   DEFAULT_CAPTURE_TYPES,
   MAX_CAPTURE_TYPES,
@@ -190,10 +192,13 @@ describe("minimum size", () => {
     expect(parseMinSize("0", "KiB")).toEqual({ ok: true, bytes: 0 });
     expect(parseMinSize("512", "KiB")).toEqual({ ok: true, bytes: 512 * 1024 });
     expect(parseMinSize(" 1.5 ", "MiB")).toEqual({ ok: true, bytes: 1.5 * 1024 * 1024 });
+    // A comma is a decimal sign too, whatever the browser's language.
+    expect(parseMinSize("1,5", "MiB")).toEqual({ ok: true, bytes: 1.5 * 1024 * 1024 });
+    expect(parseMinSize("0,25", "KiB")).toEqual({ ok: true, bytes: 256 });
   });
 
   it("refuses anything else", () => {
-    for (const bad of ["-1", "1e3", "1,5", "abc", "1.", ".5", "Infinity"]) {
+    for (const bad of ["-1", "1e3", "1,5,0", "1.000,5", "abc", "1.", ",5", ".5", "Infinity"]) {
       expect(parseMinSize(bad, "MiB").ok, bad).toBe(false);
     }
     expect(parseMinSize("1048577", "MiB")).toEqual({ ok: false, error: "Enter a size under 1 TiB." });
@@ -204,6 +209,16 @@ describe("minimum size", () => {
     expect(sizeFields(512 * 1024)).toEqual({ value: "512", unit: "KiB" });
     expect(sizeFields(1.5 * 1024 * 1024)).toEqual({ value: "1.5", unit: "MiB" });
     expect(sizeFields(1000)).toEqual({ value: "0.98", unit: "KiB" });
+  });
+
+  it("shows decimals with the browser language's sign", () => {
+    activate("de", CATALOGS.de);
+    try {
+      expect(sizeFields(1.5 * 1024 * 1024)).toEqual({ value: "1,5", unit: "MiB" });
+      expect(sizeFields(512 * 1024)).toEqual({ value: "512", unit: "KiB" });
+    } finally {
+      activate("en", CATALOGS.en);
+    }
   });
 
   it("treats -1, 0 and missing sizes as unknown", () => {

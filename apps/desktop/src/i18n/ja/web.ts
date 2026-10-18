@@ -122,7 +122,3 @@ export const feeds: Messages["feeds"] = {
     invalid_url: "http または https のアドレスを入力してください。",
   },
 };
-
-export const hosts: Messages["hosts"] = {
-  privateFile: "このファイルは一般公開されていません。リンクを知っている全員に共有するよう所有者に依頼するか、ログインした状態でブラウザからダウンロードしてください。",
-};

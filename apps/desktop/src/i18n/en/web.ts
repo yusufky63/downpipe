@@ -1,4 +1,4 @@
-// Finding files on the web: the site grabber, feed subscriptions and file hosts.
+// Finding files on the web: the site grabber and feed subscriptions.
 export const grabber = {
   /** The header button that opens the grabber. */
   open: "Site grabber",
@@ -121,9 +121,4 @@ export const feeds = {
     not_a_feed: "That address is a web page, not an RSS or Atom feed.",
     invalid_url: "Enter an http or https address.",
   },
-};
-
-export const hosts = {
-  /** Shown for a file host's file that is not shared publicly (Google Drive). */
-  privateFile: "The file is not shared publicly. Ask its owner to share it with anyone who has the link, or download it in your browser while signed in.",
 };

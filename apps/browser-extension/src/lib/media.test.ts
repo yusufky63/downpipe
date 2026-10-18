@@ -198,28 +198,41 @@ describe("media settings", () => {
   it("default to an IDM-like list and a minimum size", () => {
     expect(parseMediaFilters({})).toEqual({
       mediaOverlay: true,
+      overlayHoverOnly: false,
+      overlaySites: [],
       mediaTypes: [...DEFAULT_MEDIA_TYPES],
       mediaMinBytes: DEFAULT_MEDIA_MIN_BYTES,
     });
-    expect(parseMediaFilters({ mediaOverlay: false, mediaTypes: ["MP4", ".mkv", "bad type", 3], mediaMinBytes: -1 })).toEqual({
+    expect(
+      parseMediaFilters({
+        mediaOverlay: false,
+        overlayHoverOnly: true,
+        overlaySites: ["Example.COM", "https://news.example.org/a", "not a site", "example.com", 4],
+        mediaTypes: ["MP4", ".mkv", "bad type", 3],
+        mediaMinBytes: -1,
+      }),
+    ).toEqual({
       mediaOverlay: false,
+      overlayHoverOnly: true,
+      overlaySites: ["example.com", "news.example.org"],
       mediaTypes: ["mp4", "mkv"],
       mediaMinBytes: DEFAULT_MEDIA_MIN_BYTES,
     });
   });
 
   it("accept only stored forms from the options page", () => {
-    expect(validMediaFilters({ mediaOverlay: true, mediaTypes: ["mp4"], mediaMinBytes: 0 })).toEqual({
-      mediaOverlay: true,
-      mediaTypes: ["mp4"],
-      mediaMinBytes: 0,
-    });
+    const ok = { mediaOverlay: true, overlayHoverOnly: false, overlaySites: ["*.example.com"], mediaTypes: ["mp4"], mediaMinBytes: 0 };
+    expect(validMediaFilters(ok)).toEqual(ok);
     for (const bad of [
-      { mediaOverlay: true, mediaTypes: ["MP4"], mediaMinBytes: 0 },
-      { mediaOverlay: true, mediaTypes: ["mp4", "mp4"], mediaMinBytes: 0 },
-      { mediaOverlay: "yes", mediaTypes: [], mediaMinBytes: 0 },
-      { mediaOverlay: true, mediaTypes: [], mediaMinBytes: 1.5 },
-      { mediaOverlay: true, mediaTypes: [], mediaMinBytes: 0, extra: 1 },
+      { ...ok, mediaTypes: ["MP4"] },
+      { ...ok, mediaTypes: ["mp4", "mp4"] },
+      { ...ok, mediaOverlay: "yes" },
+      { ...ok, overlayHoverOnly: 1 },
+      { ...ok, overlaySites: ["Example.com"] },
+      { ...ok, overlaySites: ["a.org", "a.org"] },
+      { ...ok, mediaMinBytes: 1.5 },
+      { ...ok, extra: 1 },
+      { mediaOverlay: true, mediaTypes: ["mp4"], mediaMinBytes: 0 },
       null,
     ]) {
       expect(validMediaFilters(bad), JSON.stringify(bad)).toBeNull();
