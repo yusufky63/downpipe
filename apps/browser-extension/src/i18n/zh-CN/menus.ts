@@ -2,6 +2,7 @@
 import type { Messages } from "../core";
 
 export const menus: Messages["menus"] = {
+  list: "使用 Downpipe 从此列表中选择视频…",
   link: "使用 Downpipe 下载",
   pageLinks: "使用 Downpipe 下载此页面上的链接…",
   video: "使用 Downpipe 下载此视频",

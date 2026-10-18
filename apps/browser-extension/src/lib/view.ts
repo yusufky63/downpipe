@@ -182,10 +182,18 @@ export function mediaRowView(c: MediaCandidate, streams: boolean, label = mediaN
 }
 
 /**
- * The row for a video page (YouTube) in the media list. `pages`: whether
- * the connected Downpipe has the site provider.
+ * The row for a video page (YouTube), or a playlist or channel, in the media
+ * list. `pages` and `lists`: whether the connected Downpipe takes them.
  */
-export function pageRowView(page: PageItem, pages: boolean): MediaRowView {
+export function pageRowView(page: PageItem, pages: boolean, lists = pages): MediaRowView {
+  if (page.list) {
+    return {
+      label: page.title ?? t(page.list === "channel" ? "media.thisSiteChannel" : "media.thisSitePlaylist", { site: page.site }),
+      // The videos are chosen in the app.
+      detail: lists ? t(page.list === "channel" ? "media.siteChannel" : "media.sitePlaylist", { site: page.site }) : t("media.updateForLists"),
+      sendable: lists,
+    };
+  }
   return {
     label: page.title ?? t("media.thisSiteVideo", { site: page.site }),
     // Short: the row leaves the detail little room. The quality is chosen in the app.

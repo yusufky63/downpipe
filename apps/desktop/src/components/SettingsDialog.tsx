@@ -14,6 +14,7 @@ import {
 } from "../lib/api";
 import { BROWSER_NAMES, bridgeStateInfo, canRegister } from "../lib/bridge";
 import { bytesToRate, rateToBytes, type RateUnit } from "../lib/format";
+import { DEFAULT_TEMPLATE, PLACEHOLDERS, namesAlike, renderTemplate, type NameFields } from "../lib/naming";
 import { installButtonLabel, toolRows, toolsToInstall } from "../lib/tools";
 import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } from "./primitives";
 
@@ -103,6 +104,7 @@ export function SettingsDialog({
   const [ffmpegPath, setFfmpegPath] = useState(settings.ffmpeg_path);
   const [ytDlpPath, setYtDlpPath] = useState(settings.yt_dlp_path);
   const [denoPath, setDenoPath] = useState(settings.deno_path);
+  const [nameTemplate, setNameTemplate] = useState(settings.media_name_template);
   const [language, setLanguage] = useState(settings.language);
   const [error, setError] = useState<string | null>(null);
   const tabIds = useId();
@@ -131,6 +133,7 @@ export function SettingsDialog({
         ffmpeg_path: ffmpegPath.trim(),
         yt_dlp_path: ytDlpPath.trim(),
         deno_path: denoPath.trim(),
+        media_name_template: nameTemplate.trim() || DEFAULT_TEMPLATE,
       });
       onSaved(saved);
       onClose();
@@ -386,6 +389,7 @@ export function SettingsDialog({
               onDenoPath={setDenoPath}
               denoConfigured={settings.deno_path !== ""}
             />
+            <NameTemplate value={nameTemplate} onChange={setNameTemplate} />
           </>
         )}
 
@@ -491,6 +495,58 @@ export function SettingsDialog({
         )}
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * An example for the preview: the first video on YouTube, as the seventh
+ * of a playlist of 42.
+ */
+const SAMPLE: NameFields = { title: "Me at the zoo", channel: "jawed", upload_date: "20050423", index: 7, count: 42, id: "jNQXAC9IVRw" };
+
+/** Settings, Media: how site downloads are named, with a preview. */
+function NameTemplate({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const { t } = useI18n();
+  const template = value.trim() || DEFAULT_TEMPLATE;
+  const preview = renderTemplate(template, SAMPLE) || (SAMPLE.title ?? "");
+  const insert = (name: string) => onChange(`${value}${value && !value.endsWith(" ") ? " " : ""}{${name}}`);
+  return (
+    <Field
+      label={t("settings.siteTools.template")}
+      hint={
+        <>
+          {t("settings.siteTools.templateHint")}{" "}
+          <span className="font-mono text-ink">{t("settings.siteTools.templatePreview", { name: `${preview}.mp4` })}</span>
+          {namesAlike(template) && <span className="block text-warning-fg">{t("settings.siteTools.templateSame")}</span>}
+        </>
+      }
+    >
+      {(id) => (
+        <div className="flex flex-col gap-2">
+          <input
+            id={id}
+            value={value}
+            placeholder={DEFAULT_TEMPLATE}
+            spellCheck={false}
+            onChange={(e) => onChange(e.target.value)}
+            className={`${inputClass} h-9 font-mono text-[13px]`}
+          />
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("settings.siteTools.templateInsert")}>
+            {PLACEHOLDERS.map((name) => (
+              <button
+                key={name}
+                type="button"
+                title={t(`settings.siteTools.placeholders.${name}`)}
+                onClick={() => insert(name)}
+                className="h-7 rounded-md border border-line-strong px-2 font-mono text-[12px] text-ink-secondary transition-colors duration-150 hover:bg-surface-muted hover:text-ink"
+              >
+                {`{${name}}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </Field>
   );
 }
 

@@ -15,8 +15,8 @@ use background::{Background, WhenDone, WhenDoneView};
 use downpipe_core::providers::ToolsStatus;
 use downpipe_core::providers::install::Tool;
 use downpipe_core::{
-    AddOptions, ConfirmOptions, CoreError, Manager, MediaChoices, QueueMove, Settings, SiteChoices,
-    TaskSnapshot, TaskState,
+    AddListOptions, AddListResult, AddOptions, ConfirmOptions, CoreError, ListChoices, Manager,
+    MediaChoices, QueueMove, Settings, SiteChoices, TaskSnapshot, TaskState,
 };
 use downpipe_native_host::ipc::Endpoint;
 use downpipe_native_host::manifest::{self, Layout, Stale, Status};
@@ -160,6 +160,19 @@ fn ffmpeg_status(manager: State<'_, Manager>) -> Option<PathBuf> {
 #[tauri::command]
 async fn inspect_site(manager: State<'_, Manager>, id: String) -> CmdResult<SiteChoices> {
     Ok(manager.inspect_site(&id).await?)
+}
+
+/// Asks yt-dlp for the videos of a playlist or channel; fetches the list
+/// pages, no video.
+#[tauri::command]
+async fn inspect_list(manager: State<'_, Manager>, url: String) -> CmdResult<ListChoices> {
+    Ok(manager.inspect_list(&url).await?)
+}
+
+/// Adds the videos chosen from a playlist or channel.
+#[tauri::command]
+fn add_list(manager: State<'_, Manager>, options: AddListOptions) -> CmdResult<AddListResult> {
+    Ok(manager.add_list(options)?)
 }
 
 /// yt-dlp, Deno (or Node) and FFmpeg as the settings find them.
@@ -712,6 +725,8 @@ fn main() {
             inspect_media,
             ffmpeg_status,
             inspect_site,
+            inspect_list,
+            add_list,
             site_tools,
             install_site_tools,
             redownload,

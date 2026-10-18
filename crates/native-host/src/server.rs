@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use downpipe_core::http::filename;
+use downpipe_core::providers::pages;
 use downpipe_core::{AddOptions, CoreError, Manager, OnDuplicate, TaskSnapshot};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
@@ -322,13 +323,26 @@ fn add_page(manager: &Manager, request: PageRequest, origin: Option<&str>) -> Ap
         page = request.page_url,
         "video page from the browser"
     );
+    // A playlist or channel is a choice of videos, made in the app's window.
+    if pages::recognize_list_link(&request.page_url).is_some() {
+        return match manager.offer_list(&request.page_url) {
+            Ok(page_url) => AppResponse::ListOpened { page_url },
+            Err(e) => AppResponse::error(e.code(), e.to_string()),
+        };
+    }
+    let confirm = manager.settings().confirm_browser_downloads;
     let options = AddOptions {
         url: request.page_url,
-        // Named after the page; yt-dlp sets the extension.
-        file_name: request.title.map(|title| video_file_name(&title)),
+        // Named after the page while the dialog asks, which offers the name
+        // the media name template makes; without the dialog the template
+        // names it once yt-dlp has read the page.
+        file_name: request
+            .title
+            .filter(|_| confirm)
+            .map(|title| video_file_name(&title)),
         // No headers: yt-dlp fetches the page itself, without the browser's
         // referrer or cookies.
-        confirm: manager.settings().confirm_browser_downloads,
+        confirm,
         on_duplicate: OnDuplicate::Ask,
         ..AddOptions::default()
     };

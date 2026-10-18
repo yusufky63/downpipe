@@ -8,6 +8,7 @@ import { details } from "./details";
 import { dialogs } from "./dialogs";
 import { app, list } from "./list";
 import { media } from "./media";
+import { playlist } from "./playlist";
 import { settings } from "./settings";
 
-export const zhCN: Catalog = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, media };
+export const zhCN: Catalog = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, media, playlist };

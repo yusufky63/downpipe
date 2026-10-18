@@ -159,6 +159,8 @@ The filters are stored with the other extension settings in `storage.local`. Set
 - The message is `page`: the page address and the tab's title (without " - YouTube"), nothing else. No cookies: yt-dlp in the app reads the page signed out, so private, members-only and age-restricted videos fail with YouTube's reason.
 - In the app, the confirmation dialog asks yt-dlp for the formats (`yt-dlp -J`, which fetches the page and its player data, no video) and offers them in the same **Quality** and **Audio** lists as a stream: one entry per resolution and frame rate, the separate sound tracks, and **Audio only**. Protected and live videos are reported there and can only be removed.
 - With an app or bridge from before the site provider, `pong` has no `page` feature: the popup's page row says **Update Downpipe to download videos from pages**, and a page sent anyway is refused with that message.
+- **Playlists and channels.** On a YouTube playlist (`playlist?list=...`) or channel (`@handle`, `channel/UC...`, `c/...`, `user/...`, with their Videos, Shorts and Live tabs), the popup's page row reads **YouTube playlist · videos chosen in Downpipe** (or channel), the page's context menu offers **Choose videos from this list with Downpipe…**, and **Download with Downpipe** on a link to one does the same. The extension sends a `page` message with the list's address; the app answers `list_opened` and brings its main window up with the list of the videos, where they are chosen (see the app's playlist dialog below). Nothing is added before that. Watch later, Liked videos and Liked music are not offered: without the browser's cookies they are empty. A video link that also names a playlist (`watch?v=...&list=...`) is that one video.
+- With an app or bridge from before lists, `pong` has no `list` feature and the row says **Update Downpipe to download playlists**.
 
 While **Ask before downloads from the browser start** is on in the app (Settings → App, on by default), the app still answers `accepted` at once, so the browser never waits for a person. The download is created paused and a small confirmation window comes up over the browser, like IDM's Download File Info, asking for its file name, folder and queue (the main window stays as it was, in the tray or not): **Start download** queues it, **Download later** keeps it paused, and **Cancel** removes it. Nothing is requested from the server before the answer. The `accepted` answer says so with `awaiting_confirmation: true`, so the extension's notification reads "Waiting for your answer in Downpipe" instead of "Downloading in Downpipe". Until the dialog is answered the popup lists the download as **Waiting in Downpipe** (not Paused) and keeps asking the app every second, so the row turns into Downloading, or Paused after **Download later**, while the popup is open. After **Cancel** the app no longer knows the download, and the row falls back to what was recorded when it was sent.
 
@@ -245,6 +247,8 @@ Requests:
 {"protocol_version": 1, "type": "page", "id": "y1",
  "page_url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
  "title": "Me at the zoo"}
+{"protocol_version": 1, "type": "page", "id": "y2",
+ "page_url": "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb"}
 {"protocol_version": 1, "type": "tasks", "id": "t1",
  "task_ids": ["8e48dd86-5481-41af-a2fc-edf3044e29b8"]}
 ```
@@ -255,7 +259,7 @@ Requests:
 | `type` | `ping`, `download`, `media`, `page` or `tasks`. |
 | `id` | Optional, 1 to 64 letters, digits, `-` or `_`. Echoed in the response. |
 | `resource_url` | Required for `download`. http or https, at most 8 KiB, no control characters. The fragment is dropped. |
-| `page_url`, `referrer` | Optional, for `download` and `media`, same URL rules. Credentials and fragments are removed. The referrer is sent as `Referer` (with a stream: with the manifest, every fragment and the key); the page URL is not stored. For `page`, `page_url` is required and is what is downloaded: it must be a video page the site provider takes (see above), or the answer is `unsupported_page`; a `page` message carries no referrer. |
+| `page_url`, `referrer` | Optional, for `download` and `media`, same URL rules. Credentials and fragments are removed. The referrer is sent as `Referer` (with a stream: with the manifest, every fragment and the key); the page URL is not stored. For `page`, `page_url` is required and is what is downloaded: it must be a video page the site provider takes, or a playlist or channel it lists (see above), or the answer is `unsupported_page`; a `page` message carries no referrer. |
 | `manifest_url` | Required for `media`, allowed nowhere else. The HLS playlist or DASH manifest, with the same rules as `resource_url`. |
 | `kind` | Required for `media`: `hls` or `dash`. |
 | `title` | Optional, for `media` and `page`: the page title, at most 200 characters, no control characters. The app names the file after it. |
@@ -269,9 +273,10 @@ Requests:
 Responses carry `protocol_version`, the request's `id` and a `type`:
 
 ```json
-{"protocol_version": 1, "id": "p1", "type": "pong", "host_version": "0.4.0", "app_running": true, "app_version": "0.4.0", "features": ["media", "page"]}
+{"protocol_version": 1, "id": "p1", "type": "pong", "host_version": "0.4.0", "app_running": true, "app_version": "0.4.0", "features": ["media", "page", "list"]}
 {"protocol_version": 1, "id": "m1", "type": "accepted", "task_id": "8e48dd86-..."}
 {"protocol_version": 1, "id": "m2", "type": "accepted", "task_id": "68b6ffff-...", "awaiting_confirmation": true}
+{"protocol_version": 1, "id": "y2", "type": "list_opened", "page_url": "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb"}
 {"protocol_version": 1, "id": "m1", "type": "error", "code": "duplicate", "message": "This link is already in Downpipe", "task_id": "8e48dd86-..."}
 {"protocol_version": 1, "id": "t1", "type": "tasks", "tasks": [
   {"task_id": "8e48dd86-...", "state": "downloading", "file_name": "report.pdf",
@@ -282,12 +287,13 @@ Responses carry `protocol_version`, the request's `id` and a `type`:
 
 | Field | In | Meaning |
 |---|---|---|
-| `features` | `pong` | What the host and the running app both support beyond the first messages of version 1. `media`: the `media` message; `page`: the `page` message. Left out when there is none (the app is closed, or one of them predates it). |
+| `features` | `pong` | What the host and the running app both support beyond the first messages of version 1. `media`: the `media` message; `page`: the `page` message; `list`: `page` also takes playlists and channels. Left out when there is none (the app is closed, or one of them predates it). |
 | `task_id` | `accepted`, `tasks`, `duplicate` errors | The app's id for the download. |
 | `file_name` | `accepted`, `tasks` | The hint or the name the app chose; in `tasks`, the final name once the server has answered. |
 | `state` | `tasks` | One of `queued`, `starting`, `downloading`, `waiting`, `verifying`, `paused`, `completed`, `failed` and `canceled`. |
 | `downloaded`, `total`, `speed` | `tasks` | Bytes so far, bytes in all (missing while the size is unknown), bytes per second. |
 | `error` | `tasks` | At most 300 characters explaining a failure. |
+| `page_url` | `list_opened` | The list's own page (a channel's videos tab for a channel link). The app's main window lists its videos; nothing is added yet. |
 | `awaiting_confirmation` | `accepted`, `tasks` | Sent only as `true`: the app holds the download, paused, until the user answers its confirmation dialog. In `tasks` it comes with `state: "paused"`. |
 
 Ids the app does not know in a `tasks` query, for example removed downloads, are left out of the answer.

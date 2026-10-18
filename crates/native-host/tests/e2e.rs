@@ -293,6 +293,7 @@ async fn browser_downloads_wait_for_the_user() {
                 queue: None,
                 start: true,
                 media: None,
+                subtitles: None,
             },
         )
         .unwrap();
@@ -480,7 +481,7 @@ async fn streams_from_the_browser_are_offered_with_their_qualities() {
     let mut host = Host::spawn(&app.endpoint);
 
     let pong = host.ask(&json!({"protocol_version": 1, "type": "ping"}));
-    assert_eq!(pong["features"], json!(["media", "page"]), "{pong}");
+    assert_eq!(pong["features"], json!(["media", "page", "list"]), "{pong}");
 
     let q = "segments=3&size=4000&split=1";
     let page = web.url("/watch/clip");
@@ -599,4 +600,51 @@ async fn video_pages_go_to_the_site_provider() {
     assert_eq!(task.record.site.unwrap().site, "YouTube");
     assert_eq!(task.record.state, TaskState::Paused);
     assert_eq!(app.manager.list().len(), 1);
+}
+
+/// A playlist or channel: the app opens it for the user to choose videos
+/// from and adds nothing yet.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lists_open_in_the_app() {
+    let app = App::start_with(true).await;
+    let mut events = app.manager.subscribe();
+    let mut host = Host::spawn(&app.endpoint);
+    let fixture: Value = serde_json::from_slice(
+        &std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/page-playlist.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let opened = host.ask(&fixture);
+    assert_eq!(opened["type"], "list_opened", "{opened}");
+    assert_eq!(opened["id"], "y2");
+    assert_eq!(
+        opened["page_url"],
+        "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb"
+    );
+    let channel = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "page",
+        "page_url": "https://www.youtube.com/@jawed",
+    }));
+    assert_eq!(
+        channel["page_url"], "https://www.youtube.com/@jawed/videos",
+        "{channel}"
+    );
+    let pong = host.ask(&json!({"protocol_version": 1, "type": "ping"}));
+    assert!(
+        pong["features"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("list")),
+        "{pong}"
+    );
+    assert!(host.finish().success());
+    assert!(app.manager.list().is_empty());
+    let first = events.recv().await.unwrap();
+    assert!(
+        matches!(&first, downpipe_core::ManagerEvent::ListOffered { url } if url.contains("playlist?list=")),
+        "{first:?}"
+    );
 }

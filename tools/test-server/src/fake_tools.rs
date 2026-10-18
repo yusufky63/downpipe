@@ -6,8 +6,10 @@
 //! tool's name, the binary plays that tool and exits instead of running the
 //! tests. No interpreter, network or real yt-dlp is involved.
 //!
-//! The fake yt-dlp understands what Downpipe passes: `--version`, `-J`, and
-//! a download with `-P`, `-o` and the `DOWNPIPE:` print templates. It writes
+//! The fake yt-dlp understands what Downpipe passes: `--version`, `-J`
+//! (`--flat-playlist -J` prints the scenario's playlist), and a download
+//! with `-P`, `-o` and the `DOWNPIPE:` print templates, writing the asked
+//! subtitles next to the file unless they are to be embedded. It writes
 //! `.part` files in steps, resumes them, "merges" parts by concatenating
 //! them, and logs each invocation's arguments as a JSON line in
 //! `<name>.calls.jsonl` next to itself.
@@ -41,6 +43,8 @@ pub struct Scenario {
     pub version: String,
     /// Printed for `-J`.
     pub info: Value,
+    /// Printed for `--flat-playlist -J`.
+    pub playlist: Value,
     /// Printed as `ERROR: <error>` (exit code 1) instead of doing the work.
     pub error: Option<String>,
     /// Fail like this once this many bytes of the download are written.
@@ -164,7 +168,11 @@ fn yt_dlp(args: &[String], s: &Scenario) -> i32 {
         return fail(error);
     }
     if args.iter().any(|a| a == "-J") {
-        println!("{}", s.info);
+        if args.iter().any(|a| a == "--flat-playlist") {
+            println!("{}", s.playlist);
+        } else {
+            println!("{}", s.info);
+        }
         return 0;
     }
     let (Some(dir), Some(template)) = (value_after(args, "-P"), value_after(args, "-o")) else {
@@ -209,6 +217,22 @@ fn yt_dlp(args: &[String], s: &Scenario) -> i32 {
         Value::Null
     };
     println!("DOWNPIPE:START {single} {list}");
+
+    // Subtitles asked for and not embedded land next to the video, as
+    // `<stem>.<lang>.vtt`, before the media (as yt-dlp does it).
+    let wants_subs = args
+        .iter()
+        .any(|a| a == "--write-subs" || a == "--write-auto-subs");
+    if wants_subs && !args.iter().any(|a| a == "--embed-subs") {
+        for lang in value_after(args, "--sub-langs").unwrap_or("").split(',') {
+            if !lang.is_empty() {
+                let _ = std::fs::write(
+                    dir.join(format!("{stem}.{lang}.vtt")),
+                    "WEBVTT\n\n00:00.000 --> 00:01.000\nHello\n",
+                );
+            }
+        }
+    }
 
     let step = s.step.max(1);
     let mut written_total: u64 = 0;

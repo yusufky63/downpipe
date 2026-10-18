@@ -1,0 +1,69 @@
+{
+ "_type": "playlist",
+ "id": "PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb",
+ "title": "Early YouTube",
+ "channel": "Downpipe tests",
+ "uploader": "Downpipe tests",
+ "playlist_count": 7,
+ "extractor_key": "YoutubeTab",
+ "webpage_url": "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb",
+ "entries": [
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "jNQXAC9IVRw",
+   "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+   "title": "Me at the zoo",
+   "duration": 19.0,
+   "channel": "jawed",
+   "availability": null,
+   "live_status": null
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "aqz-KE-bpKQ",
+   "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+   "title": "Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film",
+   "duration": 635.0,
+   "channel": "Blender"
+  },
+  {
+   "_type": "url",
+   "ie_key": "YoutubeTab",
+   "id": "UC4QZ_LsYcvcq7qOsOhpAX4A",
+   "url": "https://www.youtube.com/channel/UC4QZ_LsYcvcq7qOsOhpAX4A",
+   "title": "A channel"
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "jNQXAC9IVRw",
+   "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+   "title": "Me at the zoo (again)"
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "xxxxxxxxxx1",
+   "url": "https://www.youtube.com/watch?v=xxxxxxxxxx1",
+   "title": "[Private video]",
+   "availability": "private"
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "xxxxxxxxxx2",
+   "url": "https://example.org/not-used",
+   "title": "Launch stream",
+   "live_status": "is_upcoming"
+  },
+  {
+   "_type": "url",
+   "ie_key": "Youtube",
+   "id": "bad id",
+   "url": "https://www.youtube.com/watch?v=bad",
+   "title": "Not a video id"
+  }
+ ]
+}

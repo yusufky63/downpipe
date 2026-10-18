@@ -20,6 +20,8 @@
 //! {"protocol_version": 1, "type": "page", "id": "y1",
 //!  "page_url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
 //!  "title": "Me at the zoo"}
+//! {"protocol_version": 1, "type": "page", "id": "y2",
+//!  "page_url": "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb"}
 //! {"protocol_version": 1, "type": "tasks", "id": "t1",
 //!  "task_ids": ["8e48dd86-5481-41af-a2fc-edf3044e29b8"]}
 //! ```
@@ -59,10 +61,13 @@ pub mod feature {
     pub const MEDIA: &str = "media";
     /// The `page` message: a video page (YouTube) for the site provider.
     pub const PAGE: &str = "page";
+    /// `page` also takes a playlist or channel, which the app opens for the
+    /// user to choose its videos (answered with `list_opened`).
+    pub const LIST: &str = "list";
 }
 
 /// Every feature this build supports.
-pub const FEATURES: &[&str] = &[feature::MEDIA, feature::PAGE];
+pub const FEATURES: &[&str] = &[feature::MEDIA, feature::PAGE, feature::LIST];
 
 /// Stable error codes. The extension branches on these; `message` is for people.
 pub mod code {
@@ -277,10 +282,11 @@ impl PageRequest {
     }
 
     /// A web URL without credentials or fragment, of a page a provider
-    /// takes ([`pages::recognize`]), and a title as for [`MediaRequest`].
+    /// takes ([`pages::recognize`]) or lists ([`pages::recognize_list`]),
+    /// and a title as for [`MediaRequest`].
     pub fn validate(self) -> Result<Self, ProtocolError> {
         let page = without_secrets(web_url("page_url", &self.page_url)?);
-        if pages::recognize(&page).is_none() {
+        if pages::recognize(&page).is_none() && pages::recognize_list(&page).is_none() {
             return Err(ProtocolError::UnsupportedPage);
         }
         let title = present(self.title).map(|t| title(&t)).transpose()?;
@@ -579,6 +585,9 @@ pub enum ResponseBody {
     /// Answer to `tasks`. Ids the app does not know (removed downloads) are
     /// left out.
     Tasks { tasks: Vec<TaskStatus> },
+    /// Answer to a `page` message with a playlist or channel: the app shows
+    /// its videos for the user to choose; nothing is added yet.
+    ListOpened { page_url: String },
 }
 
 /// Where one download stands, as the popup shows it.

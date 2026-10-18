@@ -4,6 +4,24 @@
 import type { Messages } from "../core";
 
 export const media: Messages["media"] = {
+  subtitles: {
+    label: "Altyazı",
+    none: "Yok",
+    uploaded: "Yükleyenin altyazıları",
+    auto: "Otomatik altyazılar",
+    original: "{language} (orijinal)",
+    embedded: "Altyazı video dosyasının içine eklenir.",
+    separate: "Altyazı, videonun yanına ayrı bir dosya olarak kaydedilir.",
+  },
+  siteErrors: {
+    forbidden: "YouTube indirmeyi reddetti. Genellikle daha yeni bir yt-dlp bunu çözer: Ayarlar'ın Medya sekmesinden güncelleyip yeniden deneyin.",
+    signIn: "YouTube bu indirme için oturum açılmış bir tarayıcı istiyor. Downpipe tarayıcı çerezlerini kullanmaz: biraz bekleyin ya da başka bir ağ kullanıp yeniden deneyin.",
+    ageRestricted: "YouTube bu videoyu yalnızca oturum açmış yetişkinlere gösteriyor. Downpipe hesap ya da tarayıcı çerezi kullanmadığı için indiremez.",
+    unavailable: "Bu video kullanılamıyor: gizli, kaldırılmış, yalnızca üyelere açık ya da bölgenizde engellenmiş.",
+    jsRuntime: "yt-dlp, YouTube'un JavaScript sınamalarını yanıtlayamadı. Ayarlar'ın Medya sekmesinden Deno'yu indirip yeniden deneyin.",
+    poToken: "YouTube bu video için bir kaynak kanıtı (PO) belirteci istedi. Ayarlar'ın Medya sekmesinden yt-dlp'yi güncelleyin ya da başka bir kalite seçin.",
+    outdated: "yt-dlp bu sayfayı artık anlamıyor; YouTube muhtemelen sayfayı değiştirdi. Ayarlar'ın Medya sekmesinden yt-dlp'yi güncelleyip yeniden deneyin.",
+  },
   audioOnly: "Yalnızca ses",
   defaultQuality: "Varsayılan",
   aboutSize: "yaklaşık {size}",

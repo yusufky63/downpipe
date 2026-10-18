@@ -80,6 +80,18 @@ export const settings = {
   },
   /** yt-dlp and Deno, on the Media tab. */
   siteTools: {
+    template: "Media file name template",
+    templateHint: "Names videos from pages such as YouTube; the extension is added. Click a placeholder to add it.",
+    templatePreview: "Example: {name}",
+    templateSame: "Without the title or the id, every video gets the same name, and Downpipe adds (1), (2) to the next ones.",
+    templateInsert: "Placeholders",
+    placeholders: {
+      title: "The video's title",
+      channel: "The channel's name",
+      date: "The upload date, like 2005-04-23",
+      index: "The position in the playlist, like 07 of 42",
+      id: "The video's id on the site",
+    },
     heading: "Videos on pages",
     intro:
       "On a YouTube page, Download with Downpipe hands the page to yt-dlp, which picks the video out. yt-dlp needs Deno for YouTube and FFmpeg to join video and sound above 360p.",

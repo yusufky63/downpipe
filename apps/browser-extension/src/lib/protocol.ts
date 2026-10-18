@@ -2,7 +2,7 @@
 // again (crates/native-host/src/protocol.rs); these builders make sure the
 // extension never even asks for something the host would refuse, and that
 // optional hints which do not fit are dropped instead of failing the request.
-import { sitePage } from "./sites";
+import { siteList, sitePage } from "./sites";
 import { MAX_URL_LENGTH, baseName, webUrl, withoutSecrets } from "./url";
 
 export const HOST_NAME = "dev.downpipe.native_host";
@@ -153,9 +153,13 @@ export function mediaMessage(fields: MediaFields, id: string): MediaMessage | nu
   return message;
 }
 
-/** Null unless the page is one the site provider takes (`sitePage`). */
+/**
+ * Null unless the page is one the site provider takes (`sitePage`) or a
+ * playlist or channel it lists (`siteList`), which the app opens for the
+ * user to choose its videos.
+ */
 export function pageMessage(fields: { pageUrl: string; title?: string }, id: string): PageMessage | null {
-  const page = sitePage(fields.pageUrl);
+  const page = sitePage(fields.pageUrl) ?? siteList(fields.pageUrl);
   if (!page) return null;
   const message: PageMessage = { protocol_version: PROTOCOL_VERSION, type: "page", id, page_url: page.url };
   const title = titleHint(fields.title);
@@ -242,7 +246,9 @@ export type HostResponse =
     }
   | { type: "accepted"; id?: string; taskId: string; fileName?: string; awaitingConfirmation?: boolean }
   | { type: "error"; id?: string; code: string; message: string; taskId?: string }
-  | { type: "tasks"; id?: string; tasks: TaskStatus[] };
+  | { type: "tasks"; id?: string; tasks: TaskStatus[] }
+  /** A playlist or channel is open in the app, to choose its videos there. */
+  | { type: "list_opened"; id?: string; pageUrl: string };
 
 function text(value: unknown, max = 300): string | undefined {
   return typeof value === "string" ? value.slice(0, max) : undefined;
@@ -312,6 +318,11 @@ export function parseResponse(value: unknown): HostResponse | null {
       const message = text(v.message);
       if (code === undefined || message === undefined) return null;
       return { type: "error", id, code, message, taskId: text(v.task_id, 64) };
+    }
+    case "list_opened": {
+      const pageUrl = text(v.page_url, MAX_URL_LENGTH);
+      if (pageUrl === undefined) return null;
+      return { type: "list_opened", id, pageUrl };
     }
     case "tasks": {
       if (!Array.isArray(v.tasks)) return null;

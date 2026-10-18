@@ -1,6 +1,7 @@
 import { t, type MessageKey } from "../i18n/core";
 import type { ManagerEvent, Task, TaskState, WaitReason } from "./api";
 import { formatBytes, nameFromUrl, sentence } from "./format";
+import { SITE_FAILURE_TEXTS } from "./siteErrors";
 
 export type Filter = "all" | "active" | "queued" | "completed" | "failed";
 
@@ -28,6 +29,7 @@ export function applyEvent(tasks: Task[], event: ManagerEvent): Task[] {
     case "removed":
       return tasks.filter((t) => t.id !== event.id);
     case "settings":
+    case "list_offered":
       return tasks;
   }
 }
@@ -79,7 +81,9 @@ export function sortForDisplay(tasks: Task[]): Task[] {
 
 export function displayName(task: Task): string {
   if (task.file_name) return task.file_name;
-  // A page's address names nothing ("watch"); its title arrives later.
+  // A page's address names nothing ("watch"); its title arrives later, or
+  // came with the playlist it was chosen from.
+  if (task.site?.title) return task.site.title;
   if (task.site) return t("common.siteVideo", { site: task.site.site });
   return nameFromUrl(task.url);
 }
@@ -127,6 +131,7 @@ const NEW_LINK_KINDS = new Set(["expired_link", "login_required", "forbidden"]);
 const FAILURE_TEXTS: Partial<Record<string, MessageKey>> = {
   expired_link: "list.failure.expiredLink",
   login_required: "list.failure.loginRequired",
+  ...SITE_FAILURE_TEXTS,
 };
 
 /** What went wrong: in the user's language for the kinds the app knows, else the engine's message. */

@@ -1,0 +1,37 @@
+// The dialog that lists a playlist's or channel's videos to choose from.
+// Site names (YouTube) and tool names (yt-dlp, FFmpeg) stay as they are.
+export const playlist = {
+  eyebrow: {
+    playlist: "{site} playlist",
+    channel: "{site} channel",
+  },
+  untitled: "Playlist",
+  reading: "Asking yt-dlp for the videos…",
+  unavailable: "This playlist or channel is unavailable: it is private, removed or blocked in your region.",
+  empty: "yt-dlp found no videos in this list.",
+  truncated: { one: "Only the first {count} video is listed.", other: "Only the first {count} videos are listed." },
+  filter: "Filter by title",
+  selectAll: "Select all",
+  selectNone: "Select none",
+  selected: { one: "{count} of {total} selected", other: "{count} of {total} selected" },
+  rowsLabel: "Videos",
+  notAvailable: "Unavailable",
+  untitledVideo: "Untitled video",
+  quality: "Quality",
+  qualityHint: "One quality for every video; a video without it gets the next lower one.",
+  presets: {
+    best: "Best",
+    "1080p": "Up to 1080p",
+    "720p": "Up to 720p",
+    audio: "Audio only",
+  },
+  autoCaptions: "Use automatic captions where there are no subtitles",
+  noFfmpeg: "No FFmpeg found: only qualities with their own sound can be downloaded, which on YouTube means 360p at most.",
+  folder: "Folder",
+  folderHint: "Made inside the folder next to it. Empty: no folder of its own.",
+  saveIn: "Save in",
+  submit: { one: "Download {count} video", other: "Download {count} videos" },
+  addToList: { one: "Add {count} video", other: "Add {count} videos" },
+  added: { one: "{count} video added.", other: "{count} videos added." },
+  skipped: { one: "{count} was already in the list.", other: "{count} were already in the list." },
+};

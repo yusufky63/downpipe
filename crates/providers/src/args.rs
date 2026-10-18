@@ -10,6 +10,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use downpipe_http::media::MediaSelection;
+use serde::{Deserialize, Serialize};
 
 use crate::tools::Tools;
 
@@ -31,13 +32,72 @@ pub fn valid_format_id(id: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
 }
 
+/// A subtitle language code as it may appear in `--sub-langs`, which
+/// yt-dlp reads as a comma-separated list of regular expressions: letters,
+/// digits and dashes only (`en`, `pt-BR`, `zh-Hans`, `en-orig`).
+pub fn valid_sub_lang(lang: &str) -> bool {
+    (1..=32).contains(&lang.len())
+        && lang
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
+
+/// One quality for every video of a playlist, whose formats are not known
+/// when they are chosen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Preset {
+    Best,
+    #[serde(rename = "1080p")]
+    P1080,
+    #[serde(rename = "720p")]
+    P720,
+    /// The best sound alone.
+    Audio,
+}
+
+impl Preset {
+    /// The quality label the list shows before yt-dlp names the formats.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Best => "Best",
+            Self::P1080 => "1080p",
+            Self::P720 => "720p",
+            Self::Audio => "Audio only",
+        }
+    }
+
+    fn height(self) -> Option<u32> {
+        match self {
+            Self::P1080 => Some(1080),
+            Self::P720 => Some(720),
+            Self::Best | Self::Audio => None,
+        }
+    }
+}
+
+/// A subtitle to save with the video: the uploader's (`auto: false`) or
+/// the site's automatic captions in that language.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubtitleRef {
+    pub language: String,
+    #[serde(default)]
+    pub auto: bool,
+}
+
 /// Options every run gets.
 fn common(tools: &Tools, proxy: Option<&str>) -> Vec<OsString> {
+    let mut args = base(tools, proxy);
+    args.insert(3, "--no-playlist".into());
+    args
+}
+
+/// [`common`] without `--no-playlist`, for reading a playlist.
+fn base(tools: &Tools, proxy: Option<&str>) -> Vec<OsString> {
     let mut args: Vec<OsString> = [
         "--ignore-config",
         "--no-cookies",
         "--no-cookies-from-browser",
-        "--no-playlist",
         "--color",
         "never",
     ]
@@ -66,6 +126,28 @@ pub fn inspect(url: &str, tools: &Tools, proxy: Option<&str>) -> Vec<OsString> {
     args
 }
 
+/// The most videos read from one playlist or channel.
+pub const MAX_LIST_ENTRIES: usize = 5000;
+
+/// `yt-dlp --flat-playlist -J` for a playlist or channel: its videos' ids
+/// and titles from the list pages alone, without opening each video.
+pub fn list(url: &str, tools: &Tools, proxy: Option<&str>) -> Vec<OsString> {
+    let mut args = base(tools, proxy);
+    args.extend(
+        [
+            "--yes-playlist",
+            "--flat-playlist",
+            "--playlist-end",
+            &MAX_LIST_ENTRIES.to_string(),
+            "-J",
+            "--",
+            url,
+        ]
+        .map(OsString::from),
+    );
+    args
+}
+
 /// Everything a download needs besides the tools.
 #[derive(Debug, Clone)]
 pub struct DownloadArgs<'a> {
@@ -74,6 +156,9 @@ pub struct DownloadArgs<'a> {
     /// The file name without extension; yt-dlp adds the container's.
     pub stem: &'a str,
     pub selection: Option<&'a MediaSelection>,
+    /// The quality when there is no `selection` (a video from a playlist).
+    pub preset: Option<Preset>,
+    pub subtitles: &'a [SubtitleRef],
     pub proxy: Option<&'a str>,
     /// Bytes per second, 0 for no limit.
     pub rate_limit: u64,
@@ -108,7 +193,14 @@ pub fn download(d: &DownloadArgs<'_>, tools: &Tools) -> Vec<OsString> {
         ]
         .map(OsString::from),
     );
-    args.push(format_selector(d.selection, ffmpeg).into());
+    args.push(
+        match (d.selection, d.preset) {
+            (None, Some(preset)) => preset_selector(preset, ffmpeg),
+            (selection, _) => format_selector(selection, ffmpeg),
+        }
+        .into(),
+    );
+    args.extend(subtitle_args(d, ffmpeg));
     if let Some(path) = &tools.ffmpeg {
         args.push("--ffmpeg-location".into());
         args.push(path.into());
@@ -165,6 +257,67 @@ pub fn format_selector(selection: Option<&MediaSelection>, ffmpeg: bool) -> Stri
         (None, None) if ffmpeg => "bv*+ba/b".to_string(),
         (None, None) => "b".to_string(),
     }
+}
+
+/// The `-f` value for a playlist's quality: the best formats up to that
+/// height, joined when FFmpeg is there, else the best single file.
+pub fn preset_selector(preset: Preset, ffmpeg: bool) -> String {
+    match (preset, preset.height()) {
+        (Preset::Audio, _) => "ba/b".into(),
+        (_, Some(h)) if ffmpeg => format!("bv*[height<={h}]+ba/b[height<={h}]/b"),
+        (_, Some(h)) => format!("b[height<={h}]/b"),
+        (_, None) if ffmpeg => "bv*+ba/b".into(),
+        (_, None) => "b".into(),
+    }
+}
+
+/// Whether a choice is the sound alone.
+pub fn is_audio_only(selection: Option<&MediaSelection>, preset: Option<Preset>) -> bool {
+    match selection {
+        Some(s) => s.audio.is_none() && s.video.as_ref().is_some_and(|v| v.height.is_none()),
+        None => preset == Some(Preset::Audio),
+    }
+}
+
+/// Subtitles: embedded in the video when FFmpeg is there, else written
+/// next to it; next to an audio file too, which cannot carry them.
+fn subtitle_args(d: &DownloadArgs<'_>, ffmpeg: bool) -> Vec<OsString> {
+    let chosen: Vec<&SubtitleRef> = d
+        .subtitles
+        .iter()
+        .filter(|s| valid_sub_lang(&s.language))
+        .collect();
+    if chosen.is_empty() {
+        return Vec::new();
+    }
+    let mut args: Vec<OsString> = Vec::new();
+    // With both, yt-dlp takes the uploader's subtitles and falls back to
+    // the automatic captions for a language that has none.
+    if chosen.iter().any(|s| !s.auto) {
+        args.push("--write-subs".into());
+    }
+    if chosen.iter().any(|s| s.auto) {
+        args.push("--write-auto-subs".into());
+    }
+    let mut langs: Vec<&str> = Vec::new();
+    for s in &chosen {
+        if !langs.contains(&s.language.as_str()) {
+            langs.push(&s.language);
+        }
+    }
+    args.push("--sub-langs".into());
+    args.push(langs.join(",").into());
+    if ffmpeg && !is_audio_only(d.selection, d.preset) {
+        args.push("--embed-subs".into());
+    } else if ffmpeg {
+        // Players read SRT next to an audio file more often than WebVTT.
+        args.push("--convert-subs".into());
+        args.push("srt".into());
+    } else {
+        args.push("--sub-format".into());
+        args.push("srt/vtt/best".into());
+    }
+    args
 }
 
 /// Whether a choice downloads separate video and sound, which only FFmpeg
@@ -247,6 +400,8 @@ mod tests {
                 dir: Path::new("D:/Video"),
                 stem: "100% zoo",
                 selection: None,
+                preset: None,
+                subtitles: &[],
                 proxy: Some("socks5://127.0.0.1:9050"),
                 rate_limit: 1_000_000,
             },
@@ -282,6 +437,105 @@ mod tests {
                 .iter()
                 .any(|a| a.contains("cookies-from-browser") && a != "--no-cookies-from-browser")
         );
+    }
+
+    #[test]
+    fn presets_and_subtitles() {
+        assert_eq!(preset_selector(Preset::Best, true), "bv*+ba/b");
+        assert_eq!(preset_selector(Preset::Best, false), "b");
+        assert_eq!(
+            preset_selector(Preset::P720, true),
+            "bv*[height<=720]+ba/b[height<=720]/b"
+        );
+        assert_eq!(preset_selector(Preset::P1080, false), "b[height<=1080]/b");
+        assert_eq!(preset_selector(Preset::Audio, true), "ba/b");
+        assert!(is_audio_only(None, Some(Preset::Audio)));
+        assert!(!is_audio_only(None, Some(Preset::P720)));
+
+        let mut tools = Tools {
+            yt_dlp: Some(PathBuf::from("yt-dlp")),
+            js: None,
+            ffmpeg: Some(PathBuf::from("ffmpeg")),
+        };
+        let subs = [
+            SubtitleRef {
+                language: "en".into(),
+                auto: false,
+            },
+            SubtitleRef {
+                language: "en".into(),
+                auto: true,
+            },
+            SubtitleRef {
+                language: "tr;rm".into(),
+                auto: true,
+            },
+        ];
+        let run = |tools: &Tools, preset| {
+            text(&download(
+                &DownloadArgs {
+                    url: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+                    dir: Path::new("D:/Video"),
+                    stem: "Clip",
+                    selection: None,
+                    preset: Some(preset),
+                    subtitles: &subs,
+                    proxy: None,
+                    rate_limit: 0,
+                },
+                tools,
+            ))
+        };
+        let at = |args: &[String], flag: &str| {
+            args.iter()
+                .position(|a| a == flag)
+                .map(|i| args[i + 1].clone())
+        };
+        let args = run(&tools, Preset::P720);
+        assert_eq!(
+            at(&args, "-f").as_deref(),
+            Some("bv*[height<=720]+ba/b[height<=720]/b")
+        );
+        assert!(args.contains(&"--write-subs".to_string()));
+        assert!(args.contains(&"--write-auto-subs".to_string()));
+        // The unsafe code is dropped, the repeated one listed once.
+        assert_eq!(at(&args, "--sub-langs").as_deref(), Some("en"));
+        assert!(args.contains(&"--embed-subs".to_string()));
+        // An audio file cannot carry them: SRT next to it.
+        let args = run(&tools, Preset::Audio);
+        assert!(!args.contains(&"--embed-subs".to_string()));
+        assert_eq!(at(&args, "--convert-subs").as_deref(), Some("srt"));
+        // Without FFmpeg: next to the video, as the site has them.
+        tools.ffmpeg = None;
+        let args = run(&tools, Preset::Best);
+        assert!(!args.contains(&"--embed-subs".to_string()));
+        assert_eq!(at(&args, "--sub-format").as_deref(), Some("srt/vtt/best"));
+        assert_eq!(at(&args, "-f").as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn list_arguments() {
+        let tools = Tools {
+            yt_dlp: Some(PathBuf::from("yt-dlp")),
+            js: None,
+            ffmpeg: None,
+        };
+        let args = text(&list(
+            "https://www.youtube.com/playlist?list=PLx",
+            &tools,
+            None,
+        ));
+        assert_eq!(args[0], "--ignore-config");
+        assert!(args.contains(&"--no-cookies".to_string()));
+        assert!(!args.contains(&"--no-playlist".to_string()));
+        assert!(args.contains(&"--flat-playlist".to_string()));
+        assert_eq!(
+            &args[args.len() - 3..],
+            ["-J", "--", "https://www.youtube.com/playlist?list=PLx"]
+        );
+        // A video still never takes its playlist along.
+        let args = text(&inspect("https://www.youtube.com/watch?v=x", &tools, None));
+        assert!(args.contains(&"--no-playlist".to_string()));
     }
 
     #[test]

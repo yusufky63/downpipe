@@ -80,6 +80,18 @@ export const settings: Messages["settings"] = {
       "ストリームは、ブラウザー拡張機能のメディア検出、またはここで追加した .m3u8 や .mpd のリンクから取得されます。DRM で保護されたストリームやライブストリームはダウンロードされません。",
   },
   siteTools: {
+    template: "メディアのファイル名テンプレート",
+    templateHint: "YouTube などのページの動画に名前を付けます。拡張子は自動で付きます。プレースホルダーをクリックすると挿入できます。",
+    templatePreview: "例：{name}",
+    templateSame: "タイトルも ID もないと、すべての動画が同じ名前になり、Downpipe は 2 本目以降に (1)、(2) を付けます。",
+    templateInsert: "プレースホルダー",
+    placeholders: {
+      title: "動画のタイトル",
+      channel: "チャンネル名",
+      date: "アップロード日（例：2005-04-23）",
+      index: "再生リスト内の位置（例：42 本中の 07）",
+      id: "サイト上の動画の ID",
+    },
     heading: "ページ内の動画",
     intro:
       "YouTube のページで「Downpipe でダウンロード」を選ぶと、ページが yt-dlp に渡され、yt-dlp が動画を取り出します。yt-dlp には、YouTube のために Deno が、360p を超える画質で映像と音声を結合するために FFmpeg が必要です。",

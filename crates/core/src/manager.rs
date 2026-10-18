@@ -11,6 +11,7 @@ use downpipe_http::{
     EngineConfig, Outcome, RateLimiter, filename, meta,
 };
 use downpipe_providers::install::{self, Tool};
+use downpipe_providers::naming::{self, NameFields};
 use downpipe_providers::{SiteRequest, ToolConfig, Tools, ToolsStatus, files as site_files, pages};
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -20,8 +21,9 @@ use tokio::task::JoinHandle;
 use crate::settings::{MAIN_QUEUE, Settings};
 use crate::store::Store;
 use crate::task::{
-    AddOptions, ConfirmOptions, Live, MediaChoices, MediaInfo, OnDuplicate, QueueMove, SiteChoices,
-    SiteInfo, SiteOptions, TaskId, TaskRecord, TaskSnapshot, TaskState,
+    AddListOptions, AddListResult, AddOptions, ConfirmOptions, ListChoices, Live, MediaChoices,
+    MediaInfo, OnDuplicate, QueueMove, SiteChoices, SiteInfo, SiteOptions, TaskId, TaskRecord,
+    TaskSnapshot, TaskState,
 };
 
 const DB_FILE: &str = "downpipe.db";
@@ -54,6 +56,10 @@ pub enum CoreError {
     InvalidUrl(String),
     #[error("invalid setting: {0}")]
     InvalidSetting(String),
+    /// A playlist or channel, whose videos are chosen first
+    /// ([`Manager::inspect_list`], [`Manager::add_list`]).
+    #[error("this is a playlist or channel; choose its videos first")]
+    ListPage,
 }
 
 impl CoreError {
@@ -65,6 +71,7 @@ impl CoreError {
             Self::InvalidState { .. } => "invalid_state",
             Self::InvalidUrl(_) => "invalid_url",
             Self::InvalidSetting(_) => "invalid_setting",
+            Self::ListPage => "list_page",
             Self::Download(e) => e.kind(),
             Self::Store(_) | Self::Io(_) => "internal",
         }
@@ -76,9 +83,20 @@ impl CoreError {
 pub enum ManagerEvent {
     // Boxed: snapshots and settings are large and events are moved
     // through a channel.
-    Updated { task: Box<TaskSnapshot> },
-    Removed { id: TaskId },
-    Settings { settings: Box<Settings> },
+    Updated {
+        task: Box<TaskSnapshot>,
+    },
+    Removed {
+        id: TaskId,
+    },
+    Settings {
+        settings: Box<Settings>,
+    },
+    /// The browser sent a playlist or channel: a window should open it for
+    /// the user to choose its videos ([`Manager::offer_list`]).
+    ListOffered {
+        url: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -233,6 +251,9 @@ impl Manager {
 
     pub fn add(&self, opts: AddOptions) -> Result<TaskSnapshot, CoreError> {
         let url = parse_web_url(&opts.url)?;
+        if pages::recognize_list(&url).is_some() {
+            return Err(CoreError::ListPage);
+        }
         let checksum = match opts
             .checksum
             .as_deref()
@@ -586,6 +607,9 @@ impl Manager {
                     site.quality = None;
                 }
             }
+            if let (Some(subtitles), Some(site)) = (choice.subtitles, entry.record.site.as_mut()) {
+                site.subtitles = valid_subtitles(subtitles);
+            }
             entry.live.awaiting_confirmation = false;
             entry.set_state(if start {
                 TaskState::Queued
@@ -684,8 +708,23 @@ impl Manager {
         let tools = downpipe_providers::tools::find(&self.inner.tool_config(&settings));
         let proxy = (!settings.proxy.is_empty()).then_some(settings.proxy.as_str());
         let info = downpipe_providers::info::inspect(&tools, &url, proxy).await?;
+        let stem = naming::stem(
+            &settings.media_name_template,
+            &NameFields {
+                title: info.title.as_deref(),
+                channel: info.channel.as_deref(),
+                upload_date: info.upload_date.as_deref(),
+                index: site.index,
+                count: site.count,
+                id: info.id.as_deref(),
+            },
+        );
         Ok(SiteChoices {
             site: site.site,
+            // yt-dlp sets the real extension; the dialog shows the usual one.
+            name: Some(format!("{stem}.mp4")),
+            subtitles: info.subtitles,
+            chosen_subtitles: site.subtitles,
             title: info.title,
             options: SiteOptions {
                 videos: info.videos,
@@ -695,6 +734,173 @@ impl Manager {
             selection: site.selection,
             ffmpeg: tools.ffmpeg.is_some(),
         })
+    }
+
+    /// The videos of a playlist or channel page, read by yt-dlp from the
+    /// list pages only. Nothing is added; [`Manager::add_list`] adds the
+    /// ones the user picks.
+    pub async fn inspect_list(&self, url: &str) -> Result<ListChoices, CoreError> {
+        let list = list_page(url)?;
+        let settings = self.settings();
+        let tools = downpipe_providers::tools::find(&self.inner.tool_config(&settings));
+        let proxy = (!settings.proxy.is_empty()).then_some(settings.proxy.as_str());
+        let info = downpipe_providers::playlist::list(&tools, list.url.as_str(), proxy).await?;
+        Ok(ListChoices {
+            site: list.site.to_string(),
+            kind: list.kind.as_str().to_string(),
+            url: list.url.to_string(),
+            title: info.title,
+            channel: info.channel,
+            entries: info.entries,
+            truncated: info.truncated,
+            dir: video_dir(&settings),
+            ffmpeg: tools.ffmpeg.is_some(),
+        })
+    }
+
+    /// Add the chosen videos of a playlist or channel, each as a video page
+    /// of its own with the list's quality and subtitles, in the list's
+    /// order, in a folder named after the list. Videos already in the list
+    /// are skipped. All are written in one transaction.
+    pub fn add_list(&self, opts: AddListOptions) -> Result<AddListResult, CoreError> {
+        let list = list_page(&opts.url)?;
+        let subtitles = valid_subtitles(opts.subtitles);
+        let (added, skipped) = {
+            let mut st = self.inner.state.lock();
+            let auto_dir = opts.dir.is_none();
+            let base = opts.dir.unwrap_or_else(|| video_dir(&st.settings));
+            // Slashes in a title would be read as folders.
+            let folder = opts
+                .title
+                .as_deref()
+                .map(|t| t.replace(['/', '\\'], "-"))
+                .filter(|t| !t.trim().is_empty())
+                .map(|t| site_files::stem_from_title(&t));
+            let dir = match folder {
+                Some(folder) => base.join(folder),
+                None => base,
+            };
+            let category = st
+                .settings
+                .category_for("video.mp4")
+                .map(|c| c.name.clone());
+            let queue = opts
+                .queue
+                .filter(|q| st.settings.queue(q).is_some())
+                .unwrap_or_else(|| MAIN_QUEUE.into());
+            let count = opts
+                .count
+                .max(u32::try_from(opts.entries.len()).unwrap_or(u32::MAX));
+            let now = unix_now();
+            let mut position = next_position(&st.tasks);
+            let mut pages_added: Vec<(String, TaskRecord)> = Vec::new();
+            let mut skipped = 0;
+            for pick in opts
+                .entries
+                .into_iter()
+                .take(downpipe_providers::MAX_LIST_ENTRIES)
+            {
+                // The link is made from the id alone.
+                let Some(page) =
+                    pages::recognize_link(&format!("https://www.youtube.com/watch?v={}", pick.id))
+                else {
+                    continue;
+                };
+                let key = downpipe_http::redact_url(&page.url);
+                if st.tasks.iter().any(|e| e.record.url == key)
+                    || pages_added.iter().any(|(_, r)| r.url == key)
+                {
+                    skipped += 1;
+                    continue;
+                }
+                let mut site = SiteInfo::new(page.site);
+                site.preset = opts.preset;
+                site.subtitles.clone_from(&subtitles);
+                site.title = pick
+                    .title
+                    .as_deref()
+                    .map(|t| {
+                        t.chars()
+                            .filter(|c| !c.is_control())
+                            .take(200)
+                            .collect::<String>()
+                    })
+                    .filter(|t| !t.trim().is_empty());
+                site.index = Some(pick.index.max(1));
+                site.count = Some(count);
+                let record = TaskRecord {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    url: key,
+                    dir: dir.clone(),
+                    file_name: None,
+                    path: None,
+                    state: if opts.paused {
+                        TaskState::Paused
+                    } else {
+                        TaskState::Queued
+                    },
+                    total: None,
+                    downloaded: 0,
+                    error: None,
+                    error_kind: None,
+                    checksum: None,
+                    max_connections: None,
+                    category: category.clone(),
+                    auto_dir,
+                    queue: queue.clone(),
+                    position,
+                    created_at: now,
+                    updated_at: now,
+                    completed_at: None,
+                    media: None,
+                    site: Some(site),
+                };
+                position += 1;
+                pages_added.push((page.url.to_string(), record));
+            }
+            let records: Vec<TaskRecord> = pages_added.iter().map(|(_, r)| r.clone()).collect();
+            st.store.upsert_many(&records)?;
+            let mut added = Vec::with_capacity(pages_added.len());
+            for (url, record) in pages_added {
+                let entry = Entry {
+                    url,
+                    record,
+                    live: Live::default(),
+                    headers: Vec::new(),
+                    control: None,
+                    supervisor: None,
+                    after_stop: AfterStop::Pause,
+                    last_persist: Instant::now(),
+                    relink: false,
+                };
+                added.push(entry.snapshot());
+                st.tasks.push(entry);
+            }
+            (added, skipped)
+        };
+        tracing::info!(
+            list = %list.url,
+            added = added.len(),
+            skipped,
+            "videos added from a list"
+        );
+        for task in &added {
+            self.inner.emit(ManagerEvent::Updated {
+                task: Box::new(task.clone()),
+            });
+        }
+        self.inner.schedule();
+        Ok(AddListResult { added, skipped })
+    }
+
+    /// Ask a window to open a playlist or channel the browser sent, for the
+    /// user to choose its videos. Nothing is added until then. Returns the
+    /// list's own page.
+    pub fn offer_list(&self, url: &str) -> Result<String, CoreError> {
+        let url = list_page(url)?.url.to_string();
+        self.inner
+            .emit(ManagerEvent::ListOffered { url: url.clone() });
+        Ok(url)
     }
 
     /// The site provider's tools as the settings find them, with versions.
@@ -1219,6 +1425,19 @@ impl Entry {
             dir: self.record.dir.clone(),
             file_name: self.record.file_name.clone(),
             selection: self.record.site.as_ref().and_then(|s| s.selection.clone()),
+            preset: self.record.site.as_ref().and_then(|s| s.preset),
+            subtitles: self
+                .record
+                .site
+                .as_ref()
+                .map(|s| s.subtitles.clone())
+                .unwrap_or_default(),
+            name_template: settings.media_name_template.clone(),
+            index: self
+                .record
+                .site
+                .as_ref()
+                .and_then(|s| Some((s.index?, s.count.unwrap_or(0)))),
             tools,
             proxy: (!settings.proxy.is_empty()).then(|| settings.proxy.clone()),
             rate_limit: settings.speed_limit,
@@ -1401,6 +1620,31 @@ fn find_ffmpeg(configured: &str) -> Option<PathBuf> {
 
 /// A name for a stream before its container is known: the hint without a
 /// manifest's extension, as a video. The engine sets the real extension.
+/// Where videos go unless a folder is chosen: the Video category's folder,
+/// else the download folder.
+fn video_dir(settings: &Settings) -> PathBuf {
+    match settings.category_for("video.mp4") {
+        Some(c) => settings.category_dir(c),
+        None => settings.download_dir.clone(),
+    }
+}
+
+fn list_page(raw: &str) -> Result<pages::ListPage, CoreError> {
+    pages::recognize_list(&parse_web_url(raw)?)
+        .ok_or_else(|| CoreError::InvalidUrl("not a playlist or channel".into()))
+}
+
+/// Subtitle languages that may go to yt-dlp.
+fn valid_subtitles(
+    subtitles: Vec<downpipe_providers::SubtitleRef>,
+) -> Vec<downpipe_providers::SubtitleRef> {
+    subtitles
+        .into_iter()
+        .filter(|s| downpipe_providers::valid_sub_lang(&s.language))
+        .take(16)
+        .collect()
+}
+
 fn video_name(hint: &str) -> String {
     let stem = match hint.rsplit_once('.') {
         Some((stem, ext))

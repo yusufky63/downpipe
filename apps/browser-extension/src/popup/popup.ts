@@ -67,6 +67,7 @@ let excludedSites: string[] = [];
 let streams = true;
 /** The connected Downpipe takes video pages (YouTube); assumed likewise. */
 let pages = true;
+let lists = true;
 let mediaItems: MediaCandidate[] = [];
 /** The tab's title, which names the media rows. */
 let mediaTitle: string | undefined;
@@ -190,7 +191,7 @@ const PAGE_RESULT = "page";
 
 /** The video page itself (YouTube), first in the list. */
 function pageRow(page: PageItem): HTMLLIElement {
-  const view = pageRowView(page, pages);
+  const view = pageRowView(page, pages, lists);
   const result = mediaResults.get(PAGE_RESULT);
   const li = document.createElement("li");
   li.className = "item media-item";
@@ -216,6 +217,7 @@ function renderMedia(): void {
     mediaExcludedBy,
     streams,
     pages,
+    lists,
     mediaPage,
     mediaTitle,
     mediaItems.map((c) => [c.id, c.qualities]),
@@ -296,6 +298,7 @@ async function refresh(): Promise<void> {
     if (status) {
       streams = status.bridge.state !== "connected" || status.bridge.media;
       pages = status.bridge.state !== "connected" || status.bridge.pages;
+      lists = status.bridge.state !== "connected" || status.bridge.lists;
       renderMedia();
     }
     renderStatus(

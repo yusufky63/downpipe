@@ -5,8 +5,9 @@ export type BridgeStatus =
   /**
    * `media`: both the bridge and the app can take streams (HLS, DASH).
    * `pages`: they can take video pages for the site provider (YouTube).
+   * `lists`: they can open playlists and channels to choose videos from.
    */
-  | { state: "connected"; appVersion: string; hostVersion: string; media: boolean; pages: boolean }
+  | { state: "connected"; appVersion: string; hostVersion: string; media: boolean; pages: boolean; lists: boolean }
   | { state: "app_not_running"; hostVersion: string }
   | { state: "host_missing" }
   | { state: "host_forbidden" }
@@ -54,6 +55,7 @@ export function bridgeStatus(result: HostResult): BridgeStatus {
           hostVersion: r.hostVersion,
           media: r.features.includes("media"),
           pages: r.features.includes("page"),
+          lists: r.features.includes("list"),
         }
       : { state: "app_not_running", hostVersion: r.hostVersion };
   }
@@ -82,6 +84,8 @@ export function downloadOutcome(result: HostResult): HandOver {
   if (r.type === "accepted") {
     return { outcome: "added", message: t("results.added"), fileName: r.fileName, taskId: r.taskId };
   }
+  // A playlist: nothing is added until its videos are chosen in the app.
+  if (r.type === "list_opened") return { outcome: "added", message: t("results.listOpened") };
   if (r.type === "error" && r.code === "duplicate") {
     return { outcome: "duplicate", message: t("errors.code.duplicate"), taskId: r.taskId };
   }

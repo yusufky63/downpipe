@@ -81,6 +81,18 @@ export const settings: Messages["settings"] = {
       "As transmissões vêm da detecção de mídia da extensão do navegador ou de links .m3u8 e .mpd adicionados aqui. Transmissões protegidas por DRM e ao vivo não são baixadas.",
   },
   siteTools: {
+    template: "Modelo de nome dos arquivos de mídia",
+    templateHint: "Dá nome aos vídeos de páginas como o YouTube; a extensão é adicionada. Clique em um marcador para inseri-lo.",
+    templatePreview: "Exemplo: {name}",
+    templateSame: "Sem o título nem o id, todos os vídeos recebem o mesmo nome, e o Downpipe acrescenta (1), (2) aos seguintes.",
+    templateInsert: "Marcadores",
+    placeholders: {
+      title: "O título do vídeo",
+      channel: "O nome do canal",
+      date: "A data de envio, como 2005-04-23",
+      index: "A posição na playlist, como 07 de 42",
+      id: "O id do vídeo no site",
+    },
     heading: "Vídeos em páginas",
     // The extension's menu item is only in English, so its name stays as the user sees it.
     intro:

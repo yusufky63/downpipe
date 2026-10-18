@@ -7,6 +7,7 @@ import { ContextMenu } from "./components/ContextMenu";
 import { DetailsDialog } from "./components/DetailsDialog";
 import { DownloadList, rowSelector, type RowActions } from "./components/DownloadList";
 import { DuplicateDialog, type DuplicateChoice } from "./components/DuplicateDialog";
+import { PlaylistDialog } from "./components/PlaylistDialog";
 import { Banner } from "./components/primitives";
 import { RedownloadDialog } from "./components/RedownloadDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
@@ -90,6 +91,8 @@ export function App() {
   const [removingIds, setRemovingIds] = useState<string[]>([]);
   const [redownloadId, setRedownloadId] = useState<string | null>(null);
   const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
+  // Playlists and channels whose videos are to be chosen, one at a time.
+  const [lists, setLists] = useState<string[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [theme, setTheme] = useState<Theme>(currentTheme);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -137,6 +140,8 @@ export function App() {
     // Subscribe before the first load so no update falls between the two.
     void onManagerEvent((event) => {
       if (event.type === "settings") setSettings(event.settings);
+      // The browser sent a playlist: its videos are chosen here.
+      else if (event.type === "list_offered") setLists((now) => (now.includes(event.url) ? now : [...now, event.url]));
       else setTasks((list) => applyEvent(list, event));
     }).then(keep);
     void onResync(reload).then(keep);
@@ -277,6 +282,7 @@ export function App() {
   // What the browser sent is asked in the confirmation window, over the browser.
   const awaiting = useMemo(() => awaitingIn(tasks, "main"), [tasks]);
   const asking = !busyDialog && !showAdd ? awaiting[0] : undefined;
+  const listUrl = !busyDialog && !showAdd && asking === undefined && settings !== null ? lists[0] : undefined;
   const menuEntries = useMemo(() => buildMenu(selectedTasks, queues), [selectedTasks, queues]);
   const showMenu = menu !== null && menuEntries.length > 0;
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -662,6 +668,29 @@ export function App() {
             }
           }}
           onDuplicates={setDuplicates}
+          onLists={(urls) => setLists((now) => [...now, ...urls.filter((u) => !now.includes(u))])}
+        />
+      )}
+      {listUrl && settings && (
+        <PlaylistDialog
+          key={listUrl}
+          url={listUrl}
+          settings={settings}
+          onClose={() => setLists((now) => now.filter((u) => u !== listUrl))}
+          onOpenSettings={() => setSettingsTab("media")}
+          onAdded={({ added, skipped }) => {
+            setFilter("all");
+            setQuery("");
+            setCategory("");
+            setQueue("");
+            const first = added[0];
+            if (first) {
+              setSelection({ ids: added.map((t) => t.id), anchor: first.id });
+              focusRow(first.id);
+            }
+            const text = t("playlist.added", { count: added.length });
+            toast(skipped > 0 ? `${text} ${t("playlist.skipped", { count: skipped })}` : text, "neutral");
+          }}
         />
       )}
       {asking && settings && (

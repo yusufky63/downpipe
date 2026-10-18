@@ -79,6 +79,18 @@ export const settings: Messages["settings"] = {
       "Streams stammen aus der Medienerkennung der Browsererweiterung oder aus hier hinzugefügten .m3u8- und .mpd-Links. DRM-geschützte Streams und Livestreams werden nicht heruntergeladen.",
   },
   siteTools: {
+    template: "Vorlage für Mediendateinamen",
+    templateHint: "Benennt Videos von Seiten wie YouTube; die Endung wird angehängt. Klicken Sie auf einen Platzhalter, um ihn einzufügen.",
+    templatePreview: "Beispiel: {name}",
+    templateSame: "Ohne Titel oder ID bekommt jedes Video denselben Namen, und Downpipe hängt an die folgenden (1), (2) an.",
+    templateInsert: "Platzhalter",
+    placeholders: {
+      title: "Der Titel des Videos",
+      channel: "Der Name des Kanals",
+      date: "Das Upload-Datum, etwa 2005-04-23",
+      index: "Die Position in der Playlist, etwa 07 von 42",
+      id: "Die ID des Videos auf der Seite",
+    },
     heading: "Videos auf Webseiten",
     // The quoted menu item is the browser extension's (its menus.link in German).
     intro:

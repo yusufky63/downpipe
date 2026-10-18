@@ -3,6 +3,7 @@
 import type { Messages } from "../core";
 
 export const menus: Messages["menus"] = {
+  list: "Выбрать видео из этого списка с помощью Downpipe…",
   link: "Загрузить с помощью Downpipe",
   pageLinks: "Загрузить ссылки на этой странице с помощью Downpipe…",
   video: "Загрузить это видео с помощью Downpipe",

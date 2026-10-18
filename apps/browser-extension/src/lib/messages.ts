@@ -144,6 +144,8 @@ export function parseOverlayRequest(value: unknown): OverlayRequest | null {
 /** The tab's video page, which the site provider can download. */
 export interface PageItem {
   site: string;
+  /** A playlist or channel rather than one video. */
+  list?: "playlist" | "channel";
   /** The tab's title without the site's name, when there is one. */
   title?: string;
 }
@@ -165,7 +167,11 @@ export interface MediaReply {
 function isPageItem(value: unknown): value is PageItem {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  return typeof v.site === "string" && (v.title === undefined || typeof v.title === "string");
+  return (
+    typeof v.site === "string" &&
+    (v.title === undefined || typeof v.title === "string") &&
+    (v.list === undefined || v.list === "playlist" || v.list === "channel")
+  );
 }
 
 export function isMediaReply(value: unknown): value is MediaReply {

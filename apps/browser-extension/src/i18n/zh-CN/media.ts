@@ -2,6 +2,11 @@
 import type { Messages } from "../core";
 
 export const media: Messages["media"] = {
+  sitePlaylist: "{site} 播放列表 · 在 Downpipe 中选择视频",
+  siteChannel: "{site} 频道 · 在 Downpipe 中选择视频",
+  thisSitePlaylist: "此 {site} 播放列表",
+  thisSiteChannel: "此 {site} 频道",
+  updateForLists: "更新 Downpipe 以下载播放列表",
   hls: "HLS 流",
   dash: "DASH 流",
   hlsQualities: { other: "HLS · {count} 种画质" },

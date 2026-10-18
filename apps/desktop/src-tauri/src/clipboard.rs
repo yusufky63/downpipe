@@ -141,7 +141,9 @@ fn offer(text: &str, extensions: &[String]) -> Option<String> {
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
         return None;
     }
-    if pages::recognize(&url).is_some() {
+    // Video pages, playlists and channels: the Add dialog takes them on to
+    // the quality chooser or the list of videos.
+    if pages::recognize(&url).is_some() || pages::recognize_list(&url).is_some() {
         return Some(text.to_string());
     }
     let name = url.path_segments()?.next_back()?;
@@ -206,12 +208,15 @@ mod tests {
             "https://www.youtube.com/watch?v=jNQXAC9IVRw",
             "https://youtu.be/jNQXAC9IVRw?si=abc",
             " https://www.youtube.com/shorts/aqz-KE-bpKQ\n",
+            "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb",
+            "https://www.youtube.com/@jawed",
         ] {
             assert_eq!(offer(text, &[]).as_deref(), Some(text.trim()), "{text:?}");
         }
         for text in [
             "https://www.youtube.com/",
-            "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb",
+            // Watch later needs the browser's sign-in.
+            "https://www.youtube.com/playlist?list=WL",
             "https://www.youtube.com/watch?v=short",
             "https://youtu.be/jNQXAC9IVRw https://youtu.be/aqz-KE-bpKQ",
         ] {

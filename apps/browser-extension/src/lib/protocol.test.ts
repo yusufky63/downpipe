@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import capturedFixture from "../../../../crates/native-host/tests/fixtures/download-captured.json";
 import linkFixture from "../../../../crates/native-host/tests/fixtures/download-link.json";
 import mediaFixture from "../../../../crates/native-host/tests/fixtures/media-hls.json";
+import playlistFixture from "../../../../crates/native-host/tests/fixtures/page-playlist.json";
 import pageFixture from "../../../../crates/native-host/tests/fixtures/page-youtube.json";
 import pingFixture from "../../../../crates/native-host/tests/fixtures/ping.json";
 import tasksFixture from "../../../../crates/native-host/tests/fixtures/tasks.json";
@@ -59,6 +60,13 @@ describe("messages match the host's fixtures", () => {
       "y1",
     );
     expect(message).toEqual(pageFixture);
+  });
+
+  it("playlist from the popup or the page menu", () => {
+    const message = pageMessage({ pageUrl: "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb&si=abc" }, "y2");
+    expect(message).toEqual(playlistFixture);
+    expect(pageMessage({ pageUrl: "https://www.youtube.com/@jawed/featured" }, "y3")?.page_url).toBe("https://www.youtube.com/@jawed/videos");
+    expect(pageMessage({ pageUrl: "https://www.youtube.com/feed/history" }, "y4")).toBeNull();
   });
 
   it("stream from the media list", () => {
@@ -178,6 +186,12 @@ describe("parseResponse", () => {
     expect(
       parseResponse({ protocol_version: 1, type: "error", code: "duplicate", message: "Already", task_id: "t" }),
     ).toEqual({ type: "error", id: undefined, code: "duplicate", message: "Already", taskId: "t" });
+    expect(parseResponse({ protocol_version: 1, id: "y2", type: "list_opened", page_url: "https://www.youtube.com/@jawed/videos" })).toEqual({
+      type: "list_opened",
+      id: "y2",
+      pageUrl: "https://www.youtube.com/@jawed/videos",
+    });
+    expect(parseResponse({ protocol_version: 1, type: "list_opened" })).toBeNull();
   });
 
   it("reads the confirmation flag, and only a literal true", () => {
@@ -293,7 +307,7 @@ describe("mediaMessage", () => {
 describe("pageMessage", () => {
   it("only for pages the site provider takes, as their plain address", () => {
     expect(pageMessage({ pageUrl: "https://example.org/watch?v=jNQXAC9IVRw" }, "x")).toBeNull();
-    expect(pageMessage({ pageUrl: "https://www.youtube.com/playlist?list=PL1" }, "x")).toBeNull();
+    expect(pageMessage({ pageUrl: "https://www.youtube.com/playlist?list=WL" }, "x")).toBeNull();
     expect(pageMessage({ pageUrl: "https://youtu.be/jNQXAC9IVRw?si=a" }, "x")).toEqual({
       protocol_version: 1,
       type: "page",

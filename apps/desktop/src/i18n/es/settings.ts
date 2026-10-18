@@ -80,6 +80,18 @@ export const settings: Messages["settings"] = {
       "Las transmisiones provienen de la detección multimedia de la extensión del navegador, o de enlaces .m3u8 y .mpd agregados aquí. No se descargan transmisiones protegidas con DRM ni en vivo.",
   },
   siteTools: {
+    template: "Plantilla de nombre de archivos multimedia",
+    templateHint: "Nombra los videos de páginas como YouTube; la extensión se añade sola. Haz clic en un marcador para añadirlo.",
+    templatePreview: "Ejemplo: {name}",
+    templateSame: "Sin el título ni el id, todos los videos reciben el mismo nombre y Downpipe añade (1), (2) a los siguientes.",
+    templateInsert: "Marcadores",
+    placeholders: {
+      title: "El título del video",
+      channel: "El nombre del canal",
+      date: "La fecha de subida, como 2005-04-23",
+      index: "La posición en la lista, como 07 de 42",
+      id: "El id del video en el sitio",
+    },
     heading: "Videos en páginas",
     intro:
       "En una página de YouTube, “Descargar con Downpipe” pasa la página a yt-dlp, que extrae el video. yt-dlp necesita Deno para YouTube y FFmpeg para unir video y sonido por encima de 360p.",

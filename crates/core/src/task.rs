@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use downpipe_http::media::{AudioOption, MediaKind, MediaOptions, MediaSelection, VideoOption};
 use downpipe_http::{Phase, Progress, SegmentView, WaitReason};
+use downpipe_providers::{ListEntry, Preset, SubtitleOption, SubtitleRef};
 use serde::{Deserialize, Serialize};
 
 pub type TaskId = String;
@@ -164,6 +165,22 @@ pub struct SiteInfo {
     /// "1080p", "Audio only" and the like, once known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quality: Option<String>,
+    /// The quality of a video added from a playlist, whose formats were
+    /// not read: used until `selection` is known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<Preset>,
+    /// Subtitles to save with the video.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subtitles: Vec<SubtitleRef>,
+    /// The video's title from the playlist, shown until the file is named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Position in the playlist it was added from, for `{index}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
+    /// That playlist's number of videos, for `{index}`'s zero padding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
 }
 
 impl SiteInfo {
@@ -172,6 +189,11 @@ impl SiteInfo {
             site: site.into(),
             selection: None,
             quality: None,
+            preset: None,
+            subtitles: Vec::new(),
+            title: None,
+            index: None,
+            count: None,
         }
     }
 }
@@ -180,8 +202,15 @@ impl SiteInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SiteChoices {
     pub site: String,
-    /// The page's title, which the dialog offers as the file name.
+    /// The page's title.
     pub title: Option<String>,
+    /// The file name the media name template makes of it, which the dialog
+    /// offers (`Me at the zoo.mp4`).
+    pub name: Option<String>,
+    /// Subtitle languages, the uploader's first, then automatic captions.
+    pub subtitles: Vec<SubtitleOption>,
+    /// The subtitles chosen so far.
+    pub chosen_subtitles: Vec<SubtitleRef>,
     pub options: SiteOptions,
     /// The choice made so far, if any.
     pub selection: Option<MediaSelection>,
@@ -197,6 +226,65 @@ pub struct SiteOptions {
     pub audios: Vec<AudioOption>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
+}
+
+/// A playlist's or channel's videos, for choosing which to add.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ListChoices {
+    pub site: String,
+    /// `playlist` or `channel`.
+    pub kind: String,
+    /// The list's own page.
+    pub url: String,
+    pub title: Option<String>,
+    pub channel: Option<String>,
+    pub entries: Vec<ListEntry>,
+    /// The list has more videos than were read.
+    pub truncated: bool,
+    /// The folder the list's own folder goes into unless one is chosen.
+    pub dir: PathBuf,
+    /// FFmpeg is available to join separate video and sound.
+    pub ffmpeg: bool,
+}
+
+/// A video chosen from a list.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ListPick {
+    /// The video's id; its link is made from it.
+    pub id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Position in the list, 1 first.
+    pub index: u32,
+}
+
+/// Videos of a playlist or channel to add, all with the same settings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct AddListOptions {
+    /// The list's page, as [`crate::Manager::inspect_list`] returned it.
+    pub url: String,
+    /// Names the folder the videos go into; no folder of its own when
+    /// empty.
+    pub title: Option<String>,
+    pub entries: Vec<ListPick>,
+    /// Videos in the whole list, for `{index}`'s zero padding.
+    pub count: u32,
+    pub preset: Option<Preset>,
+    pub subtitles: Vec<SubtitleRef>,
+    /// The folder the list's folder goes into; the video category's
+    /// folder when missing.
+    pub dir: Option<PathBuf>,
+    pub queue: Option<String>,
+    pub paused: bool,
+}
+
+/// What [`crate::Manager::add_list`] did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AddListResult {
+    pub added: Vec<TaskSnapshot>,
+    /// Videos already in the list, left as they were.
+    pub skipped: usize,
 }
 
 /// Fragments of a stream download.
@@ -356,6 +444,9 @@ pub struct ConfirmOptions {
     pub start: bool,
     /// Stream downloads: the quality and audio to download.
     pub media: Option<MediaSelection>,
+    /// Site downloads: the subtitles to save; `None` keeps the choice.
+    #[serde(default)]
+    pub subtitles: Option<Vec<SubtitleRef>>,
 }
 
 /// Where selected downloads move inside their queue.

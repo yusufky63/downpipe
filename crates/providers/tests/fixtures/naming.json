@@ -1,0 +1,52 @@
+[
+  {
+    "template": "{title}",
+    "fields": { "title": "Me at the zoo", "channel": "jawed", "upload_date": "20050423", "index": null, "count": null, "id": "jNQXAC9IVRw" },
+    "expected": "Me at the zoo"
+  },
+  {
+    "template": "{channel} - {title}",
+    "fields": { "title": "Me at the zoo", "channel": "jawed", "upload_date": "20050423", "index": null, "count": null, "id": "jNQXAC9IVRw" },
+    "expected": "jawed - Me at the zoo"
+  },
+  {
+    "template": "{index} - {title}",
+    "fields": { "title": "Me at the zoo", "channel": "jawed", "upload_date": null, "index": 7, "count": 42, "id": "jNQXAC9IVRw" },
+    "expected": "07 - Me at the zoo"
+  },
+  {
+    "template": "{index} - {title}",
+    "fields": { "title": "Me at the zoo", "channel": null, "upload_date": null, "index": 7, "count": 1200, "id": null },
+    "expected": "0007 - Me at the zoo"
+  },
+  {
+    "template": "{index} - {title}",
+    "fields": { "title": "Me at the zoo", "channel": null, "upload_date": null, "index": null, "count": null, "id": null },
+    "expected": "Me at the zoo"
+  },
+  {
+    "template": "{date} {title} [{id}]",
+    "fields": { "title": "Me at the zoo", "channel": null, "upload_date": "20050423", "index": null, "count": null, "id": "jNQXAC9IVRw" },
+    "expected": "2005-04-23 Me at the zoo [jNQXAC9IVRw]"
+  },
+  {
+    "template": "{title} - {channel} - {date}",
+    "fields": { "title": "Me at the zoo", "channel": "", "upload_date": "20050423", "index": null, "count": null, "id": null },
+    "expected": "Me at the zoo - 2005-04-23"
+  },
+  {
+    "template": "{date}_{title}",
+    "fields": { "title": "Clip", "channel": null, "upload_date": "2005-04", "index": null, "count": null, "id": null },
+    "expected": "Clip"
+  },
+  {
+    "template": "{title} {unknown} {",
+    "fields": { "title": "Clip", "channel": null, "upload_date": null, "index": null, "count": null, "id": null },
+    "expected": "Clip {unknown} {"
+  },
+  {
+    "template": "Lecture {index}: {title}",
+    "fields": { "title": "Limits", "channel": null, "upload_date": null, "index": 3, "count": 9, "id": null },
+    "expected": "Lecture 3: Limits"
+  }
+]

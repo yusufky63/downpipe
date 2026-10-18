@@ -106,10 +106,36 @@ export interface MediaInfo {
 export interface SiteInfo {
   /** "YouTube". */
   site: string;
-  /** Missing: the best quality is taken when it starts. */
+  /** Missing: the best quality (or the preset) is taken when it starts. */
   selection?: MediaSelection;
   /** "1080p", "Audio only" and the like, once known. */
   quality?: string;
+  /** A playlist's one quality for its videos, until their formats are known. */
+  preset?: Preset;
+  subtitles?: SubtitleRef[];
+  /** The title from the playlist, shown until the file is named. */
+  title?: string;
+  /** Position in the playlist it was added from, and that playlist's size. */
+  index?: number;
+  count?: number;
+}
+
+/** A quality for every video of a playlist. */
+export type Preset = "best" | "1080p" | "720p" | "audio";
+
+/** A subtitle to save: the uploader's, or the site's automatic captions (`auto`). */
+export interface SubtitleRef {
+  language: string;
+  auto: boolean;
+}
+
+/** A subtitle language a video page offers. */
+export interface SubtitleOption {
+  /** The site's code: "en", "pt-BR", "en-orig" (the original of automatic captions). */
+  language: string;
+  /** The site's name for it, in English. */
+  name?: string | null;
+  auto: boolean;
 }
 
 export interface VideoOption {
@@ -166,8 +192,62 @@ export interface MediaChoices extends Choices {
 /** What a video page offers, read by yt-dlp. */
 export interface SiteChoices extends Choices {
   site: string;
-  /** The page's title, offered as the file name. */
   title: string | null;
+  /** The file name the media name template makes, offered in the dialog. */
+  name: string | null;
+  /** The uploader's subtitles first, then automatic captions. */
+  subtitles: SubtitleOption[];
+  chosen_subtitles: SubtitleRef[];
+}
+
+/** One video of a playlist or channel. */
+export interface ListEntry {
+  id: string;
+  url: string;
+  title: string | null;
+  channel: string | null;
+  duration_ms: number | null;
+  /** Position in the list, 1 first. */
+  index: number;
+  /** False for private, deleted, members-only and live videos. */
+  available: boolean;
+}
+
+/** A playlist's or channel's videos, read by yt-dlp from the list pages. */
+export interface ListChoices {
+  site: string;
+  kind: "playlist" | "channel";
+  /** The list's own page. */
+  url: string;
+  title: string | null;
+  channel: string | null;
+  entries: ListEntry[];
+  /** The list has more videos than were read. */
+  truncated: boolean;
+  /** Where the list's folder goes unless another folder is chosen. */
+  dir: string;
+  ffmpeg: boolean;
+}
+
+export interface AddListOptions {
+  url: string;
+  /** Names the folder the videos go into. */
+  title: string | null;
+  entries: { id: string; title: string | null; index: number }[];
+  /** Videos in the whole list, for {index}'s zero padding. */
+  count: number;
+  preset: Preset;
+  subtitles: SubtitleRef[];
+  /** Null: the video category's folder. */
+  dir: string | null;
+  queue: string | null;
+  paused: boolean;
+}
+
+export interface AddListResult {
+  added: Task[];
+  /** Videos already in the list, left as they were. */
+  skipped: number;
 }
 
 export type ToolSource = "settings" | "managed" | "path";
@@ -227,6 +307,8 @@ export interface Settings {
   yt_dlp_path: string;
   /** Deno for yt-dlp. Empty: the tools folder, then PATH, then Node 22+. */
   deno_path: string;
+  /** Names site downloads: {title}, {channel}, {date}, {index}, {id}. */
+  media_name_template: string;
 }
 
 export const MAIN_QUEUE = "main";
@@ -313,6 +395,8 @@ export interface ConfirmOptions {
   start: boolean;
   /** Streams and video pages: the quality and audio to download. */
   media?: MediaSelection | null;
+  /** Video pages: the subtitles to save; null keeps the choice. */
+  subtitles?: SubtitleRef[] | null;
 }
 
 export type QueueMove = "up" | "down" | "top" | "bottom";
@@ -320,7 +404,9 @@ export type QueueMove = "up" | "down" | "top" | "bottom";
 export type ManagerEvent =
   | { type: "updated"; task: Task }
   | { type: "removed"; id: string }
-  | { type: "settings"; settings: Settings };
+  | { type: "settings"; settings: Settings }
+  /** The browser sent a playlist or channel to choose videos from. */
+  | { type: "list_offered"; url: string };
 
 export interface CommandError {
   code: string;
@@ -353,6 +439,9 @@ export const api = {
   ffmpegStatus: () => invoke<string | null>("ffmpeg_status"),
   /** Asks yt-dlp what a video page offers; downloads no video. */
   inspectSite: (id: string) => invoke<SiteChoices>("inspect_site", { id }),
+  /** Asks yt-dlp for a playlist's or channel's videos; downloads no video. */
+  inspectList: (url: string) => invoke<ListChoices>("inspect_list", { url }),
+  addList: (options: AddListOptions) => invoke<AddListResult>("add_list", { options }),
   siteTools: () => invoke<ToolsStatus>("site_tools"),
   /** Downloads yt-dlp and/or Deno from their official releases, checked by SHA-256. */
   installSiteTools: (tools: SiteTool[]) => invoke<ToolsStatus>("install_site_tools", { tools }),
