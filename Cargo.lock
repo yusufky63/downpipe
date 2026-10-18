@@ -1251,7 +1251,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1266,7 +1266,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "dirs 7.0.0",
@@ -1287,7 +1287,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-desktop"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "arboard",
  "chrono",
@@ -1315,7 +1315,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-http"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "aes",
  "bytes",
@@ -1343,7 +1343,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-native-host"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "dirs 7.0.0",
@@ -1362,7 +1362,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-providers"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "downpipe-http",
  "downpipe-test-server",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-test-server"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "aes",
  "anyhow",

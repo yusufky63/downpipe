@@ -4,7 +4,7 @@ An open-source download manager for Windows, macOS and Linux. Downpipe splits a 
 
 It is built as a Rust engine with a desktop app (Tauri), a command-line tool and a browser extension on top. The extension also finds the videos a web page plays, including HLS and DASH streams, and hands them to the app; YouTube pages go to [yt-dlp](https://github.com/yt-dlp/yt-dlp), which Downpipe runs for them. See [Roadmap](#roadmap).
 
-> Status: early development (0.3). The HTTP engine, queue, CLI, desktop app and browser bridge work and are tested. Windows installers and the browser extension are on the [Releases](https://github.com/yusufky63/downpipe/releases) page; they are not code-signed yet, and macOS and Linux builds are built from source for now.
+> Status: early development (0.4). The HTTP engine, queue, CLI, desktop app and browser bridge work and are tested. Windows installers and the browser extension are on the [Releases](https://github.com/yusufky63/downpipe/releases) page; they are not code-signed yet, and macOS and Linux builds are built from source for now.
 
 ## What works today
 

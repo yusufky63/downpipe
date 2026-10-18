@@ -2,7 +2,7 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
-## Unreleased
+## 0.4.0 — 2026-10-18
 
 Media detection: the videos and audio a web page plays, including HLS and DASH streams behind `blob:` players, download in Downpipe. YouTube pages download through yt-dlp.
 
