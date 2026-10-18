@@ -622,8 +622,12 @@ fn main() {
     // Runs with their own DOWNPIPE_DATA_DIR (tests, portable copies, a
     // development build next to an installed one) stay separate on purpose.
     if std::env::var_os("DOWNPIPE_DATA_DIR").is_none() {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            tray::show_main(app);
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // The browser bridge starts Downpipe with `--hidden` for a
+            // download; two of them at once must not open the window.
+            if !args.iter().any(|a| a == HIDDEN_ARG) {
+                tray::show_main(app);
+            }
         }));
     }
 

@@ -35,6 +35,10 @@ export const options: Messages["options"] = {
   mediaSizeLabel: "Şundan küçük medya dosyalarını dışarıda bırak",
   mediaSizeHelp:
     "Bildirim seslerini ve kısa önizlemeleri dışarıda tutar. 0 her boyutu listeler; boyutunu sunucunun bildirmediği dosyalar her zaman listelenir.",
+  appHeading: "05 — Masaüstü uygulaması",
+  startApp: "Kapalıysa Downpipe'ı başlat",
+  startAppDetail:
+    "Tarayıcıdan gönderilen bir indirme başarısız olmak yerine önce Downpipe'ı sistem tepsisinde başlatır. Bu kapalıyken Downpipe'ın açık olması gerekir.",
   save: "Kaydet",
   moreErrors: { one: "Ve {count} tane daha.", other: "Ve {count} tane daha." },
   unsaved: "Kaydedilmemiş değişiklikler",

@@ -6,7 +6,7 @@ import { ext } from "./lib/browser";
 import { decideCapture, linkFields, type DownloadItemLike } from "./lib/capture";
 import { collectPageLinks } from "./lib/collect";
 import { hostOf, matchingSite, withSite } from "./lib/filters";
-import { callHost } from "./lib/host";
+import { callHost, type HostResult } from "./lib/host";
 import {
   MAX_PAGE_LINKS,
   collectionFromPage,
@@ -70,6 +70,8 @@ import {
   pageMessage,
   pingMessage,
   tasksMessage,
+  withStartApp,
+  type AddMessage,
   type TaskStatus,
 } from "./lib/protocol";
 import { isOwnContentScript, isTrustedSender } from "./lib/sender";
@@ -102,6 +104,11 @@ const WEB_PAGES = ["http://*/*", "https://*/*"];
 const LINK_TIMEOUT_MS = 10_000;
 /** A captured download waits for this answer, so it is kept short. */
 const CAPTURE_TIMEOUT_MS = 5_000;
+/**
+ * Added to the timeouts above while the host may start Downpipe: it waits
+ * up to 10 s for the app to come up (crates/native-host/src/launch.rs).
+ */
+const START_APP_MS = 12_000;
 const STATUS_TIMEOUT_MS = 5_000;
 const DOWNLOADS_PERMISSION: chrome.permissions.Permissions = { permissions: ["downloads"] };
 const ACTIVITY_KEY = "activity";
@@ -119,6 +126,16 @@ const sendNative = (host: string, message: object): Promise<unknown> =>
 // Before anything is worded: menus, notifications, the toolbar tooltip and
 // the replies to the pages and the overlay.
 activateBrowserLanguage();
+
+/**
+ * Send a download, stream or video page to Downpipe. Unless the options
+ * page turned it off, the host starts a closed Downpipe first, which takes
+ * longer than an answer from a running one.
+ */
+async function addToApp(message: AddMessage, timeoutMs: number): Promise<HostResult> {
+  const { startApp } = await cachedSettings();
+  return callHost(sendNative, withStartApp(message, startApp), startApp ? timeoutMs + START_APP_MS : timeoutMs);
+}
 
 // ---------- Context menus ----------
 
@@ -197,7 +214,7 @@ async function sendLink(info: chrome.contextMenus.OnClickData): Promise<void> {
     });
     return;
   }
-  const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+  const result = await addToApp(message, LINK_TIMEOUT_MS);
   const { outcome, message: text, fileName, taskId, awaitingConfirmation } = downloadOutcome(result);
   await report({ source: "link", label: fileName ?? label, outcome, message: text, taskId, awaitingConfirmation });
 }
@@ -264,7 +281,7 @@ async function sendVideoPage(
   if (!page || !message) {
     return { outcome: "failed", message: t("errors.notVideoPage"), stop: false };
   }
-  const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+  const result = await addToApp(message, LINK_TIMEOUT_MS);
   const outcome = pageOutcome(result);
   await report(
     {
@@ -303,7 +320,7 @@ async function sendPageLink(url: string, pageUrl: string | undefined): Promise<L
   if (!message) {
     return { outcome: "failed", message: t("errors.code.invalid_url"), stop: false };
   }
-  const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+  const result = await addToApp(message, LINK_TIMEOUT_MS);
   const outcome = downloadOutcome(result);
   // Into the popup's list, but without a badge or notification per link:
   // the links page shows the results itself.
@@ -332,7 +349,7 @@ async function handOff(item: DownloadItemLike): Promise<boolean> {
   const message = downloadMessage(decision.fields, newMessageId());
   if (!message) return false;
   const label = fileNameHint(item.filename) ?? linkLabel(item.url);
-  const result = await callHost(sendNative, message, CAPTURE_TIMEOUT_MS);
+  const result = await addToApp(message, CAPTURE_TIMEOUT_MS);
   const { outcome, message: text, fileName, taskId, awaitingConfirmation } = downloadOutcome(result);
   if (outcome === "failed") {
     await report({ source: "capture", label, outcome: "kept", message: keptMessage(result) });
@@ -670,7 +687,7 @@ async function sendMedia(tabId: number, mediaId: string): Promise<LinkResult> {
     const fileName = titleFileName(title, item);
     const message = downloadMessage({ resourceUrl: item.url, pageUrl, referrer, mimeType: item.mime, fileName }, id);
     if (!message) return { outcome: "failed", message: t("errors.mediaInvalid"), stop: false };
-    result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+    result = await addToApp(message, LINK_TIMEOUT_MS);
     outcome = downloadOutcome(result);
   } else {
     const message = mediaMessage(
@@ -678,7 +695,7 @@ async function sendMedia(tabId: number, mediaId: string): Promise<LinkResult> {
       id,
     );
     if (!message) return { outcome: "failed", message: t("errors.streamInvalid"), stop: false };
-    result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+    result = await addToApp(message, LINK_TIMEOUT_MS);
     outcome = streamOutcome(result);
   }
   await report({
@@ -910,6 +927,8 @@ async function answer(request: PopupRequest): Promise<Reply> {
       return settings();
     case "set_notify":
       return changeSettings((s) => ({ ...s, notify: request.enabled }));
+    case "set_start_app":
+      return changeSettings((s) => ({ ...s, startApp: request.enabled }));
     case "save_filters":
       return changeSettings((s) => ({ ...s, ...request.filters }));
     case "set_site_paused":

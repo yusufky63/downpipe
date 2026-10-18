@@ -6,6 +6,10 @@ All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
 The download engine handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names.
 
+### New
+
+- **Downpipe starts from the browser.** A link, stream or video page sent from the browser while Downpipe is closed starts it in the tray and is then added, instead of failing with "Downpipe is not running" (IDM does the same). The bridge starts only the Downpipe next to it, never a program a message names, waits at most 10 seconds and otherwise gives the old answer, so a captured download stays with the browser. **Start Downpipe when it is closed** on the extension's Filters page turns it off. Bridge: an optional `start_app` field on `download`, `media` and `page`.
+
 ### Fixed
 
 - **Hosts that cap connections.** A server that refuses extra connections with `403`, `429` or `503` while the first one downloads no longer fails the download: Downpipe continues with the connections it accepts and remembers that number for the host until it quits, so the next download from it starts there.

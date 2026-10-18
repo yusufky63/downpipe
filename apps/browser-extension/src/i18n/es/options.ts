@@ -34,6 +34,10 @@ export const options: Messages["options"] = {
   mediaSizeLabel: "Omitir archivos multimedia de menos de",
   mediaSizeHelp:
     "Deja fuera los sonidos de notificación y las vistas previas cortas. 0 muestra todos los tamaños; los archivos cuyo tamaño no indica el servidor siempre se muestran.",
+  appHeading: "05 — Aplicación de escritorio",
+  startApp: "Iniciar Downpipe si está cerrado",
+  startAppDetail:
+    "Una descarga enviada desde el navegador inicia primero Downpipe en la bandeja del sistema, en lugar de fallar. Si esta opción está desactivada, Downpipe tiene que estar abierto.",
   save: "Guardar",
   moreErrors: { one: "Y {count} más.", many: "Y {count} más.", other: "Y {count} más." },
   unsaved: "Cambios sin guardar",

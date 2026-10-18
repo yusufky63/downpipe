@@ -28,6 +28,10 @@ export const options: Messages["options"] = {
   mediaTypesHelp: "以空格或逗号分隔的扩展名。没有扩展名的文件按服务器发送的类型判断。列表为空时仅列出流。",
   mediaSizeLabel: "不列出小于此大小的媒体文件",
   mediaSizeHelp: "可排除提示音和简短预览。0 表示列出所有大小；服务器未告知大小的文件始终会被列出。",
+  appHeading: "05 — 桌面应用",
+  startApp: "Downpipe 未运行时自动启动",
+  startAppDetail:
+    "从浏览器发送的下载会先在系统托盘中启动 Downpipe，而不是直接失败。关闭此项后，必须先打开 Downpipe。",
   save: "保存",
   moreErrors: { other: "还有 {count} 个。" },
   unsaved: "有未保存的更改",

@@ -26,11 +26,31 @@ export function classifyNativeError(message: string): BridgeFailure {
   return "host_error";
 }
 
+/**
+ * Send one message and wait at most `timeoutMs` for the answer. A host from
+ * before `start_app` refuses the field as an invalid message; such a host
+ * never starts Downpipe, so the message goes again without it.
+ */
 export async function callHost(
   send: NativeSend,
   message: HostMessage,
   timeoutMs: number,
 ): Promise<HostResult> {
+  const result = await callOnce(send, message, timeoutMs);
+  if (
+    "start_app" in message &&
+    result.ok &&
+    result.response.type === "error" &&
+    result.response.code === "invalid_message"
+  ) {
+    const without = { ...message };
+    delete without.start_app;
+    return callOnce(send, without, timeoutMs);
+  }
+  return result;
+}
+
+async function callOnce(send: NativeSend, message: HostMessage, timeoutMs: number): Promise<HostResult> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<"timeout">((resolve) => {
     timer = setTimeout(() => resolve("timeout"), timeoutMs);

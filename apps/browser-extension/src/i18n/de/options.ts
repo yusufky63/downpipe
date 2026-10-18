@@ -35,6 +35,10 @@ export const options: Messages["options"] = {
   mediaSizeLabel: "Mediendateien auslassen, die kleiner sind als",
   mediaSizeHelp:
     "Hält Benachrichtigungstöne und kurze Vorschauen fern. 0 listet jede Größe auf; Dateien, deren Größe der Server nicht angibt, werden immer aufgelistet.",
+  appHeading: "05 — Desktop-App",
+  startApp: "Downpipe starten, wenn es geschlossen ist",
+  startAppDetail:
+    "Ein aus dem Browser gesendeter Download startet Downpipe zuerst im Infobereich, statt fehlzuschlagen. Ist dies aus, muss Downpipe geöffnet sein.",
   save: "Speichern",
   moreErrors: { one: "Und {count} weiterer.", other: "Und {count} weitere." },
   unsaved: "Nicht gespeicherte Änderungen",

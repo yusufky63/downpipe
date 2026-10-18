@@ -95,7 +95,11 @@ struct Host {
 
 impl Host {
     fn spawn(endpoint: &Endpoint) -> Self {
-        let child = Command::new(HOST)
+        Self::spawn_from(Path::new(HOST), endpoint)
+    }
+
+    fn spawn_from(exe: &Path, endpoint: &Endpoint) -> Self {
+        let child = Command::new(exe)
             .arg(ORIGIN)
             .arg("--parent-window=0")
             .env(ENDPOINT_ENV, endpoint.path())
@@ -375,16 +379,40 @@ async fn app_not_running_is_reported_to_the_extension() {
     assert_eq!(pong["app_running"], false);
     assert!(pong.get("app_version").is_none());
 
+    // `start_app: false`: a development build of the app may sit next to
+    // the host in Cargo's target folder, and must not be started here.
     let answer = host.ask(&json!({
         "protocol_version": 1,
         "type": "download",
         "resource_url": "https://example.org/file.zip",
+        "start_app": false,
     }));
     assert_eq!(answer["type"], "error");
     assert_eq!(answer["code"], "app_not_running");
     assert!(
         answer["message"].as_str().unwrap().contains("not running"),
         "{answer}"
+    );
+    assert!(host.finish().success());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn without_an_app_beside_the_host_the_answer_stays_not_running() {
+    // A copy of the host in a folder of its own has no app to start.
+    let dir = tempfile::tempdir().unwrap();
+    let host_copy = dir.path().join(Path::new(HOST).file_name().unwrap());
+    std::fs::copy(HOST, &host_copy).unwrap();
+    let mut host = Host::spawn_from(&host_copy, &test_endpoint(dir.path()));
+    let started = Instant::now();
+    let answer = host.ask(&json!({
+        "protocol_version": 1,
+        "type": "download",
+        "resource_url": "https://example.org/file.zip",
+    }));
+    assert_eq!(answer["code"], "app_not_running", "{answer}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "no wait without an app to start"
     );
     assert!(host.finish().success());
 }

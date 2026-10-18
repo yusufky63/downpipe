@@ -28,6 +28,8 @@ export interface DownloadMessage {
   referrer?: string;
   mime_type?: string;
   file_name?: string;
+  /** Sent only to turn off starting a closed Downpipe (`withStartApp`). */
+  start_app?: false;
 }
 
 /** A stream the page played: its manifest, for Downpipe to read and download. */
@@ -43,6 +45,7 @@ export interface MediaMessage {
   title?: string;
   /** The `Origin` the page's player sent, if it sent one. */
   origin?: string;
+  start_app?: false;
 }
 
 /**
@@ -55,6 +58,19 @@ export interface PageMessage {
   id: string;
   page_url: string;
   title?: string;
+  start_app?: false;
+}
+
+/** Messages that add a download, which the host may start Downpipe for. */
+export type AddMessage = DownloadMessage | MediaMessage | PageMessage;
+
+/**
+ * The host starts a closed Downpipe for a download unless told not to. The
+ * field goes out only as `false`: hosts from before it refuse fields they do
+ * not know, and they never start the app anyway (see `callHost`).
+ */
+export function withStartApp<M extends AddMessage>(message: M, startApp: boolean): M {
+  return startApp ? message : { ...message, start_app: false };
 }
 
 /** Streams the `media` message carries. Single media files go as `download`. */

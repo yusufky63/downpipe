@@ -33,6 +33,10 @@ export const options = {
   mediaSizeLabel: "Leave out media files smaller than",
   mediaSizeHelp:
     "Keeps notification sounds and short previews out. 0 lists every size; files whose size the server does not say are always listed.",
+  appHeading: "05 — Desktop app",
+  startApp: "Start Downpipe when it is closed",
+  startAppDetail:
+    "A download sent from the browser starts Downpipe in the tray first, instead of failing. When this is off, Downpipe has to be open.",
   save: "Save",
   /** After the first few errors under a field. */
   moreErrors: { one: "And {count} more.", other: "And {count} more." },

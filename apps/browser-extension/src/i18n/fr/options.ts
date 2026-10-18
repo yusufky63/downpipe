@@ -36,6 +36,10 @@ export const options: Messages["options"] = {
   mediaSizeLabel: "Exclure les fichiers multimédias de moins de",
   mediaSizeHelp:
     "Écarte les sons de notification et les courts aperçus. 0 liste toutes les tailles ; les fichiers dont le serveur n'indique pas la taille sont toujours listés.",
+  appHeading: "05 — Application de bureau",
+  startApp: "Lancer Downpipe s'il est fermé",
+  startAppDetail:
+    "Un téléchargement envoyé depuis le navigateur lance d'abord Downpipe dans la zone de notification, au lieu d'échouer. Si cette option est désactivée, Downpipe doit être ouvert.",
   save: "Enregistrer",
   moreErrors: { one: "Et {count} autre.", many: "Et {count} autres.", other: "Et {count} autres." },
   unsaved: "Modifications non enregistrées",

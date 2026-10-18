@@ -26,6 +26,7 @@ const els = {
   captureOff: byId("capture-off"),
   loadError: byId("load-error"),
   captureAll: byId<HTMLInputElement>("capture-all"),
+  startApp: byId<HTMLInputElement>("start-app"),
   types: byId<HTMLTextAreaElement>("types"),
   typesField: byId<HTMLTextAreaElement>("types").closest<HTMLElement>(".field"),
   typesDefault: byId<HTMLButtonElement>("types-default"),
@@ -110,6 +111,7 @@ function fill(s: Settings): void {
   const mediaSize = sizeFields(s.mediaMinBytes);
   els.mediaSize.value = mediaSize.value;
   els.mediaUnit.value = mediaSize.unit;
+  els.startApp.checked = s.startApp;
   syncTypes();
   paintErrors(NO_ERRORS);
   paintMediaErrors([], []);
@@ -144,6 +146,7 @@ els.size.addEventListener("input", () => showErrors(els.sizeErrors, els.size, []
 els.mediaTypes.addEventListener("input", () => showErrors(els.mediaTypesErrors, els.mediaTypes, []));
 els.mediaSize.addEventListener("input", () => showErrors(els.mediaSizeErrors, els.mediaSize, []));
 els.mediaOverlay.addEventListener("change", edited);
+els.startApp.addEventListener("change", edited);
 
 els.mediaTypesDefault.addEventListener("click", () => {
   els.mediaTypes.value = DEFAULT_MEDIA_TYPES.join(" ");
@@ -181,10 +184,12 @@ els.form.addEventListener("submit", (event) => {
   }
   els.save.disabled = true;
   setState(t("options.saving"));
-  // Two writes, one after the other: the service worker chains them anyway.
+  const startApp = els.startApp.checked;
+  // One write after the other: the service worker chains them anyway.
   void ext.runtime
     .sendMessage({ kind: "save_filters", filters: result.filters })
     .then((reply: unknown) => (isSettings(reply) ? ext.runtime.sendMessage({ kind: "save_media", media: media.media }) : null))
+    .then((reply: unknown) => (isSettings(reply) ? ext.runtime.sendMessage({ kind: "set_start_app", enabled: startApp }) : null))
     .catch(() => null)
     .then((reply: unknown) => {
       if (!isSettings(reply)) {
