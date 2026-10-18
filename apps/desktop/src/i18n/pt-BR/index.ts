@@ -8,6 +8,7 @@ import { details } from "./details";
 import { dialogs } from "./dialogs";
 import { app, list } from "./list";
 import { media } from "./media";
+import { remote } from "./remote";
 import { settings } from "./settings";
 
-export const ptBR: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, media, confirm };
+export const ptBR: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, media, confirm, remote };

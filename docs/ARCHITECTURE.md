@@ -119,6 +119,16 @@ The same crate builds both ends of the pipe, so the end-to-end test (`crates/nat
 
 Protocol, install locations and troubleshooting: [BROWSER_BRIDGE.md](BROWSER_BRIDGE.md).
 
+## Remote control
+
+`crates/remote` (`downpipe-remote`) is an optional HTTP server over the `Manager`, for a phone or another browser. `Settings::remote` (`RemoteSettings`) holds whether it is on, the address and port it listens on (`127.0.0.1:9420` by default) and the SHA-256 of its access token; the token itself is shown once and never stored, and without a hash it cannot be on. `RemoteServer::start` binds an axum router (`api.rs`):
+
+- `GET /api/v1/downloads`, `POST /api/v1/downloads` (`url`, `folder` inside the download folder, `queue`, `paused`, `add_copy`), `POST /api/v1/downloads/{id}/pause` and `/resume`, `DELETE /api/v1/downloads/{id}`, `GET /api/v1/settings`. Rows are `DownloadView`s: name, host, state, sizes, speed, time left, queue and quality, never folders, paths or full links. Errors are `{ "error": code }` with a matching status.
+- `GET /` is `remote.html`, `/assets/{name}` and `/icon.svg` its files; nothing else of the bundle is served (`assets::is_servable`).
+- A guard in front of everything refuses peers outside local networks when it listens on a network address (`peer.rs`), requests whose `Origin` is not the server, and more than 32 requests at once. The API routes also need `Authorization: Bearer <token>`, checked against the hash (`token.rs`), with a lockout after 10 wrong tokens per peer in 10 minutes (`limiter.rs`). Bodies are capped at 16 KiB.
+
+The desktop app runs it from `src-tauri/src/remote.rs`: it follows the core's `Settings` events, restarts the server when `remote` changes, and serves the page from the app's own bundle through Tauri's asset resolver (from `dist` in development). `set_remote` and `new_remote_token` are the only commands that change `remote`; they make the token and return it once, and `update_settings` keeps the stored `remote` whatever the page sends. The page is a separate Vite entry (`remote.html`, `src/remote.tsx`, `src/RemoteApp.tsx`) with the same design tokens and translations (`i18n/<language>/remote.ts`); `lib/remote.ts` has its API client and helpers, and it has no Tauri code. It takes the token from `#token=` in its address (the settings' link and QR code), keeps it in `localStorage` and reads the list every two seconds while it is visible.
+
 ## CLI
 
 `downpipe` talks to the engine directly, without the queue or database. Its resume state is the same `.part.meta` file, so a download started in the CLI can also be resumed by running the command again or with `downpipe resume`.
@@ -132,4 +142,4 @@ Protocol, install locations and troubleshooting: [BROWSER_BRIDGE.md](BROWSER_BRI
 ## Planned layers
 
 - **More site providers.** Other sites yt-dlp supports are one entry each in `pages` and `lib/sites.ts`, once their terms and extraction have been checked.
-- **Local API.** Loopback-only REST + event stream for a web UI, reusing `Manager`.
+- **Remote control events.** The page polls the list; an event stream would let it follow progress without asking.

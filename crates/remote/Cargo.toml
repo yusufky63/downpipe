@@ -1,0 +1,32 @@
+[package]
+name = "downpipe-remote"
+description = "Optional remote control for Downpipe: a token-protected HTTP API and the web page that uses it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+axum.workspace = true
+downpipe-core.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+parking_lot.workspace = true
+percent-encoding.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+downpipe-test-server.workspace = true
+reqwest = { workspace = true, features = ["json"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -7,6 +7,7 @@ mod confirm;
 mod i18n;
 mod power;
 mod progress;
+mod remote;
 mod tray;
 
 use std::path::PathBuf;
@@ -119,9 +120,14 @@ fn get_settings(manager: State<'_, Manager>) -> Settings {
 async fn update_settings(
     app: AppHandle,
     manager: State<'_, Manager>,
-    settings: Settings,
+    mut settings: Settings,
 ) -> CmdResult<Settings> {
-    let was_registering = manager.settings().register_browser_host;
+    let current = manager.settings();
+    // The remote control changes only through its own commands, which make
+    // its token; a page saving other settings cannot switch it on or set
+    // the token hash, even from stale settings.
+    settings.remote = current.remote;
+    let was_registering = current.register_browser_host;
     let saved = manager.update_settings(settings)?;
     sync_autostart(&app, saved.start_with_system).map_err(|e| CommandError::new("autostart", e))?;
     if saved.register_browser_host && !was_registering {
@@ -130,6 +136,72 @@ async fn update_settings(
         let _ = tauri::async_runtime::spawn_blocking(register_browser_host).await;
     }
     Ok(saved)
+}
+
+/// What the Remote settings page shows: whether it runs, and where.
+#[tauri::command]
+async fn remote_status(
+    manager: State<'_, Manager>,
+    remote: State<'_, remote::Remote>,
+) -> CmdResult<remote::RemoteStatus> {
+    Ok(remote.status(&manager.settings().remote).await)
+}
+
+/// The remote control's state after a change, and a new token when one was
+/// made: the only time it is ever shown.
+#[derive(Debug, Serialize)]
+struct RemoteUpdate {
+    status: remote::RemoteStatus,
+    token: Option<String>,
+}
+
+/// Switch the remote control and choose where it listens. Switching it on
+/// the first time makes its token.
+#[tauri::command]
+async fn set_remote(
+    app: AppHandle,
+    manager: State<'_, Manager>,
+    remote: State<'_, remote::Remote>,
+    enabled: bool,
+    bind: String,
+    port: u16,
+) -> CmdResult<RemoteUpdate> {
+    let mut settings = manager.settings();
+    settings.remote.enabled = enabled;
+    settings.remote.bind = bind;
+    settings.remote.port = port;
+    let token = (enabled && settings.remote.token_hash.is_empty())
+        .then(|| remote::new_token(&mut settings.remote));
+    save_remote(&app, &manager, &remote, settings, token).await
+}
+
+/// Replace the token; the old one stops working at once.
+#[tauri::command]
+async fn new_remote_token(
+    app: AppHandle,
+    manager: State<'_, Manager>,
+    remote: State<'_, remote::Remote>,
+) -> CmdResult<RemoteUpdate> {
+    let mut settings = manager.settings();
+    let token = remote::new_token(&mut settings.remote);
+    save_remote(&app, &manager, &remote, settings, Some(token)).await
+}
+
+async fn save_remote(
+    app: &AppHandle,
+    manager: &Manager,
+    remote: &remote::Remote,
+    settings: Settings,
+    token: Option<String>,
+) -> CmdResult<RemoteUpdate> {
+    let saved = manager.update_settings(settings)?;
+    // Applied here as well as from the settings event, so the answer
+    // already says whether the server could start.
+    remote.apply(app, manager, &saved.remote).await;
+    Ok(RemoteUpdate {
+        status: remote.status(&saved.remote).await,
+        token,
+    })
 }
 
 /// Name, folder and queue for a download the browser sent, then start it
@@ -651,6 +723,8 @@ fn main() {
             app.manage(confirm::ConfirmWindow::default());
             background::spawn(app.handle().clone(), manager.clone());
             clipboard::spawn(app.handle().clone(), manager.clone());
+            app.manage(remote::Remote::default());
+            remote::spawn(app.handle().clone(), manager.clone());
             if let Err(err) = tray::create(app.handle()) {
                 tracing::warn!("no tray icon: {err}");
             }
@@ -702,6 +776,9 @@ fn main() {
             clear_finished,
             get_settings,
             update_settings,
+            remote_status,
+            set_remote,
+            new_remote_token,
             browser_bridge_status,
             register_browser_bridge,
             pick_folder,

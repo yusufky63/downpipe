@@ -6,6 +6,10 @@ All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
 The download engine handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names.
 
+### New
+
+- **Remote control.** Optional and off by default: **Settings → Remote** serves a small web page for phones and an HTTP API, so another device can see the list with progress, add links (to a folder inside the download folder and a queue) and pause, resume or remove downloads. It listens on this computer only unless you pick the local network, which warns that the token is then the only barrier. Every request needs a random access token, shown once with a copy button and a QR code that carries the address and the token, and stored only as a hash; **New token** replaces it. Wrong guesses lock a device out for a while, other sites' pages cannot call it, peers outside local networks are refused, and it never shows folders or paths, browses files or runs anything. The page and its settings are in all ten languages. API and threats: [Architecture](docs/ARCHITECTURE.md#remote-control), [Security model](docs/SECURITY_MODEL.md#remote-control).
+
 ### Fixed
 
 - **Hosts that cap connections.** A server that refuses extra connections with `403`, `429` or `503` while the first one downloads no longer fails the download: Downpipe continues with the connections it accepts and remembers that number for the host until it quits, so the next download from it starts there.
