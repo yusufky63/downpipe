@@ -11,37 +11,56 @@ use tauri::{AppHandle, Manager as _};
 
 const TRAY_ID: &str = "downpipe";
 
-fn menu(app: &AppHandle, texts: &Texts) -> tauri::Result<Menu<Wry>> {
-    let show = MenuItem::with_id(app, "show", texts.show, true, None::<&str>)?;
-    let pause = MenuItem::with_id(app, "pause_all", texts.pause_all, true, None::<&str>)?;
-    let resume = MenuItem::with_id(app, "resume_all", texts.resume_all, true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", texts.quit, true, None::<&str>)?;
-    Menu::with_items(
-        app,
-        &[
-            &show,
-            &PredefinedMenuItem::separator(app)?,
-            &pause,
-            &resume,
-            &PredefinedMenuItem::separator(app)?,
-            &quit,
-        ],
-    )
+/// The menu's items, kept so a language change can rename them in place:
+/// on Linux a tray menu, once set, cannot be replaced.
+struct Items {
+    show: MenuItem<Wry>,
+    pause: MenuItem<Wry>,
+    resume: MenuItem<Wry>,
+    quit: MenuItem<Wry>,
 }
 
-/// Rebuild the menu in another language. The handlers stay: they go by id.
+impl Items {
+    fn new(app: &AppHandle, texts: &Texts) -> tauri::Result<Self> {
+        Ok(Self {
+            show: MenuItem::with_id(app, "show", texts.show, true, None::<&str>)?,
+            pause: MenuItem::with_id(app, "pause_all", texts.pause_all, true, None::<&str>)?,
+            resume: MenuItem::with_id(app, "resume_all", texts.resume_all, true, None::<&str>)?,
+            quit: MenuItem::with_id(app, "quit", texts.quit, true, None::<&str>)?,
+        })
+    }
+
+    fn menu(&self, app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+        Menu::with_items(
+            app,
+            &[
+                &self.show,
+                &PredefinedMenuItem::separator(app)?,
+                &self.pause,
+                &self.resume,
+                &PredefinedMenuItem::separator(app)?,
+                &self.quit,
+            ],
+        )
+    }
+}
+
+/// Rename the menu's items for another language. The handlers stay: they go
+/// by id.
 pub fn set_language(app: &AppHandle, texts: &Texts) {
-    if let Some(tray) = app.tray_by_id(TRAY_ID)
-        && let Ok(menu) = menu(app, texts)
-    {
-        let _ = tray.set_menu(Some(menu));
+    if let Some(items) = app.try_state::<Items>() {
+        let _ = items.show.set_text(texts.show);
+        let _ = items.pause.set_text(texts.pause_all);
+        let _ = items.resume.set_text(texts.resume_all);
+        let _ = items.quit.set_text(texts.quit);
     }
 }
 
 /// Created in English; the background loop switches it to the user's
 /// language within a second, once the settings are at hand.
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
-    let menu = menu(app, Lang::En.texts())?;
+    let items = Items::new(app, Lang::En.texts())?;
+    let menu = items.menu(app)?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("Downpipe")
@@ -70,6 +89,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         builder = builder.icon(icon);
     }
     builder.build(app)?;
+    app.manage(items);
     Ok(())
 }
 

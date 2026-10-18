@@ -38,5 +38,12 @@ url.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 
+# X11 is always built in, but through XWayland it sees what other programs
+# copy only while one of its windows has the focus. The data-control protocol
+# (KDE, wlroots compositors) lets the watcher read the Wayland clipboard
+# directly; arboard falls back to X11 where the compositor lacks it.
+[target.'cfg(target_os = "linux")'.dependencies]
+arboard = { version = "=3.6.1", default-features = false, features = ["wayland-data-control"] }
+
 [lints]
 workspace = true
