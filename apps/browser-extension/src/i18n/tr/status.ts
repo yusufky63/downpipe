@@ -7,6 +7,8 @@ export const status: Messages["status"] = {
   connected: "Downpipe'a bağlı",
   connectedDetail: "Uygulama {app}, tarayıcı köprüsü {bridge}",
   appNotRunning: "Downpipe çalışmıyor",
+  /** Instead of appNotRunningDetail while the bridge may start Downpipe. */
+  appNotRunningStarts: "Gönderdiğiniz bir indirme onu sistem tepsisinde başlatır.",
   appNotRunningDetail: "Downpipe uygulamasını açın. Uygulama kapalıyken gönderilen bağlantılar kuyruğa alınmaz.",
   hostMissing: "Tarayıcı köprüsü yüklü değil",
   hostMissingDetail: "Downpipe uygulamasını bir kez açın; köprüyü başlarken kaydeder. Kaynaktan derlenmiş bir sürüm için şunu çalıştırın:",

@@ -87,6 +87,7 @@ function isStatusReply(value: unknown): value is StatusReply {
     typeof v.bridge === "object" &&
     typeof v.capture === "boolean" &&
     typeof v.notify === "boolean" &&
+    typeof v.startApp === "boolean" &&
     Array.isArray(v.excludedSites) &&
     v.excludedSites.every((s) => typeof s === "string") &&
     Array.isArray(v.activity) &&
@@ -101,7 +102,7 @@ function isTasksReply(value: unknown): value is TasksReply {
 }
 
 function renderStatus(reply: StatusReply | null): void {
-  const view = statusView(reply?.bridge ?? null, extension);
+  const view = statusView(reply?.bridge ?? null, extension, reply?.startApp ?? false);
   paintStatus(els.status, view);
   // Connected needs no box and no actions, only a word in the header: the
   // room goes to the media and download lists. The popup checks again each
@@ -303,6 +304,7 @@ async function refresh(): Promise<void> {
         bridge: { state: "error", message: t("common.extensionNoAnswer") },
         capture: false,
         notify: true,
+        startApp: false,
         excludedSites: [],
         activity: [],
         tasks: [],

@@ -900,6 +900,7 @@ async function status(): Promise<StatusReply> {
     bridge: bridgeStatus(result),
     capture,
     notify: prefs.notify,
+    startApp: prefs.startApp,
     excludedSites: prefs.excludedSites,
     activity,
     tasks: tasks ?? [],

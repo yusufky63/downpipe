@@ -144,6 +144,14 @@ describe("statusView", () => {
     );
     expect(statusView({ state: "app_not_running", hostVersion: "1" }, chromeExt).tone).toBe("warning");
   });
+
+  it("says a closed Downpipe starts with the next download when the bridge may start it", () => {
+    const closed = { state: "app_not_running", hostVersion: "1" } as const;
+    expect(statusView(closed, chromeExt).detail).toContain("not queued");
+    const starts = statusView(closed, chromeExt, true);
+    expect(starts.tone).toBe("muted");
+    expect(starts.detail).toBe("A download you send starts it in the tray.");
+  });
 });
 
 describe("streamOutcome", () => {

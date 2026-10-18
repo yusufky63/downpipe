@@ -303,6 +303,8 @@ export interface StatusReply {
   /** The `downloads` permission is granted, so browser downloads are captured. */
   capture: boolean;
   notify: boolean;
+  /** The bridge may start a closed Downpipe (Settings.startApp). */
+  startApp: boolean;
   /** For the popup's "Pause capture on this site". */
   excludedSites: string[];
   activity: Activity[];
