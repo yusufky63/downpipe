@@ -720,8 +720,23 @@ fn bundled_host() -> std::io::Result<PathBuf> {
     Ok(manifest::host_beside(&std::env::current_exe()?))
 }
 
+/// The host browsers are pointed at for `shipped`: itself, except in an
+/// AppImage, whose mount point changes with every start; there it is a copy
+/// in the app's data folder (`manifest::copy_host`).
+fn registered_host(shipped: PathBuf) -> PathBuf {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("APPIMAGE").is_some()
+        && let Some(dir) = manifest::appimage_host_dir()
+    {
+        return dir.join(manifest::HOST_EXE);
+    }
+    shipped
+}
+
 fn bridge_registration() -> std::io::Result<BridgeRegistration> {
-    let host = bundled_host()?;
+    let shipped = bundled_host()?;
+    let host_found = shipped.is_file();
+    let host = registered_host(shipped);
     let browsers = manifest::check(&Layout::current()?, &host)
         .into_iter()
         .map(|(browser, status)| {
@@ -744,7 +759,7 @@ fn bridge_registration() -> std::io::Result<BridgeRegistration> {
         })
         .collect();
     Ok(BridgeRegistration {
-        host_found: host.is_file(),
+        host_found,
         host: host.display().to_string(),
         browsers,
     })
@@ -776,7 +791,7 @@ async fn register_browser_bridge() -> CmdResult<BridgeRegistration> {
 /// `downpipe-native-host install`. Machine-wide registrations are never
 /// touched. Blocking: on Windows every registry access runs `reg.exe`.
 fn register_browser_host() {
-    let host = match bundled_host() {
+    let shipped = match bundled_host() {
         Ok(host) if host.is_file() => host,
         Ok(host) => {
             tracing::warn!(
@@ -790,6 +805,19 @@ fn register_browser_host() {
             return;
         }
     };
+    let host = registered_host(shipped.clone());
+    if host != shipped
+        && let Err(err) = host
+            .parent()
+            .ok_or_else(|| std::io::Error::other("the host path has no folder"))
+            .and_then(|dir| manifest::copy_host(&shipped, dir))
+    {
+        tracing::warn!(
+            "browser bridge not registered: could not copy the host to {}: {err}",
+            host.display()
+        );
+        return;
+    }
     let layout = match Layout::current() {
         Ok(layout) => layout,
         Err(err) => {
@@ -1018,13 +1046,21 @@ fn main() {
         }
     };
 
-    app.run(|handle, event| {
-        if let RunEvent::Exit = event {
+    app.run(|handle, event| match event {
+        RunEvent::Exit => {
             // Write final checkpoints so running downloads continue on the
             // next launch instead of losing the last seconds of progress.
             handle.state::<Feeds>().stop();
             let manager = handle.state::<Manager>().inner().clone();
             tauri::async_runtime::block_on(manager.shutdown());
         }
+        // A click on the Dock icon of an app closed to the tray: macOS
+        // users expect the window back, as from the tray's Show.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen {
+            has_visible_windows: false,
+            ..
+        } => tray::show_main(handle),
+        _ => {}
     });
 }

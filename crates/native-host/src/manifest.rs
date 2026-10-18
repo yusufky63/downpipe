@@ -156,18 +156,74 @@ impl Layout {
     }
 
     /// Whether the browser seems to be installed for this user. On macOS and
-    /// Linux that is its profile folder; registry keys are cheap, so Windows
+    /// Linux that is one of its folders; registry keys are cheap, so Windows
     /// registers every browser.
     pub fn browser_present(&self, browser: Browser) -> bool {
         match self.platform {
             Platform::Windows => true,
-            _ => self
-                .manifest_path(browser)
-                .parent()
-                .and_then(Path::parent)
-                .is_some_and(Path::is_dir),
+            _ => self.browser_dirs(browser).iter().any(|dir| dir.is_dir()),
         }
     }
+
+    /// Folders that exist once the browser has run for this user.
+    fn browser_dirs(&self, browser: Browser) -> Vec<PathBuf> {
+        let mut dirs: Vec<PathBuf> = self
+            .manifest_path(browser)
+            .parent()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .into_iter()
+            .collect();
+        if browser.is_firefox() {
+            match self.platform {
+                // Firefox keeps its profiles in `Firefox`; `Mozilla`, where
+                // it looks for host manifests, may not exist yet.
+                Platform::MacOs => dirs.push(
+                    self.home
+                        .join("Library")
+                        .join("Application Support")
+                        .join("Firefox"),
+                ),
+                // Ubuntu's Firefox snap keeps its profiles under ~/snap and
+                // reads host manifests from ~/.mozilla through the desktop
+                // portal, so ~/.mozilla may never have been created.
+                Platform::Linux => dirs.push(self.home.join("snap").join("firefox")),
+                Platform::Windows => {}
+            }
+        }
+        dirs
+    }
+}
+
+/// Where an AppImage's copy of the host goes (see [`copy_host`]): the desktop
+/// app's data folder, `$XDG_DATA_HOME/dev.downpipe.desktop/native-host`.
+pub fn appimage_host_dir() -> Option<PathBuf> {
+    dirs::data_dir().map(|dir| dir.join("dev.downpipe.desktop").join("native-host"))
+}
+
+/// Copy the host to `dir` unless an identical copy is already there, and
+/// return the copy's path. An AppImage runs from a mount point that changes
+/// with every start and is gone once the app quits, so browsers must be
+/// pointed at a copy outside it; the host still answers `app_not_running`
+/// from there.
+pub fn copy_host(from: &Path, dir: &Path) -> io::Result<PathBuf> {
+    let to = dir.join(HOST_EXE);
+    let bytes = std::fs::read(from)?;
+    if std::fs::read(&to).is_ok_and(|current| current == bytes) {
+        return Ok(to);
+    }
+    std::fs::create_dir_all(dir)?;
+    // A browser may be running the old copy; renaming over it leaves that
+    // process its file, where writing into it would fail or corrupt it.
+    let staged = dir.join(format!(".{HOST_EXE}.new"));
+    std::fs::write(&staged, &bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))?;
+    }
+    std::fs::rename(&staged, &to)?;
+    Ok(to)
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -820,6 +876,61 @@ mod tests {
         assert!(uninstall(&linux, Browser::Chrome).unwrap());
         assert!(!uninstall(&linux, Browser::Chrome).unwrap());
         assert_eq!(registered_path(&linux, Browser::Chrome).unwrap(), None);
+    }
+
+    #[test]
+    fn firefox_counts_as_installed_from_its_profile_folders() {
+        let tmp = tempfile::tempdir().unwrap();
+        let linux = layout(Platform::Linux, tmp.path());
+        assert!(!linux.browser_present(Browser::Firefox));
+        std::fs::create_dir_all(linux.home.join("snap").join("firefox")).unwrap();
+        assert!(linux.browser_present(Browser::Firefox));
+        assert!(!linux.browser_present(Browser::Chrome));
+
+        let mac = layout(Platform::MacOs, tmp.path());
+        assert!(!mac.browser_present(Browser::Firefox));
+        let support = mac.home.join("Library").join("Application Support");
+        std::fs::create_dir_all(support.join("Firefox")).unwrap();
+        assert!(mac.browser_present(Browser::Firefox));
+        assert!(!mac.browser_present(Browser::Edge));
+        std::fs::create_dir_all(support.join("Microsoft Edge")).unwrap();
+        assert!(mac.browser_present(Browser::Edge));
+    }
+
+    #[test]
+    fn host_copies_are_replaced_only_when_they_differ() {
+        let tmp = tempfile::tempdir().unwrap();
+        let shipped = tmp.path().join("mount").join(HOST_EXE);
+        std::fs::create_dir_all(shipped.parent().unwrap()).unwrap();
+        std::fs::write(&shipped, b"v1").unwrap();
+        let dir = tmp.path().join("data").join("native-host");
+
+        let copy = copy_host(&shipped, &dir).unwrap();
+        assert_eq!(copy, dir.join(HOST_EXE));
+        assert_eq!(std::fs::read(&copy).unwrap(), b"v1");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&copy).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o755);
+        }
+        let modified = std::fs::metadata(&copy).unwrap().modified().unwrap();
+        assert_eq!(copy_host(&shipped, &dir).unwrap(), copy);
+        assert_eq!(
+            std::fs::metadata(&copy).unwrap().modified().unwrap(),
+            modified,
+            "an identical copy is left alone"
+        );
+
+        std::fs::write(&shipped, b"v2").unwrap();
+        copy_host(&shipped, &dir).unwrap();
+        assert_eq!(std::fs::read(&copy).unwrap(), b"v2");
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "no staged file left"
+        );
+        assert!(copy_host(&tmp.path().join("missing"), &dir).is_err());
     }
 
     #[test]

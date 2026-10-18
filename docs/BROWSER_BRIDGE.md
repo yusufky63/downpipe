@@ -37,7 +37,9 @@ So with an installer the steps are: install Downpipe, start it once, load the ex
 
 **Settings → Browser bridge** in the app lists the state for each browser and has **Register now**. Turn off **Register with browsers at start-up** to manage the registration yourself, for example to keep the browsers on a host you built from source; Downpipe then leaves it alone. The setting is stored with the download catalog.
 
-The AppImage is the exception to "next to the app": its files live in a mount that changes at every start. The registration then follows the running copy, which works while Downpipe runs; while it is closed the popup reports the bridge as missing rather than Downpipe as not running.
+The AppImage is the exception to "next to the app": its files live in a mount that changes at every start and is gone once Downpipe quits. Before registering, the AppImage copies its host to `~/.local/share/dev.downpipe.desktop/native-host/downpipe-native-host` (`$XDG_DATA_HOME` when set), replacing the copy only when it differs, and points the browsers at that copy. So the popup says **Downpipe is not running** while it is closed, and a newer AppImage takes the registration over at its first start, like an update of the packages.
+
+On macOS and Linux a browser counts as installed when its folder exists: the vendor folder that holds `NativeMessagingHosts` (for example `~/.config/google-chrome`), and for Firefox also `~/Library/Application Support/Firefox` on macOS and `~/snap/firefox` on Linux, because `Mozilla` and `~/.mozilla` may not exist yet. Ubuntu's Firefox snap reads host manifests from `~/.mozilla/native-messaging-hosts` through the desktop portal and starts the host outside the snap. Browsers installed as Flatpaks and the Chromium snap cannot start a host outside their sandbox, and no registration changes that.
 
 ### Uninstalling
 
@@ -48,7 +50,13 @@ The Windows uninstallers remove the registration again, for the user who runs th
 
 Most upgrades keep the registration, since the new version puts the host back at the same path. A silent NSIS install over an existing one (`/S`) does not run the old uninstaller, an NSIS uninstaller started with `/UPDATE` (Tauri's flag for updates) skips the removal, and so does the old MSI during a major upgrade. The exception is installing a newer NSIS version by hand and keeping the installer's default choice, **Uninstall before installing**: the old version's uninstaller removes the registration, and the new version writes it again when it starts. The installer's last page starts Downpipe unless you clear its run option, so the browsers report a missing bridge only until then. That gap is accepted rather than worked around: an installer that registered the host itself would override people who turned the start-up registration off.
 
-macOS (moving `Downpipe.app` to the Trash) and the Linux packages have no uninstall step that could do this. Run `downpipe-native-host uninstall` from the install folder before removing Downpipe, or delete the manifest files listed under [Registering by hand](#registering-by-hand).
+macOS (moving `Downpipe.app` to the Trash) and the Linux packages have no uninstall step that could do this: a package's removal scripts run as root, not as each user who registered. Run the host's `uninstall` before removing Downpipe, or delete the manifest files listed under [Registering by hand](#registering-by-hand):
+
+| Install | Command |
+|---|---|
+| macOS | `/Applications/Downpipe.app/Contents/MacOS/downpipe-native-host uninstall` |
+| Linux `.deb`, `.rpm` | `/usr/bin/downpipe-native-host uninstall` |
+| AppImage | `~/.local/share/dev.downpipe.desktop/native-host/downpipe-native-host uninstall`, then delete that folder |
 
 ## Set up from source
 
@@ -96,7 +104,7 @@ cd C:\path\to\downpipe; cargo build --release -p downpipe-native-host; .\target\
 cd C:\path\to\downpipe; pnpm install; pnpm --filter @downpipe/desktop tauri build
 ```
 
-Before it compiles the app, `tauri build` runs `pnpm sidecar`, which builds `downpipe-native-host` in release mode and copies it to `apps/desktop/src-tauri/binaries/downpipe-native-host-<target triple>` (`.exe` on Windows), the name Tauri's `bundle.externalBin` looks for. With `--target`, the script builds the host for that target too. The installers then put the host next to the app under its plain name, `downpipe-native-host`.
+Before it compiles the app, `tauri build` runs `pnpm sidecar`, which builds `downpipe-native-host` in release mode and copies it to `apps/desktop/src-tauri/binaries/downpipe-native-host-<target triple>` (`.exe` on Windows), the name Tauri's `bundle.externalBin` looks for. With `--target`, the script builds the host for that target too; for `universal-apple-darwin`, which Cargo does not know, it builds the host for `aarch64-apple-darwin` and `x86_64-apple-darwin` and joins the two with `lipo`. The installers then put the host next to the app under its plain name, `downpipe-native-host`.
 
 `apps/desktop/src-tauri/build.rs` stops tauri-build from also copying that file into `target/<profile>/`, where Cargo already builds the workspace's own host; the bundler reads `binaries/` directly. That keeps `cargo check --workspace` working before `pnpm sidecar` has ever run.
 
@@ -224,9 +232,11 @@ reg add "HKCU\Software\Google\Chrome\NativeMessagingHosts\dev.downpipe.native_ho
 | Chrome | `~/.config/google-chrome/NativeMessagingHosts/` |
 | Edge | `~/.config/microsoft-edge/NativeMessagingHosts/` |
 | Chromium | `~/.config/chromium/NativeMessagingHosts/` |
-| Firefox | `~/.mozilla/native-messaging-hosts/` |
+| Firefox | `~/.mozilla/native-messaging-hosts/` (also for Ubuntu's Firefox snap) |
 
-The file name is `dev.downpipe.native_host.json` everywhere. Without `--browser`, `install` on macOS and Linux registers only the browsers whose profile folder exists.
+The file name is `dev.downpipe.native_host.json` everywhere. Without `--browser`, `install` on macOS and Linux registers only the browsers whose folder exists (see [Registration by the app](#registration-by-the-app)).
+
+The app's end of the bridge is a Unix socket on macOS and Linux: `$XDG_RUNTIME_DIR/downpipe/bridge.sock` on Linux (`~/.local/share/downpipe/bridge.sock` without `XDG_RUNTIME_DIR`) and `~/Library/Application Support/downpipe/bridge.sock` on macOS, in a folder only the user can open.
 
 ## Protocol, version 1
 

@@ -46,6 +46,16 @@ The download engine handles what users of other download managers keep running i
 - **File names.** Raw UTF-8 names in `Content-Disposition` (which servers send although the standard does not allow it) are read instead of falling back to the URL; percent-encoded and RFC 2047 (`=?UTF-8?B?...?=`) names, `filename*0*=` continuations, a missing disposition type and an unterminated quote are understood. After a redirect to a storage URL named by a hash, the link's own name (`setup.exe`) is kept. Invisible direction marks that disguise extensions are removed, `COM¹`-style device names are made safe, and a name cut to length no longer ends in a dot. A single-connection download that fails no longer leaves its partial file behind, which pushed the retry to `name (1)`.
 - `downpipe get` says why it is waiting (`network down, retrying`, `no data, reconnecting`).
 
+### Linux and macOS
+
+- **Release packages.** A version tag now builds Linux packages (`.deb`, `.rpm`, AppImage) and a universal macOS `.dmg` (Apple Silicon and Intel) on GitHub Actions and attaches them to the release. They are unsigned; the macOS app is signed ad hoc, and the README explains how to get past Gatekeeper. Pull requests to `main` are checked on Linux (format, Clippy, tests, `pnpm check`).
+- **Browser bridge from an AppImage.** The AppImage copies its native host to `~/.local/share/dev.downpipe.desktop/native-host/` and registers that copy, so the extension finds the host after Downpipe quits and says **Downpipe is not running** instead of reporting a broken bridge.
+- **Firefox found more often.** Ubuntu's Firefox snap (`~/snap/firefox`) and a Firefox on macOS that has no `Mozilla` folder yet are registered too.
+- **Tray menu language on Linux.** Changing the language renames the tray menu's items instead of replacing the menu, which Linux does not allow.
+- **Clipboard watching on Wayland** reads the clipboard through the data-control protocol where the compositor has it (KDE Plasma, wlroots compositors), instead of only through XWayland.
+- **Dock icon on macOS.** Clicking it brings back a window closed to the menu bar.
+- `pnpm sidecar` builds a universal native host for `--target universal-apple-darwin`.
+
 ### Engine
 
 - New crate `downpipe-torrent` on [librqbit](https://github.com/ikatson/rqbit) 9.0.1 (Apache-2.0), behind the core's `torrent` feature, which the desktop app turns on. `Progress::torrent`, error kind `torrent`, `Manager::add_torrent_file`, `inspect_torrent` and `stop_seeding`, `Settings::torrent`, and `torrent` (info hash, chosen files, upload total) in the catalog (schema version 9). Backups carry it too, so a restored torrent comes back as a torrent. The bridge's `pong` lists the `torrent` feature. Tests seed from a librqbit peer on loopback, with no DHT, trackers or internet.

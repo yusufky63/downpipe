@@ -38,6 +38,9 @@
       "icons/icon.ico"
     ],
     "externalBin": ["binaries/downpipe-native-host"],
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "windows": {
       "nsis": {
         "installerHooks": "./installer-hooks.nsh"
@@ -47,6 +50,7 @@
         "componentGroupRefs": ["DownpipeBrowserBridgeCleanup"]
       }
     },
+    "category": "Utility",
     "shortDescription": "Adaptive, resumable download manager",
     "license": "Apache-2.0"
   }

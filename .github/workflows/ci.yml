@@ -1,0 +1,64 @@
+# Checks a pull request to main on Linux, the platform development on Windows
+# does not compile for. Release packages are built by release.yml.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux checks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      # Clippy below covers the desktop app, which needs the GTK and WebKit
+      # headers.
+      - name: Install Linux build libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: cargo fmt --all --check
+
+      # The desktop crate embeds the built web UI, so it must exist first.
+      - run: pnpm --filter @downpipe/desktop build
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # The default members: everything but the desktop shell.
+      - run: cargo test
+
+      - run: pnpm check

@@ -1,0 +1,148 @@
+# Linux and macOS packages for a release. Windows installers are still built
+# by hand. Runs only for a pushed version tag or when started by hand, never
+# on ordinary pushes, so it costs nothing between releases.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach the packages to (empty: build the chosen branch and keep the packages as workflow artifacts only)"
+        required: false
+        default: ""
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The tag the packages belong to; empty for a test build by hand.
+  TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest supported Ubuntu, so the AppImage and .deb run on
+          # distributions with an older glibc too.
+          - name: linux
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            rust-targets: ""
+            bundle-dir: target/release/bundle
+            packages: "deb/*.deb rpm/*.rpm appimage/*.AppImage"
+          # One universal .dmg for Apple Silicon and Intel Macs.
+          - name: macos
+            os: macos-latest
+            target: universal-apple-darwin
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+            bundle-dir: target/universal-apple-darwin/release/bundle
+            packages: "dmg/*.dmg"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG || github.ref }}
+
+      - name: Check the tag against the app version
+        if: env.TAG != ''
+        shell: bash
+        run: |
+          version=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::tag $TAG does not match the app version $version in tauri.conf.json"
+            exit 1
+          fi
+
+      - name: Install Linux build libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev libssl-dev patchelf file
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # beforeBuildCommand builds the native host sidecar for the same target
+      # (scripts/sidecar.mjs) and the web UI. No signing identity: the
+      # packages are unsigned, and the macOS app is signed ad hoc.
+      - name: Build the packages
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          if [ "${{ matrix.target }}" = "universal-apple-darwin" ]; then
+            pnpm tauri build --target universal-apple-darwin
+          else
+            pnpm tauri build
+          fi
+
+      - name: Collect the packages
+        shell: bash
+        run: |
+          mkdir -p out
+          cd "${{ matrix.bundle-dir }}"
+          for pattern in ${{ matrix.packages }}; do
+            # An unmatched pattern stays as it is and fails the copy.
+            cp -v $pattern "$GITHUB_WORKSPACE/out/"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Attach to the release
+    needs: build
+    if: github.event_name == 'push' || inputs.tag != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: out
+          merge-multiple: true
+
+      # The Windows installers are added by hand, so a release that does not
+      # exist yet is created as a draft for them.
+      - name: Upload to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --draft --verify-tag --title "Downpipe ${TAG#v}" \
+              --notes "See CHANGELOG.md for what changed."
+          fi
+          gh release upload "$TAG" out/* --clobber

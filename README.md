@@ -4,7 +4,7 @@ An open-source download manager for Windows, macOS and Linux. Downpipe splits a 
 
 It is built as a Rust engine with a desktop app (Tauri), a command-line tool and a browser extension on top. The extension also finds the videos a web page plays, including HLS and DASH streams, and hands them to the app; YouTube pages go to [yt-dlp](https://github.com/yt-dlp/yt-dlp), which Downpipe runs for them. See [Roadmap](#roadmap).
 
-> Status: early development (0.4). The HTTP engine, queue, CLI, desktop app and browser bridge work and are tested. Windows installers and the browser extension are on the [Releases](https://github.com/yusufky63/downpipe/releases) page; they are not code-signed yet, and macOS and Linux builds are built from source for now.
+> Status: early development (0.4). The HTTP engine, queue, CLI, desktop app and browser bridge work and are tested. Windows installers, Linux packages (`.deb`, `.rpm`, AppImage), a universal macOS `.dmg` and the browser extension are on the [Releases](https://github.com/yusufky63/downpipe/releases) page (the Linux and macOS packages from the release after 0.4.0 on). None of them are code-signed yet; see [Install](#install).
 
 ## What works today
 
@@ -46,9 +46,59 @@ It is built as a Rust engine with a desktop app (Tauri), a command-line tool and
 
 What Downpipe does **not** do: it does not bypass DRM, paywalls or logins, it does not read browser cookies (the extension refuses to pass them; only cookies you paste into the Add dialog yourself are sent, and they stay in memory), and it does not send your downloads or links to any server of ours. See [Legal](docs/LEGAL.md).
 
+## Install
+
+### Windows
+
+Download the `-setup.exe` (per-user install) or the `.msi` from the [Releases](https://github.com/yusufky63/downpipe/releases) page. The installers are not code-signed yet, so SmartScreen may ask once; choose **More info → Run anyway**.
+
+### Linux
+
+The release has three packages for x86-64; each includes the browser bridge's native host.
+
+| Package | Install |
+|---|---|
+| `.deb` (Debian, Ubuntu, Mint) | `sudo apt install ./Downpipe_<version>_amd64.deb` |
+| `.rpm` (Fedora, openSUSE) | `sudo dnf install ./Downpipe-<version>-1.x86_64.rpm` |
+| AppImage (distributions with glibc 2.35 or newer) | `chmod +x Downpipe_<version>_amd64.AppImage`, then run it |
+
+The packages need WebKitGTK 4.1 and, for the tray icon, libayatana-appindicator; `apt` and `dnf` install both, and the AppImage carries them. GNOME shows tray icons only with the AppIndicator extension, which Ubuntu ships turned on; on Fedora and plain GNOME install **AppIndicator and KStatusNotifierItem Support**, or turn off **Close to tray** so that closing the window quits.
+
+- **Browser bridge.** Downpipe registers its native host for your user account every time it starts, for Chrome, Chromium, Edge and Firefox, in the folders listed in [docs/BROWSER_BRIDGE.md](docs/BROWSER_BRIDGE.md#registering-by-hand) (`~/.config/google-chrome/NativeMessagingHosts/`, `~/.mozilla/native-messaging-hosts/`, ...). The host is `/usr/bin/downpipe-native-host` for the `.deb` and `.rpm`. The AppImage copies its host to `~/.local/share/dev.downpipe.desktop/native-host/` and registers that copy, because the AppImage's own files move with every start. Ubuntu's Firefox snap reads `~/.mozilla` through the desktop portal; browsers installed as Flatpaks and the Chromium snap cannot start programs outside their sandbox, so the bridge does not reach Downpipe from them.
+- **Clipboard watching** works on X11 and on Wayland compositors with the data-control protocol (KDE Plasma, Sway, Hyprland and other wlroots compositors). In GNOME's Wayland session it only sees links copied while a Downpipe window has the focus.
+- **When done: sleep or shut down** runs `systemctl suspend` or `systemctl poweroff`, which systemd allows for the user at the screen.
+- **A blank window** on some NVIDIA setups is a WebKitGTK problem; start Downpipe with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+- **Uninstall.** Run `downpipe-native-host uninstall` (for the AppImage: `~/.local/share/dev.downpipe.desktop/native-host/downpipe-native-host uninstall`) before removing the package, so the browsers forget the host; the package manager cannot do that for each user. The download list and settings stay in `~/.local/share/dev.downpipe.desktop/`.
+
+### macOS
+
+Download `Downpipe_<version>_universal.dmg` (Apple Silicon and Intel), open it and drag **Downpipe** into **Applications**.
+
+The app is not signed with an Apple Developer ID or notarized, only signed ad hoc, so Gatekeeper refuses the first start ("Apple could not verify Downpipe"). Either
+
+- open **System Settings → Privacy & Security**, find the message about Downpipe and choose **Open Anyway** (on macOS 14 and older, Control-clicking the app and choosing **Open** also works), or
+- remove the quarantine flag once in Terminal, which also covers the native host that the browsers start from inside the app:
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/Downpipe.app
+  ```
+
+If the extension's popup reports a bridge error although Downpipe runs, macOS blocked the native host; the `xattr` command above lets it run.
+
+- **Browser bridge.** The host is `/Applications/Downpipe.app/Contents/MacOS/downpipe-native-host`. Downpipe registers it at every start for Chrome, Chromium, Edge and Firefox, in `~/Library/Application Support/<browser>/NativeMessagingHosts/` (`Mozilla/NativeMessagingHosts/` for Firefox).
+- **Menu bar.** Closing the window keeps Downpipe in the menu bar; clicking its Dock icon brings the window back.
+- **When done: shut down** asks the first time for permission to control System Events. Allow it, or grant it later in **System Settings → Privacy & Security → Automation**; without it the shutdown is refused.
+- **Uninstall.** Run `/Applications/Downpipe.app/Contents/MacOS/downpipe-native-host uninstall`, then move the app to the Trash. The download list and settings stay in `~/Library/Application Support/dev.downpipe.desktop/`.
+
 ## Install from source
 
-Requirements: Rust 1.88 or newer, Node.js 22 or newer, pnpm 9, and on Windows the WebView2 runtime (included in Windows 10/11).
+Requirements: Rust 1.88 or newer, Node.js 22 or newer, pnpm 9, and on Windows the WebView2 runtime (included in Windows 10/11). On Linux the desktop app also needs the WebKitGTK and tray headers; on Debian and Ubuntu:
+
+```bash
+sudo apt install build-essential libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+```
+
+On macOS the Xcode command line tools are enough (`xcode-select --install`).
 
 Command-line tool:
 
@@ -71,6 +121,8 @@ Desktop installers (the native host for the browser extension is included):
 ```powershell
 cd C:\path\to\downpipe; pnpm install; pnpm --filter @downpipe/desktop tauri build
 ```
+
+That builds the packages for the system it runs on: NSIS and MSI on Windows, `.deb`, `.rpm` and an AppImage on Linux, `Downpipe.app` and a `.dmg` on macOS (add `--target universal-apple-darwin` for one that runs on Apple Silicon and Intel, after `rustup target add aarch64-apple-darwin x86_64-apple-darwin`). Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the Linux and macOS packages and attaches them to that tag's GitHub release.
 
 Browser extension:
 
