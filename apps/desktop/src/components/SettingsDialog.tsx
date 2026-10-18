@@ -12,7 +12,10 @@ import {
   type Queue,
   type Settings,
   type SiteRulesCheck,
+  type SiteTool,
+  type ToolsProgress,
   type ToolsStatus,
+  onToolsProgress,
 } from "../lib/api";
 import { BROWSER_NAMES, bridgeStateInfo, canRegister } from "../lib/bridge";
 import { fromRuleDraft, toRuleDraft, type RuleDraft } from "../lib/siteRules";
@@ -20,7 +23,8 @@ import { bytesToRate, decimalField, parseDecimal, rateToBytes, type RateUnit } f
 import { categoryLabel, storedCategoryName } from "../lib/categories";
 import { DEFAULT_TEMPLATE, PLACEHOLDERS, namesAlike, renderTemplate, type NameFields } from "../lib/naming";
 import { hasArchiveTypes } from "../lib/post";
-import { installButtonLabel, toolRows, toolsToInstall } from "../lib/tools";
+import { downloadSize, progressText, toolRows, toolsToInstall } from "../lib/tools";
+import { longDate } from "../i18n/format";
 import { fromTorrentDraft, torrentDraft } from "../lib/torrent";
 import { BackupSection, IdmImport } from "./BackupSection";
 import { FolderInput } from "./FolderInput";
@@ -138,6 +142,9 @@ export function SettingsDialog({
   const [ffmpegPath, setFfmpegPath] = useState(settings.ffmpeg_path);
   const [ytDlpPath, setYtDlpPath] = useState(settings.yt_dlp_path);
   const [denoPath, setDenoPath] = useState(settings.deno_path);
+  const [ytDlpAutoUpdate, setYtDlpAutoUpdate] = useState(settings.yt_dlp_auto_update);
+  // Bumped when a tool is downloaded, so FFmpeg's line above the list looks again.
+  const [toolsChanged, setToolsChanged] = useState(0);
   const [nameTemplate, setNameTemplate] = useState(settings.media_name_template);
   const [language, setLanguage] = useState(settings.language);
   const [postCommand, setPostCommand] = useState(settings.post.command);
@@ -205,6 +212,7 @@ export function SettingsDialog({
         ffmpeg_path: ffmpegPath.trim(),
         yt_dlp_path: ytDlpPath.trim(),
         deno_path: denoPath.trim(),
+        yt_dlp_auto_update: ytDlpAutoUpdate,
         post: {
           command: postCommand.trim(),
           timeout_secs: Number.parseInt(postTimeout, 10) || settings.post.timeout_secs,
@@ -594,14 +602,16 @@ export function SettingsDialog({
                 />
               )}
             </Field>
-            <FfmpegStatus />
+            <FfmpegStatus key={toolsChanged} />
             <Banner tone="neutral">{t("settings.media.streams")}</Banner>
             <SiteTools
               ytDlpPath={ytDlpPath}
               denoPath={denoPath}
               onYtDlpPath={setYtDlpPath}
               onDenoPath={setDenoPath}
-              denoConfigured={settings.deno_path !== ""}
+              autoUpdate={ytDlpAutoUpdate}
+              onAutoUpdate={setYtDlpAutoUpdate}
+              onChanged={() => setToolsChanged((n) => n + 1)}
             />
             <NameTemplate value={nameTemplate} onChange={setNameTemplate} />
           </>
@@ -811,28 +821,35 @@ function FfmpegStatus() {
 }
 
 /**
- * Videos on pages (YouTube): yt-dlp and Deno, found or downloaded on request.
- * The status describes the saved settings, like FFmpeg's above.
+ * Videos on pages (YouTube): yt-dlp, Deno and FFmpeg, found or downloaded on
+ * request, one at a time from their rows or all at once. The status
+ * describes the saved settings, like FFmpeg's above.
  */
 function SiteTools({
   ytDlpPath,
   denoPath,
   onYtDlpPath,
   onDenoPath,
-  denoConfigured,
+  autoUpdate,
+  onAutoUpdate,
+  onChanged,
 }: {
   ytDlpPath: string;
   denoPath: string;
   onYtDlpPath: (v: string) => void;
   onDenoPath: (v: string) => void;
-  /** A Deno path is saved in the settings, so a download would not be used. */
-  denoConfigured: boolean;
+  autoUpdate: boolean;
+  onAutoUpdate: (v: boolean) => void;
+  /** A tool was downloaded. */
+  onChanged: () => void;
 }) {
   const { t } = useI18n();
   const headingId = useId();
   const [status, setStatus] = useState<ToolsStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  // The tools being downloaded now, and how far along.
+  const [busy, setBusy] = useState<SiteTool[] | null>(null);
+  const [progress, setProgress] = useState<ToolsProgress | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -845,19 +862,32 @@ function SiteTools({
     };
   }, []);
 
-  const wanted = status ? toolsToInstall(status, denoConfigured) : [];
-  const install = async () => {
-    setBusy(true);
+  useEffect(() => {
+    if (!busy) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void onToolsProgress((p) => setProgress(p)).then((fn) => (disposed ? fn() : (unlisten = fn)));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [busy]);
+
+  const install = async (tools: SiteTool[]) => {
+    setBusy(tools);
+    setProgress(null);
     setError(null);
     try {
-      setStatus(await api.installSiteTools(wanted));
+      setStatus(await api.installSiteTools(tools));
+      onChanged();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
+  const all = status ? toolsToInstall(status) : [];
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-4 border-t border-line pt-5">
       <h3 id={headingId} className="label">
@@ -894,24 +924,50 @@ function SiteTools({
       {status && (
         <ul aria-label={t("settings.siteTools.listLabel")} className="divide-y divide-line rounded-md border border-line">
           {toolRows(status).map((row) => (
-            <li key={row.name} className="flex flex-col gap-1 px-3 py-2">
-              <div className="flex items-center justify-between gap-3">
+            <li key={row.tool} className="flex flex-col gap-1 px-3 py-2">
+              <div className="flex min-h-8 items-center justify-between gap-3">
                 <span className="text-[13px] text-ink">{row.name}</span>
-                <Badge tone={row.tone}>{row.badge}</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge tone={row.tone}>{row.badge}</Badge>
+                  {row.action && (
+                    <Button
+                      size="sm"
+                      onClick={() => void install([row.tool])}
+                      disabled={busy !== null}
+                      title={t("media.aboutSize", { size: downloadSize(status, [row.tool]) })}
+                    >
+                      {row.action === "update" ? t("media.tools.update") : t("media.tools.download")}
+                    </Button>
+                  )}
+                </div>
               </div>
               {row.detail && <p className="font-mono text-[12px] break-all text-ink-muted select-text">{row.detail}</p>}
               {row.problem && <p className="text-[12px] text-warning-fg">{row.problem}</p>}
+              {row.tool === "yt_dlp" && status.yt_dlp.source === "managed" && (
+                <p className="text-[12px] text-ink-muted">
+                  {status.yt_dlp_checked
+                    ? t("media.tools.checked", { time: longDate(status.yt_dlp_checked) })
+                    : t("media.tools.neverChecked")}
+                </p>
+              )}
             </li>
           ))}
         </ul>
       )}
-      {status && wanted.length > 0 && (
+      {status && busy && (
+        <p className="num text-[12px] text-ink-secondary" role="status" aria-live="polite">
+          {progress ? progressText(progress) : t("media.tools.starting")}
+        </p>
+      )}
+      {status && (
         <div className="flex flex-col gap-2">
-          <div>
-            <Button size="sm" onClick={() => void install()} disabled={busy}>
-              {busy ? t("settings.siteTools.downloading") : installButtonLabel(status, wanted)}
-            </Button>
-          </div>
+          {all.length > 0 && (
+            <div>
+              <Button size="sm" variant="primary" onClick={() => void install(all)} disabled={busy !== null}>
+                {t("media.tools.installAll", { size: downloadSize(status, all) })}
+              </Button>
+            </div>
+          )}
           <p className="text-[12px] text-ink-muted">
             {fill(t("settings.siteTools.installNote"), {
               folder: <span className="font-mono break-all">{status.managed_dir ?? t("settings.siteTools.toolsFolder")}</span>,
@@ -919,6 +975,7 @@ function SiteTools({
           </p>
         </div>
       )}
+      <Switch label={t("media.tools.autoUpdate")} hint={t("media.tools.autoUpdateHint")} checked={autoUpdate} onChange={onAutoUpdate} />
       <Banner tone="neutral">{t("settings.siteTools.cookies")}</Banner>
     </section>
   );

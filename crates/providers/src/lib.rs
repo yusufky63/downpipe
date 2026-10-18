@@ -16,7 +16,8 @@
 //!   [`DownloadHandle`](downpipe_http::DownloadHandle), with yt-dlp's
 //!   progress turned into the usual [`Progress`](downpipe_http::Progress).
 //! * [`tools`] finds yt-dlp, Deno (or Node) and FFmpeg; [`install`]
-//!   downloads yt-dlp and Deno when the user asks.
+//!   downloads them when the user asks, and Downpipe's own yt-dlp again
+//!   when a newer one is out.
 //!
 //! Nothing here sends cookies, reads yt-dlp's configuration files or runs a
 //! shell. Protected (DRM) and live videos are refused.

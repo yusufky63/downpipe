@@ -74,12 +74,12 @@ export const settings = {
   },
   media: {
     ffmpegHint:
-      "Merges the separate video and sound of a stream into one file, without re-encoding. Empty uses ffmpeg from PATH. Downpipe does not include FFmpeg.",
-    ffmpegPlaceholder: "ffmpeg on PATH",
+      "Merges the separate video and sound of a stream into one file, without re-encoding. Empty uses the copy Downpipe downloaded, else ffmpeg from PATH.",
+    ffmpegPlaceholder: "Downloaded copy, else ffmpeg on PATH",
     found: "Found",
     notFound: "Not found",
     ffmpegMissing:
-      "Streams whose video and sound come separately are saved as two files. Install FFmpeg and add it to PATH, or enter the path to ffmpeg above, then save.",
+      "Streams whose video and sound come separately are saved as two files. Download FFmpeg under Videos on pages below, or enter the path to ffmpeg above, then save.",
     streams:
       "Streams come from the browser extension's media detection, or from .m3u8 and .mpd links added here. DRM-protected and live streams are not downloaded.",
   },
@@ -104,12 +104,12 @@ export const settings = {
     ytDlpPlaceholder: "Downloaded copy, else yt-dlp on PATH",
     denoHint: "Version 2.3.0 or newer. Empty uses the copy downloaded below, else deno from PATH, else Node 22 or newer.",
     denoPlaceholder: "Downloaded copy, else deno on PATH",
-    looking: "Looking for yt-dlp and Deno…",
+    looking: "Looking for yt-dlp, Deno and FFmpeg…",
     listLabel: "Tools for videos on pages",
     downloading: "Downloading…",
     /** {folder} is the folder the tools go into. */
     installNote:
-      "Only when you press it: the official builds from github.com/yt-dlp/yt-dlp and github.com/denoland/deno, each checked against the SHA-256 its release publishes, go into {folder}. YouTube changes often; press it again for the latest yt-dlp.",
+      "Only when you press a button: the official builds from github.com/yt-dlp/yt-dlp and github.com/denoland/deno, and FFmpeg's LGPL build from github.com/BtbN/FFmpeg-Builds, each checked against the SHA-256 its release publishes, go into {folder}.",
     toolsFolder: "Downpipe's tools folder",
     cookies:
       "Downpipe sends yt-dlp no cookies, so private, members-only and age-restricted videos are not downloaded, nor are protected (DRM) and live ones. Following YouTube's terms is up to you.",

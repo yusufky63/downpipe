@@ -674,6 +674,48 @@ fn sha256(bytes: &[u8]) -> String {
     hex::encode(sha2::Sha256::digest(bytes))
 }
 
+/// BtbN's name for this system, where it has a build.
+fn ffmpeg_target() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => Some("win64"),
+        ("windows", "aarch64") => Some("winarm64"),
+        ("linux", "x86_64") => Some("linux64"),
+        ("linux", "aarch64") => Some("linuxarm64"),
+        _ => None,
+    }
+}
+
+fn zip_of(entries: &[(String, &[u8])]) -> Vec<u8> {
+    let mut buf = std::io::Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(&mut buf);
+    for (name, bytes) in entries {
+        zip.start_file(
+            name.as_str(),
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap();
+    buf.into_inner()
+}
+
+fn tar_xz_of(entries: &[(String, &[u8])]) -> Vec<u8> {
+    let mut tar = tar::Builder::new(Vec::new());
+    for (name, bytes) in entries {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        tar.append_data(&mut header, name, *bytes).unwrap();
+    }
+    let tar = tar.into_inner().unwrap();
+    let mut xz = lzma_rust2::XzWriter::new(Vec::new(), lzma_rust2::XzOptions::default()).unwrap();
+    xz.write_all(&tar).unwrap();
+    xz.finish().unwrap()
+}
+
 fn deno_zip(exe: &[u8]) -> Vec<u8> {
     let mut buf = std::io::Cursor::new(Vec::new());
     let mut zip = zip::ZipWriter::new(&mut buf);
@@ -733,7 +775,7 @@ async fn installs_checked_releases() {
         .as_bytes(),
     );
 
-    let installed = install::install(&client, &base, &tools_dir, Tool::YtDlp)
+    let installed = install::install(&client, &base, &tools_dir, Tool::YtDlp, &|_| {})
         .await
         .unwrap();
     assert_eq!(installed.release, "2026.08.19");
@@ -744,21 +786,98 @@ async fn installs_checked_releases() {
     assert_eq!(std::fs::read(&installed.path).unwrap(), yt_bytes);
     assert_eq!(installed.sha256, sha256(&yt_bytes));
 
-    let installed = install::install(&client, &base, &tools_dir, Tool::Deno)
+    let installed = install::install(&client, &base, &tools_dir, Tool::Deno, &|_| {})
         .await
         .unwrap();
     assert_eq!(installed.release, "v2.9.7");
     assert_eq!(std::fs::read(&installed.path).unwrap(), deno_bytes);
-    // Only the program is left behind, not the archive.
+
+    // FFmpeg: the newest LGPL release branch from BtbN's rolling release,
+    // and from its archive only ffmpeg and ffprobe.
+    let (ffmpeg_bytes, ffprobe_bytes) = (b"ffmpeg".repeat(300_000), b"ffprobe".repeat(1000));
+    let mut expected = vec![
+        fake_tools::exe_name("deno"),
+        fake_tools::exe_name("yt-dlp"),
+        install::RECORDS.to_string(),
+    ];
+    if let Some(target) = ffmpeg_target() {
+        let windows = target.starts_with("win");
+        let folder = format!("ffmpeg-n9.0-latest-{target}-lgpl-9.0");
+        let ext = if windows { "zip" } else { "tar.xz" };
+        let asset = format!("{folder}.{ext}");
+        let exe = |name: &str| format!("{folder}/bin/{}", fake_tools::exe_name(name));
+        let entries: Vec<(String, &[u8])> = vec![
+            (format!("{folder}/LICENSE.txt"), b"LGPL"),
+            (exe("ffmpeg"), &ffmpeg_bytes),
+            (exe("ffprobe"), &ffprobe_bytes),
+            (exe("ffplay"), b"player"),
+        ];
+        let archive = if windows {
+            zip_of(&entries)
+        } else {
+            tar_xz_of(&entries)
+        };
+        let ff = files.path().join("BtbN/FFmpeg-Builds");
+        // The real tag is the rolling "latest", which the fake server's
+        // layout cannot hold; a dated build's tag is followed the same way.
+        let tag = "autobuild-2026-10-17-12-55";
+        write(&ff.join("latest"), tag.as_bytes());
+        write(&ff.join(tag).join(&asset), &archive);
+        write(
+            &ff.join(tag).join("checksums.sha256"),
+            format!(
+                "{}  ffmpeg-n8.1-latest-{target}-lgpl-8.1.{ext}
+{}  {asset}
+{}  ffmpeg-n9.0-latest-{target}-gpl-9.0.{ext}
+",
+                sha256(b"old"),
+                sha256(&archive),
+                sha256(b"gpl"),
+            )
+            .as_bytes(),
+        );
+        let seen = std::sync::Mutex::new(Vec::new());
+        let installed = install::install(&client, &base, &tools_dir, Tool::Ffmpeg, &|p| {
+            seen.lock().unwrap().push(p)
+        })
+        .await
+        .unwrap();
+        assert_eq!(installed.release, "n9.0");
+        assert_eq!(std::fs::read(&installed.path).unwrap(), ffmpeg_bytes);
+        assert_eq!(
+            std::fs::read(tools_dir.join(fake_tools::exe_name("ffprobe"))).unwrap(),
+            ffprobe_bytes
+        );
+        let seen = seen.into_inner().unwrap();
+        let last = seen.last().unwrap();
+        assert_eq!(last.done, archive.len() as u64);
+        assert_eq!(last.total, Some(archive.len() as u64));
+        assert!(seen.iter().all(|p| p.tool == Tool::Ffmpeg));
+        expected.extend([
+            fake_tools::exe_name("ffmpeg"),
+            fake_tools::exe_name("ffprobe"),
+        ]);
+        let records = install::Records::read(&tools_dir);
+        assert_eq!(records.ffmpeg.unwrap().sha256, sha256(&ffmpeg_bytes));
+    } else {
+        let err = install::install(&client, &base, &tools_dir, Tool::Ffmpeg, &|_| {})
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), "tool_missing");
+    }
+
+    // Only the programs (and the record of them) are left behind, not the archives.
     let mut left: Vec<String> = std::fs::read_dir(&tools_dir)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     left.sort();
-    assert_eq!(
-        left,
-        [fake_tools::exe_name("deno"), fake_tools::exe_name("yt-dlp")]
-    );
+    expected.sort();
+    assert_eq!(left, expected);
+    let records = install::Records::read(&tools_dir);
+    assert_eq!(records.yt_dlp.unwrap().release, "2026.08.19");
+    assert!(install::own_copy(&tools_dir, Tool::YtDlp).is_some());
+    assert!(install::own_copy(&tools_dir, Tool::Deno).is_some());
 
     // A file that does not match its published hash replaces nothing.
     write(&yt.join("latest"), b"2026.09.01");
@@ -767,7 +886,7 @@ async fn installs_checked_releases() {
         &yt.join("2026.09.01/SHA2-256SUMS"),
         format!("{}  {yt_asset}\n", sha256(&yt_bytes)).as_bytes(),
     );
-    let err = install::install(&client, &base, &tools_dir, Tool::YtDlp)
+    let err = install::install(&client, &base, &tools_dir, Tool::YtDlp, &|_| {})
         .await
         .unwrap_err();
     assert_eq!(err.kind(), "checksum");
@@ -777,13 +896,13 @@ async fn installs_checked_releases() {
     );
     assert_eq!(
         std::fs::read_dir(&tools_dir).unwrap().count(),
-        2,
+        expected.len(),
         "no staged file left"
     );
 
     // A release without a hash for this system's file is refused.
     write(&yt.join("2026.09.01/SHA2-256SUMS"), b"");
-    let err = install::install(&client, &base, &tools_dir, Tool::YtDlp)
+    let err = install::install(&client, &base, &tools_dir, Tool::YtDlp, &|_| {})
         .await
         .unwrap_err();
     assert_eq!(err.kind(), "extractor");

@@ -1,9 +1,9 @@
 import { FileText, FolderOpen, Magnet, Terminal } from "lucide-react";
-import { useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
 
 import { useI18n } from "../i18n";
 import type { Translate } from "../i18n/core";
-import { MAIN_QUEUE, api, errorMessage, isCommandError, type AddOptions, type Settings, type Task } from "../lib/api";
+import { MAIN_QUEUE, api, errorMessage, isCommandError, type AddOptions, type Settings, type Task, type ToolsStatus } from "../lib/api";
 
 /** A link that was already in the list, and how it was to be added. */
 export interface Duplicate {
@@ -18,6 +18,8 @@ import { MAX_EXPANDED, expandPatterns, linksFromList } from "../lib/patterns";
 import { categoryExtracts, inheritedCommand, isArchive } from "../lib/post";
 import { siteList, sitePage } from "../lib/sites";
 import { MAX_TORRENT_FILE, isTorrentName, isTorrentUrl } from "../lib/torrent";
+import { PAGE_TOOLS, missingTools, pageNeedsTools } from "../lib/tools";
+import { MissingTools } from "./MissingTools";
 import { PostFields } from "./PostFields";
 import { Button, Dialog, Field, inputClass } from "./primitives";
 
@@ -115,6 +117,22 @@ export function AddDialog({
   // Torrents too: their files are chosen in the next dialog.
   const torrents = urls.filter(isTorrentUrl).length;
   const onlyPages = pages + lists + torrents > 0 && pages + lists + torrents === urls.length;
+  // A video page or a list needs yt-dlp: offered here when it is missing,
+  // before the quality or the list's videos are asked for.
+  const needsSiteTools = pages + lists > 0;
+  const [tools, setTools] = useState<ToolsStatus | null>(null);
+  useEffect(() => {
+    if (!needsSiteTools) return;
+    let current = true;
+    api
+      .siteTools()
+      .then((status) => current && setTools(status))
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [needsSiteTools]);
+  const siteMissing = needsSiteTools && tools ? missingTools(tools, PAGE_TOOLS) : [];
   const fileInput = useRef<HTMLInputElement>(null);
 
   // A dropped or chosen list file is appended, so several lists can be combined.
@@ -402,6 +420,19 @@ export function AddDialog({
               </Button>
             </div>
           </div>
+        )}
+
+        {tools && pageNeedsTools(siteMissing) && (
+          <MissingTools
+            status={tools}
+            tools={siteMissing}
+            reason="video"
+            onInstalled={(status) => {
+              setTools(status);
+              // Carry on as Next would have: on to the quality or the list.
+              void submit();
+            }}
+          />
         )}
 
         <Field

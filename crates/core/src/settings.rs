@@ -49,8 +49,9 @@ pub struct Settings {
     /// Download queues. The first is always the main queue, whose limit is
     /// `max_concurrent_downloads`.
     pub queues: Vec<Queue>,
-    /// FFmpeg used to merge separate video and audio of streams. Empty:
-    /// `ffmpeg` on `PATH`, if there is one. Downpipe does not ship FFmpeg.
+    /// FFmpeg used to merge separate video and audio of streams. Empty: the
+    /// copy in Downpipe's tools folder (downloaded when the user asks), else
+    /// `ffmpeg` on `PATH`. Downpipe does not ship FFmpeg.
     pub ffmpeg_path: String,
     /// yt-dlp for videos on pages such as YouTube. Empty: the copy in
     /// Downpipe's tools folder (downloaded when the user asks), else
@@ -59,6 +60,9 @@ pub struct Settings {
     /// Deno, which yt-dlp needs for YouTube. Empty: the tools folder, then
     /// `PATH` (and Node 22 or newer when there is no Deno at all).
     pub deno_path: String,
+    /// Once a day, when a site download starts, replace the yt-dlp Downpipe
+    /// downloaded with a newer release (never a yt-dlp of the user's own).
+    pub yt_dlp_auto_update: bool,
     /// How site downloads (YouTube) are named: `{title}`, `{channel}`,
     /// `{date}`, `{index}` and `{id}` (see `downpipe_providers::naming`).
     pub media_name_template: String,
@@ -277,6 +281,7 @@ impl Default for Settings {
             ffmpeg_path: String::new(),
             yt_dlp_path: String::new(),
             deno_path: String::new(),
+            yt_dlp_auto_update: true,
             media_name_template: downpipe_providers::naming::DEFAULT_TEMPLATE.into(),
             site_rules: Vec::new(),
             duplicate_answer: "ask".into(),

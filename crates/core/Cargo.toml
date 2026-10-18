@@ -45,6 +45,9 @@ torrent = ["dep:downpipe-torrent"]
 [dev-dependencies]
 axum.workspace = true
 downpipe-test-server.workspace = true
+# Release checksums for the tool install tests.
+hex.workspace = true
+sha2.workspace = true
 # The tests build 7z archives, crafted ones included.
 sevenz-rust2 = { workspace = true, features = ["compress"] }
 downpipe-torrent = { workspace = true, features = ["testing"] }

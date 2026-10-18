@@ -2,7 +2,19 @@ import { FolderOpen } from "lucide-react";
 import { useEffect, useEffectEvent, useId, useState, type FormEvent } from "react";
 
 import { useI18n } from "../i18n";
-import { api, errorMessage, isCommandError, onConfirmClose, type Choices, type ConfirmOptions, type SubtitleOption, type Queue, type Settings, type Task } from "../lib/api";
+import {
+  api,
+  errorMessage,
+  isCommandError,
+  onConfirmClose,
+  type Choices,
+  type ConfirmOptions,
+  type SubtitleOption,
+  type Queue,
+  type Settings,
+  type Task,
+  type ToolsStatus,
+} from "../lib/api";
 import { describeError } from "../lib/errors";
 import { withStop } from "../lib/format";
 import {
@@ -22,6 +34,8 @@ import {
 import { categoryExtracts, inheritedCommand, isArchive } from "../lib/post";
 import { SITE_SETUP_KINDS, siteFailureText } from "../lib/siteErrors";
 import { displayName, knownSize } from "../lib/tasks";
+import { PAGE_TOOLS, missingTools, pageNeedsTools } from "../lib/tools";
+import { MissingTools } from "./MissingTools";
 import { PostFields } from "./PostFields";
 import { Banner, Button, Dialog, inputClass } from "./primitives";
 import { TorrentDialog } from "./TorrentDialog";
@@ -107,7 +121,23 @@ function FileConfirmDialog({
   // A subtitleKey, or empty for none.
   const [subtitle, setSubtitle] = useState("");
   const [subtitleOptions, setSubtitleOptions] = useState<SubtitleOption[]>([]);
+  // yt-dlp, Deno and FFmpeg as found: undefined while looking, null if that failed.
+  const [tools, setTools] = useState<ToolsStatus | null | undefined>(undefined);
+  // Bumped to read the page again once missing tools are installed.
+  const [attempt, setAttempt] = useState(0);
   const ids = useId();
+
+  useEffect(() => {
+    if (!stream) return;
+    let current = true;
+    api
+      .siteTools()
+      .then((status) => current && setTools(status))
+      .catch(() => current && setTools(null));
+    return () => {
+      current = false;
+    };
+  }, [stream]);
 
   useEffect(() => {
     if (!stream) return;
@@ -147,7 +177,7 @@ function FileConfirmDialog({
     return () => {
       current = false;
     };
-  }, [stream, site, task.id, initialName]);
+  }, [stream, site, task.id, initialName, attempt]);
 
   const refused = inspection.state === "failed" && inspection.refused;
   const choices = inspection.state === "ready" ? inspection.choices : null;
@@ -158,8 +188,45 @@ function FileConfirmDialog({
   // Started before yt-dlp answers, a page would download in its best
   // quality, which can be a very large 4K file: Start waits for the list
   // (or for yt-dlp to fail, when the best quality is all there is).
+  // What is missing and Downpipe can download: for the page itself, and for
+  // a quality whose video and sound need joining.
+  const pageMissing = site && tools ? missingTools(tools, PAGE_TOOLS) : [];
+  const offerPage = pageNeedsTools(pageMissing) && (inspection.state !== "failed" || inspection.setup);
+  const mergeMissing = tools && choices && !choices.ffmpeg && needsMerge(choices, videoId) ? missingTools(tools, ["ffmpeg"]) : [];
   const blocked =
-    (site && inspection.state === "loading") || (site && choices !== null && !choices.ffmpeg && needsMerge(choices, videoId));
+    (site && inspection.state === "loading") ||
+    (site && choices !== null && !choices.ffmpeg && needsMerge(choices, videoId)) ||
+    // Without yt-dlp it would only fail.
+    (offerPage && pageMissing.includes("yt_dlp"));
+
+  const offer =
+    tools && offerPage ? (
+      <MissingTools
+        status={tools}
+        tools={pageMissing}
+        reason="video"
+        onInstalled={(status) => {
+          setTools(status);
+          // Read again with the new tools; the qualities appear as usual.
+          setInspection({ state: "loading" });
+          setAttempt((n) => n + 1);
+        }}
+      />
+    ) : tools && choices && mergeMissing.length > 0 ? (
+      <MissingTools
+        status={tools}
+        tools={mergeMissing}
+        reason="quality"
+        onInstalled={(status) => {
+          setTools(status);
+          // The chosen quality stays; it can now be joined.
+          if (status.ffmpeg.path) setInspection({ state: "ready", choices: { ...choices, ffmpeg: true } });
+        }}
+      />
+    ) : null;
+  // Until the tools are known, a "set it up in Settings" banner could flash
+  // before the button that does it here.
+  const waitForTools = site && tools === undefined && inspection.state === "failed" && inspection.setup;
 
   const answer = async (start: boolean, e?: FormEvent) => {
     e?.preventDefault();
@@ -432,7 +499,7 @@ function FileConfirmDialog({
         {subtitle && (
           <p className="text-[12px] text-ink-secondary">{t(embedded ? "media.subtitles.embedded" : "media.subtitles.separate")}</p>
         )}
-        {stream && <StreamNotice inspection={inspection} site={site} videoId={videoId} onOpenSettings={onOpenSettings} />}
+        {stream && !waitForTools && (offer ?? <StreamNotice inspection={inspection} site={site} videoId={videoId} onOpenSettings={onOpenSettings} />)}
         {error && <p className="text-[12px] text-danger-fg">{error}</p>}
       </form>
     </Dialog>

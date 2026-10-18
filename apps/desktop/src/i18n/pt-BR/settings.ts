@@ -76,12 +76,12 @@ export const settings: Messages["settings"] = {
   },
   media: {
     ffmpegHint:
-      "Junta o vídeo e o som separados de uma transmissão em um só arquivo, sem recodificar. Vazio usa o ffmpeg do PATH. O Downpipe não inclui o FFmpeg.",
-    ffmpegPlaceholder: "ffmpeg no PATH",
+      "Junta o vídeo e o som separados de uma transmissão em um só arquivo, sem recodificar. Vazio usa a cópia baixada pelo Downpipe ou, se não houver, o ffmpeg do PATH.",
+    ffmpegPlaceholder: "Cópia baixada ou ffmpeg do PATH",
     found: "Encontrado",
     notFound: "Não encontrado",
     ffmpegMissing:
-      "Transmissões cujo vídeo e som vêm separados são salvas como dois arquivos. Instale o FFmpeg e adicione-o ao PATH, ou informe o caminho do ffmpeg acima e salve.",
+      "Transmissões com vídeo e som separados são salvas como dois arquivos. Baixe o FFmpeg mais abaixo, em Vídeos em páginas, ou informe acima o caminho do ffmpeg e salve.",
     streams:
       "As transmissões vêm da detecção de mídia da extensão do navegador ou de links .m3u8 e .mpd adicionados aqui. Transmissões protegidas por DRM e ao vivo não são baixadas.",
   },
@@ -107,12 +107,12 @@ export const settings: Messages["settings"] = {
     denoHint:
       "Versão 2.3.0 ou mais recente. Vazio usa a cópia baixada abaixo; se não houver, o deno do PATH; se não houver, o Node 22 ou mais recente.",
     denoPlaceholder: "Cópia baixada ou deno no PATH",
-    looking: "Procurando o yt-dlp e o Deno…",
+    looking: "Procurando yt-dlp, Deno e FFmpeg…",
     listLabel: "Ferramentas para vídeos em páginas",
     downloading: "Baixando…",
     // {folder} is a path, or toolsFolder below when the path is not known yet.
     installNote:
-      "Somente quando você clica: as compilações oficiais de github.com/yt-dlp/yt-dlp e github.com/denoland/deno, cada uma verificada com o SHA-256 publicado no respectivo lançamento, vão para {folder}. O YouTube muda com frequência; clique novamente para obter o yt-dlp mais recente.",
+      "Somente quando você clica em um botão: as compilações oficiais de github.com/yt-dlp/yt-dlp e github.com/denoland/deno, e a compilação LGPL do FFmpeg de github.com/BtbN/FFmpeg-Builds, cada uma verificada com o SHA-256 publicado no respectivo lançamento, vão para {folder}.",
     toolsFolder: "a pasta de ferramentas do Downpipe",
     cookies:
       "O Downpipe não envia cookies ao yt-dlp, então vídeos privados, exclusivos para membros e com restrição de idade não são baixados, nem os protegidos (DRM) e ao vivo. Cumprir os termos do YouTube é responsabilidade sua.",

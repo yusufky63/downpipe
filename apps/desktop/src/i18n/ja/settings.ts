@@ -75,12 +75,12 @@ export const settings: Messages["settings"] = {
   },
   media: {
     ffmpegHint:
-      "ストリームの別々の映像と音声を、再エンコードせずに 1 つのファイルに結合します。空欄の場合は PATH 上の ffmpeg を使用します。Downpipe には FFmpeg は含まれていません。",
-    ffmpegPlaceholder: "PATH 上の ffmpeg",
+      "ストリームの別々の映像と音声を、再エンコードせずに 1 つのファイルに結合します。空欄の場合は Downpipe がダウンロードしたコピー、なければ PATH 上の ffmpeg を使用します。",
+    ffmpegPlaceholder: "ダウンロードしたコピー、なければ PATH 上の ffmpeg",
     found: "検出済み",
     notFound: "未検出",
     ffmpegMissing:
-      "映像と音声が別々に配信されるストリームは、2 つのファイルとして保存されます。FFmpeg をインストールして PATH に追加するか、上に ffmpeg のパスを入力してから保存してください。",
+      "映像と音声が別々に配信されるストリームは、2 つのファイルとして保存されます。下の「ページ内の動画」で FFmpeg をダウンロードするか、上に ffmpeg のパスを入力してから保存してください。",
     streams:
       "ストリームは、ブラウザー拡張機能のメディア検出、またはここで追加した .m3u8 や .mpd のリンクから取得されます。DRM で保護されたストリームやライブストリームはダウンロードされません。",
   },
@@ -105,11 +105,11 @@ export const settings: Messages["settings"] = {
     denoHint:
       "バージョン 2.3.0 以降。空欄の場合は下でダウンロードしたコピー、なければ PATH 上の deno、それもなければ Node 22 以降を使用します。",
     denoPlaceholder: "ダウンロードしたコピー、なければ PATH 上の deno",
-    looking: "yt-dlp と Deno を探しています…",
+    looking: "yt-dlp、Deno、FFmpeg を探しています…",
     listLabel: "ページ内の動画用ツール",
     downloading: "ダウンロード中…",
     installNote:
-      "ボタンを押したときのみ実行されます：github.com/yt-dlp/yt-dlp と github.com/denoland/deno の公式ビルドを、それぞれのリリースが公開している SHA-256 で検証したうえで {folder} に保存します。YouTube は頻繁に変更されるため、最新の yt-dlp を入手するにはもう一度押してください。",
+      "ボタンを押したときのみ実行されます：github.com/yt-dlp/yt-dlp と github.com/denoland/deno の公式ビルド、および github.com/BtbN/FFmpeg-Builds の FFmpeg LGPL ビルドを、それぞれのリリースが公開している SHA-256 で検証したうえで {folder} に保存します。",
     toolsFolder: "Downpipe のツールフォルダー",
     cookies:
       "Downpipe は yt-dlp に Cookie を送信しないため、非公開、メンバー限定、年齢制限付きの動画はダウンロードされません。保護された（DRM）動画やライブ動画も同様です。YouTube の利用規約を守るのはご自身の責任です。",
