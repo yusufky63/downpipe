@@ -124,6 +124,36 @@ pub struct Texts {
     pub tooltip_one: &'static str,
     /// `{n}`, `{speed}`
     pub tooltip_many: &'static str,
+    /// An `http_status` failure whose message names no status.
+    pub server_error: &'static str,
+    /// `(error kind, text)`, the web view's `errors.kind.*` and
+    /// `media.siteErrors.*` word for word; `http_status` has `{status}`.
+    pub failure_kinds: &'static [(&'static str, &'static str)],
+}
+
+/// A failure kind in words, as the web view words it (`failureText` in
+/// src/lib/errors.ts), or `None` for a kind this version does not know,
+/// so the caller can show the engine's own message instead.
+pub fn failure_text(texts: &Texts, kind: &str, raw: &str) -> Option<String> {
+    let (_, text) = texts.failure_kinds.iter().find(|(k, _)| *k == kind)?;
+    if kind != "http_status" {
+        return Some(text.to_string());
+    }
+    Some(match status_in(raw) {
+        Some(status) => fill(text, &[("status", status)]),
+        None => texts.server_error.to_string(),
+    })
+}
+
+/// The status an `http_status` message names ("unexpected HTTP status 502"):
+/// a whole word of three digits from 100 to 599, like `\b[1-5]\d\d\b`.
+fn status_in(raw: &str) -> Option<&str> {
+    raw.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .find(|w| {
+            w.len() == 3
+                && w.bytes().all(|b| b.is_ascii_digit())
+                && (b'1'..=b'5').contains(&w.as_bytes()[0])
+        })
 }
 
 static EN: Texts = Texts {
@@ -152,6 +182,8 @@ static EN: Texts = Texts {
     schedule_stopped_queue: "Downloads in {name} are paused until the next start time.",
     tooltip_one: "Downpipe: 1 download, {speed}/s",
     tooltip_many: "Downpipe: {n} downloads, {speed}/s",
+    server_error: "The server answered with an error.",
+    failure_kinds: EN_FAILURES,
 };
 
 static TR: Texts = Texts {
@@ -180,6 +212,8 @@ static TR: Texts = Texts {
     schedule_stopped_queue: "{name} kuyruğundaki indirmeler bir sonraki başlama saatine kadar duraklatıldı.",
     tooltip_one: "Downpipe: 1 indirme, {speed}/s",
     tooltip_many: "Downpipe: {n} indirme, {speed}/s",
+    server_error: "Sunucu bir hatayla yanıt verdi.",
+    failure_kinds: TR_FAILURES,
 };
 
 static ES: Texts = Texts {
@@ -208,6 +242,8 @@ static ES: Texts = Texts {
     schedule_stopped_queue: "Las descargas de {name} están en pausa hasta la próxima hora de inicio.",
     tooltip_one: "Downpipe: 1 descarga, {speed}/s",
     tooltip_many: "Downpipe: {n} descargas, {speed}/s",
+    server_error: "El servidor respondió con un error.",
+    failure_kinds: ES_FAILURES,
 };
 
 static DE: Texts = Texts {
@@ -236,6 +272,8 @@ static DE: Texts = Texts {
     schedule_stopped_queue: "Downloads in {name} sind bis zur nächsten Startzeit pausiert.",
     tooltip_one: "Downpipe: 1 Download, {speed}/s",
     tooltip_many: "Downpipe: {n} Downloads, {speed}/s",
+    server_error: "Der Server hat mit einem Fehler geantwortet.",
+    failure_kinds: DE_FAILURES,
 };
 
 static FR: Texts = Texts {
@@ -264,6 +302,8 @@ static FR: Texts = Texts {
     schedule_stopped_queue: "Les téléchargements de {name} sont en pause jusqu'à la prochaine heure de début.",
     tooltip_one: "Downpipe : 1 téléchargement, {speed}/s",
     tooltip_many: "Downpipe : {n} téléchargements, {speed}/s",
+    server_error: "Le serveur a répondu par une erreur.",
+    failure_kinds: FR_FAILURES,
 };
 
 static IT: Texts = Texts {
@@ -292,6 +332,8 @@ static IT: Texts = Texts {
     schedule_stopped_queue: "I download in {name} sono in pausa fino al prossimo orario di avvio.",
     tooltip_one: "Downpipe: 1 download, {speed}/s",
     tooltip_many: "Downpipe: {n} download, {speed}/s",
+    server_error: "Il server ha risposto con un errore.",
+    failure_kinds: IT_FAILURES,
 };
 
 static PT_BR: Texts = Texts {
@@ -320,6 +362,8 @@ static PT_BR: Texts = Texts {
     schedule_stopped_queue: "Os downloads em {name} estão pausados até o próximo horário de início.",
     tooltip_one: "Downpipe: 1 download, {speed}/s",
     tooltip_many: "Downpipe: {n} downloads, {speed}/s",
+    server_error: "O servidor respondeu com um erro.",
+    failure_kinds: PT_BR_FAILURES,
 };
 
 static RU: Texts = Texts {
@@ -348,6 +392,8 @@ static RU: Texts = Texts {
     schedule_stopped_queue: "Загрузки в очереди «{name}» приостановлены до следующего времени запуска.",
     tooltip_one: "Downpipe: загрузок: 1, {speed}/s",
     tooltip_many: "Downpipe: загрузок: {n}, {speed}/s",
+    server_error: "Сервер ответил ошибкой.",
+    failure_kinds: RU_FAILURES,
 };
 
 static ZH_CN: Texts = Texts {
@@ -376,6 +422,8 @@ static ZH_CN: Texts = Texts {
     schedule_stopped_queue: "{name} 中的下载已暂停，直到下一个开始时间。",
     tooltip_one: "Downpipe：1 个下载，{speed}/s",
     tooltip_many: "Downpipe：{n} 个下载，{speed}/s",
+    server_error: "服务器返回了错误。",
+    failure_kinds: ZH_CN_FAILURES,
 };
 
 static JA: Texts = Texts {
@@ -404,7 +452,1170 @@ static JA: Texts = Texts {
     schedule_stopped_queue: "次の開始時刻まで {name} のダウンロードを一時停止しました。",
     tooltip_one: "Downpipe: 1 件のダウンロード、{speed}/s",
     tooltip_many: "Downpipe: {n} 件のダウンロード、{speed}/s",
+    server_error: "サーバーがエラーを返しました。",
+    failure_kinds: JA_FAILURES,
 };
+
+static EN_FAILURES: &[(&str, &str)] = &[
+    (
+        "invalid_url",
+        "This link is not a valid http or https address.",
+    ),
+    (
+        "invalid_header",
+        "One of this download's custom headers is not valid.",
+    ),
+    (
+        "auth_required",
+        "The server asks for a user name and password.",
+    ),
+    (
+        "forbidden",
+        "The server refused the download. The link may have expired, or the site may need you to sign in.",
+    ),
+    (
+        "not_found",
+        "The file was not found on the server. Check the link or use a new one.",
+    ),
+    (
+        "throttled",
+        "The server is limiting downloads. Try again later or with fewer connections.",
+    ),
+    (
+        "http_status",
+        "The server answered with an error (HTTP {status}).",
+    ),
+    (
+        "resource_changed",
+        "The file on the server changed during the download. Download it again from the start.",
+    ),
+    (
+        "different_file",
+        "The new link leads to a different file. The downloaded part was kept.",
+    ),
+    (
+        "expired_link",
+        "The link has expired: the server sent a web page instead of the file. Use a new link; the downloaded part is kept.",
+    ),
+    (
+        "login_required",
+        "The server asks you to sign in. Sign in in your browser, then use a new link; the downloaded part is kept.",
+    ),
+    (
+        "private_file",
+        "The file is not shared publicly. Ask its owner to share it with anyone who has the link, or download it in your browser while signed in.",
+    ),
+    (
+        "range_not_honoured",
+        "The server stopped sending the file in parts. Try again with one connection.",
+    ),
+    (
+        "network",
+        "The connection to the server failed. Check your network and try again.",
+    ),
+    (
+        "checksum",
+        "The downloaded file does not match its checksum. It may be damaged; download it again.",
+    ),
+    (
+        "io",
+        "The file could not be written. Check that the folder exists and the disk has free space.",
+    ),
+    (
+        "corrupt_meta",
+        "The resume data of this download is damaged. Download it again from the start.",
+    ),
+    (
+        "drm_protected",
+        "This stream is protected by DRM. Downpipe does not download protected media.",
+    ),
+    (
+        "live_stream",
+        "This is a live stream. Only finished streams can be downloaded.",
+    ),
+    (
+        "invalid_manifest",
+        "The stream's playlist could not be read.",
+    ),
+    ("unsupported_media", "This kind of stream is not supported."),
+    (
+        "tool_missing",
+        "A program this download needs (yt-dlp, Deno or FFmpeg) is not set up. Set it up under Preferences, Media.",
+    ),
+    (
+        "unavailable",
+        "This video is unavailable: it is private, removed, members-only or blocked in your region.",
+    ),
+    ("extractor", "yt-dlp could not read this video page."),
+    (
+        "site_forbidden",
+        "YouTube refused the download. A newer yt-dlp usually fixes this: update it in Settings, Media, then try again.",
+    ),
+    (
+        "site_sign_in",
+        "YouTube wants a signed-in browser for this download. Downpipe does not use browser cookies: wait a while or use another network, then try again.",
+    ),
+    (
+        "site_age_restricted",
+        "YouTube shows this video only to signed-in adults. Downpipe does not use accounts or browser cookies, so it cannot download it.",
+    ),
+    (
+        "site_js_runtime",
+        "yt-dlp could not answer YouTube's JavaScript challenges. Download Deno in Settings, Media, then try again.",
+    ),
+    (
+        "site_po_token",
+        "YouTube asked for a proof-of-origin (PO) token for this video. Update yt-dlp in Settings, Media, or choose another quality.",
+    ),
+    (
+        "site_outdated",
+        "yt-dlp no longer understands this page; YouTube probably changed it. Update yt-dlp in Settings, Media, then try again.",
+    ),
+];
+
+static TR_FAILURES: &[(&str, &str)] = &[
+    (
+        "invalid_url",
+        "Bu bağlantı geçerli bir http veya https adresi değil.",
+    ),
+    (
+        "invalid_header",
+        "Bu indirmenin özel başlıklarından biri geçersiz.",
+    ),
+    ("auth_required", "Sunucu kullanıcı adı ve parola istiyor."),
+    (
+        "forbidden",
+        "Sunucu indirmeyi reddetti. Bağlantının süresi dolmuş olabilir ya da site oturum açmanızı istiyor olabilir.",
+    ),
+    (
+        "not_found",
+        "Dosya sunucuda bulunamadı. Bağlantıyı denetleyin ya da yeni bir bağlantı kullanın.",
+    ),
+    (
+        "throttled",
+        "Sunucu indirmeleri sınırlıyor. Daha sonra ya da daha az bağlantıyla yeniden deneyin.",
+    ),
+    (
+        "http_status",
+        "Sunucu bir hatayla yanıt verdi (HTTP {status}).",
+    ),
+    (
+        "resource_changed",
+        "Sunucudaki dosya indirme sırasında değişti. Dosyayı baştan yeniden indirin.",
+    ),
+    (
+        "different_file",
+        "Yeni bağlantı başka bir dosyaya gidiyor. İndirilen kısım korundu.",
+    ),
+    (
+        "expired_link",
+        "Bağlantının süresi dolmuş: sunucu dosya yerine bir web sayfası gönderdi. Yeni bir bağlantı kullanın; indirilen kısım korunur.",
+    ),
+    (
+        "login_required",
+        "Sunucu oturum açmanızı istiyor. Tarayıcıda oturum açın, ardından yeni bir bağlantı kullanın; indirilen kısım korunur.",
+    ),
+    (
+        "private_file",
+        "Dosya herkese açık paylaşılmamış. Sahibinden bağlantıya sahip herkesle paylaşmasını isteyin ya da oturum açıkken tarayıcınızda indirin.",
+    ),
+    (
+        "range_not_honoured",
+        "Sunucu dosyayı parça parça göndermeyi bıraktı. Tek bağlantıyla yeniden deneyin.",
+    ),
+    (
+        "network",
+        "Sunucuyla bağlantı kurulamadı. Ağınızı denetleyip yeniden deneyin.",
+    ),
+    (
+        "checksum",
+        "İndirilen dosya sağlama toplamıyla eşleşmiyor. Dosya bozulmuş olabilir; yeniden indirin.",
+    ),
+    (
+        "io",
+        "Dosya yazılamadı. Klasörün var olduğunu ve diskte boş yer olduğunu denetleyin.",
+    ),
+    (
+        "corrupt_meta",
+        "Bu indirmenin sürdürme verisi bozuk. Dosyayı baştan yeniden indirin.",
+    ),
+    (
+        "drm_protected",
+        "Bu akış DRM ile korunuyor. Downpipe korumalı medya indirmez.",
+    ),
+    (
+        "live_stream",
+        "Bu bir canlı yayın. Yalnızca bitmiş akışlar indirilebilir.",
+    ),
+    ("invalid_manifest", "Akışın oynatma listesi okunamadı."),
+    ("unsupported_media", "Bu tür akış desteklenmiyor."),
+    (
+        "tool_missing",
+        "Bu indirmenin gerektirdiği bir program (yt-dlp, Deno ya da FFmpeg) kurulu değil. Tercihler'de Medya bölümünden kurun.",
+    ),
+    (
+        "unavailable",
+        "Bu video kullanılamıyor: gizli, kaldırılmış, yalnızca üyelere açık ya da bölgenizde engellenmiş.",
+    ),
+    ("extractor", "yt-dlp bu video sayfasını okuyamadı."),
+    (
+        "site_forbidden",
+        "YouTube indirmeyi reddetti. Genellikle daha yeni bir yt-dlp bunu çözer: Ayarlar'ın Medya sekmesinden güncelleyip yeniden deneyin.",
+    ),
+    (
+        "site_sign_in",
+        "YouTube bu indirme için oturum açılmış bir tarayıcı istiyor. Downpipe tarayıcı çerezlerini kullanmaz: biraz bekleyin ya da başka bir ağ kullanıp yeniden deneyin.",
+    ),
+    (
+        "site_age_restricted",
+        "YouTube bu videoyu yalnızca oturum açmış yetişkinlere gösteriyor. Downpipe hesap ya da tarayıcı çerezi kullanmadığı için indiremez.",
+    ),
+    (
+        "site_js_runtime",
+        "yt-dlp, YouTube'un JavaScript sınamalarını yanıtlayamadı. Ayarlar'ın Medya sekmesinden Deno'yu indirip yeniden deneyin.",
+    ),
+    (
+        "site_po_token",
+        "YouTube bu video için bir kaynak kanıtı (PO) belirteci istedi. Ayarlar'ın Medya sekmesinden yt-dlp'yi güncelleyin ya da başka bir kalite seçin.",
+    ),
+    (
+        "site_outdated",
+        "yt-dlp bu sayfayı artık anlamıyor; YouTube muhtemelen sayfayı değiştirdi. Ayarlar'ın Medya sekmesinden yt-dlp'yi güncelleyip yeniden deneyin.",
+    ),
+];
+
+static ES_FAILURES: &[(&str, &str)] = &[
+    (
+        "invalid_url",
+        "Este enlace no es una dirección http o https válida.",
+    ),
+    (
+        "invalid_header",
+        "Uno de los encabezados personalizados de esta descarga no es válido.",
+    ),
+    (
+        "auth_required",
+        "El servidor pide un nombre de usuario y una contraseña.",
+    ),
+    (
+        "forbidden",
+        "El servidor rechazó la descarga. Puede que el enlace haya caducado o que el sitio te pida iniciar sesión.",
+    ),
+    (
+        "not_found",
+        "No se encontró el archivo en el servidor. Comprueba el enlace o usa uno nuevo.",
+    ),
+    (
+        "throttled",
+        "El servidor está limitando las descargas. Vuelve a intentarlo más tarde o con menos conexiones.",
+    ),
+    (
+        "http_status",
+        "El servidor respondió con un error (HTTP {status}).",
+    ),
+    (
+        "resource_changed",
+        "El archivo del servidor cambió durante la descarga. Descárgalo de nuevo desde el principio.",
+    ),
+    (
+        "different_file",
+        "El enlace nuevo lleva a otro archivo. La parte descargada se conservó.",
+    ),
+    (
+        "expired_link",
+        "El enlace ha caducado: el servidor envió una página web en lugar del archivo. Usa un enlace nuevo; la parte descargada se conserva.",
+    ),
+    (
+        "login_required",
+        "El servidor pide iniciar sesión. Inicia sesión en el navegador y luego usa un enlace nuevo; la parte descargada se conserva.",
+    ),
+    (
+        "private_file",
+        "El archivo no se ha compartido públicamente. Pide a su propietario que lo comparta con cualquiera que tenga el enlace, o descárgalo en el navegador con tu sesión iniciada.",
+    ),
+    (
+        "range_not_honoured",
+        "El servidor dejó de enviar el archivo por partes. Vuelve a intentarlo con una sola conexión.",
+    ),
+    (
+        "network",
+        "Falló la conexión con el servidor. Comprueba tu red y vuelve a intentarlo.",
+    ),
+    (
+        "checksum",
+        "El archivo descargado no coincide con su suma de comprobación. Puede estar dañado; descárgalo de nuevo.",
+    ),
+    (
+        "io",
+        "No se pudo escribir el archivo. Comprueba que la carpeta existe y que el disco tiene espacio libre.",
+    ),
+    (
+        "corrupt_meta",
+        "Los datos para reanudar esta descarga están dañados. Descárgala de nuevo desde el principio.",
+    ),
+    (
+        "drm_protected",
+        "Esta transmisión está protegida con DRM. Downpipe no descarga contenido protegido.",
+    ),
+    (
+        "live_stream",
+        "Es una transmisión en directo. Solo se pueden descargar transmisiones terminadas.",
+    ),
+    (
+        "invalid_manifest",
+        "No se pudo leer la lista de reproducción de la transmisión.",
+    ),
+    (
+        "unsupported_media",
+        "Este tipo de transmisión no es compatible.",
+    ),
+    (
+        "tool_missing",
+        "Falta un programa que esta descarga necesita (yt-dlp, Deno o FFmpeg). Instálalo en Preferencias, Multimedia.",
+    ),
+    (
+        "unavailable",
+        "Este video no está disponible: es privado, se eliminó, es exclusivo para miembros o está bloqueado en tu región.",
+    ),
+    ("extractor", "yt-dlp no pudo leer esta página de video."),
+    (
+        "site_forbidden",
+        "YouTube rechazó la descarga. Una versión más reciente de yt-dlp suele solucionarlo: actualízala en Configuración, Multimedia y vuelve a intentarlo.",
+    ),
+    (
+        "site_sign_in",
+        "YouTube pide un navegador con la sesión iniciada para esta descarga. Downpipe no usa las cookies del navegador: espera un rato o usa otra red y vuelve a intentarlo.",
+    ),
+    (
+        "site_age_restricted",
+        "YouTube muestra este video solo a adultos con la sesión iniciada. Downpipe no usa cuentas ni cookies del navegador, así que no puede descargarlo.",
+    ),
+    (
+        "site_js_runtime",
+        "yt-dlp no pudo responder a los desafíos de JavaScript de YouTube. Descarga Deno en Configuración, Multimedia y vuelve a intentarlo.",
+    ),
+    (
+        "site_po_token",
+        "YouTube pidió un token de prueba de origen (PO) para este video. Actualiza yt-dlp en Configuración, Multimedia o elige otra calidad.",
+    ),
+    (
+        "site_outdated",
+        "yt-dlp ya no entiende esta página; probablemente YouTube la cambió. Actualiza yt-dlp en Configuración, Multimedia y vuelve a intentarlo.",
+    ),
+];
+
+static DE_FAILURES: &[(&str, &str)] = &[
+    (
+        "invalid_url",
+        "Dieser Link ist keine gültige http- oder https-Adresse.",
+    ),
+    (
+        "invalid_header",
+        "Einer der eigenen Header dieses Downloads ist ungültig.",
+    ),
+    (
+        "auth_required",
+        "Der Server verlangt einen Benutzernamen und ein Passwort.",
+    ),
+    (
+        "forbidden",
+        "Der Server hat den Download abgelehnt. Der Link ist vielleicht abgelaufen, oder die Website verlangt eine Anmeldung.",
+    ),
+    (
+        "not_found",
+        "Die Datei wurde auf dem Server nicht gefunden. Prüfen Sie den Link oder verwenden Sie einen neuen.",
+    ),
+    (
+        "throttled",
+        "Der Server begrenzt Downloads. Versuchen Sie es später oder mit weniger Verbindungen erneut.",
+    ),
+    (
+        "http_status",
+        "Der Server hat mit einem Fehler geantwortet (HTTP {status}).",
+    ),
+    (
+        "resource_changed",
+        "Die Datei auf dem Server hat sich während des Downloads geändert. Laden Sie sie von vorn herunter.",
+    ),
+    (
+        "different_file",
+        "Der neue Link führt zu einer anderen Datei. Der heruntergeladene Teil wurde behalten.",
+    ),
+    (
+        "expired_link",
+        "Der Link ist abgelaufen: Der Server hat statt der Datei eine Webseite geschickt. Verwenden Sie einen neuen Link; der heruntergeladene Teil bleibt erhalten.",
+    ),
+    (
+        "login_required",
+        "Der Server verlangt eine Anmeldung. Melden Sie sich im Browser an und verwenden Sie dann einen neuen Link; der heruntergeladene Teil bleibt erhalten.",
+    ),
+    (
+        "private_file",
+        "Die Datei ist nicht öffentlich freigegeben. Bitten Sie den Eigentümer, sie für alle mit dem Link freizugeben, oder laden Sie sie angemeldet im Browser herunter.",
+    ),
+    (
+        "range_not_honoured",
+        "Der Server sendet die Datei nicht mehr in Teilen. Versuchen Sie es mit einer Verbindung erneut.",
+    ),
+    (
+        "network",
+        "Die Verbindung zum Server ist fehlgeschlagen. Prüfen Sie Ihr Netzwerk und versuchen Sie es erneut.",
+    ),
+    (
+        "checksum",
+        "Die heruntergeladene Datei passt nicht zu ihrer Prüfsumme. Sie ist vielleicht beschädigt; laden Sie sie erneut herunter.",
+    ),
+    (
+        "io",
+        "Die Datei konnte nicht geschrieben werden. Prüfen Sie, ob der Ordner existiert und auf dem Datenträger Platz frei ist.",
+    ),
+    (
+        "corrupt_meta",
+        "Die Fortsetzungsdaten dieses Downloads sind beschädigt. Laden Sie die Datei von vorn herunter.",
+    ),
+    (
+        "drm_protected",
+        "Dieser Stream ist mit DRM geschützt. Downpipe lädt keine geschützten Medien herunter.",
+    ),
+    (
+        "live_stream",
+        "Das ist ein Livestream. Nur abgeschlossene Streams können heruntergeladen werden.",
+    ),
+    (
+        "invalid_manifest",
+        "Die Wiedergabeliste des Streams konnte nicht gelesen werden.",
+    ),
+    (
+        "unsupported_media",
+        "Diese Art von Stream wird nicht unterstützt.",
+    ),
+    (
+        "tool_missing",
+        "Ein Programm, das dieser Download braucht (yt-dlp, Deno oder FFmpeg), ist nicht eingerichtet. Richten Sie es unter Optionen, Medien ein.",
+    ),
+    (
+        "unavailable",
+        "Dieses Video ist nicht verfügbar: Es ist privat, entfernt, nur für Mitglieder oder in Ihrer Region gesperrt.",
+    ),
+    ("extractor", "yt-dlp konnte diese Videoseite nicht lesen."),
+    (
+        "site_forbidden",
+        "YouTube hat den Download abgelehnt. Ein neueres yt-dlp behebt das meist: Aktualisieren Sie es unter Einstellungen, Medien, und versuchen Sie es erneut.",
+    ),
+    (
+        "site_sign_in",
+        "YouTube verlangt für diesen Download einen angemeldeten Browser. Downpipe verwendet keine Browser-Cookies: Warten Sie eine Weile oder nutzen Sie ein anderes Netzwerk, und versuchen Sie es erneut.",
+    ),
+    (
+        "site_age_restricted",
+        "YouTube zeigt dieses Video nur angemeldeten Erwachsenen. Downpipe verwendet weder Konten noch Browser-Cookies und kann es daher nicht herunterladen.",
+    ),
+    (
+        "site_js_runtime",
+        "yt-dlp konnte die JavaScript-Abfragen von YouTube nicht beantworten. Laden Sie Deno unter Einstellungen, Medien herunter, und versuchen Sie es erneut.",
+    ),
+    (
+        "site_po_token",
+        "YouTube hat für dieses Video ein Herkunftsnachweis-Token (PO-Token) verlangt. Aktualisieren Sie yt-dlp unter Einstellungen, Medien, oder wählen Sie eine andere Qualität.",
+    ),
+    (
+        "site_outdated",
+        "yt-dlp versteht diese Seite nicht mehr; YouTube hat sie wahrscheinlich geändert. Aktualisieren Sie yt-dlp unter Einstellungen, Medien, und versuchen Sie es erneut.",
+    ),
+];
+
+static FR_FAILURES: &[(&str, &str)] = &[
+    (
+        "invalid_url",
+        "Ce lien n'est pas une adresse http ou https valide.",
+    ),
+    (
+        "invalid_header",
+        "L'un des en-têtes personnalisés de ce téléchargement n'est pas valide.",
+    ),
+    (
+        "auth_required",
+        "Le serveur demande un nom d'utilisateur et un mot de passe.",
+    ),
+    (
+        "forbidden",
+        "Le serveur a refusé le téléchargement. Le lien a peut-être expiré, ou le site demande de vous connecter.",
+    ),
+    (
+        "not_found",
+        "Le fichier est introuvable sur le serveur. Vérifiez le lien ou utilisez-en un nouveau.",
+    ),
+    (
+        "throttled",
+        "Le serveur limite les téléchargements. Réessayez plus tard ou avec moins de connexions.",
+    ),
+    (
+        "http_status",
+        "Le serveur a répondu par une erreur (HTTP {status}).",
+    ),
+    (
+        "resource_changed",
+        "Le fichier a changé sur le serveur pendant le téléchargement. Téléchargez-le à nouveau depuis le début.",
+    ),
+    (
+        "different_file",
+        "Le nouveau lien mène à un autre fichier. La partie téléchargée a été conservée.",
+    ),
+    (
+        "expired_link",
+        "Le lien a expiré : le serveur a envoyé une page web au lieu du fichier. Utilisez un nouveau lien ; la partie téléchargée est conservée.",
+    ),
+    (
+        "login_required",
+        "Le serveur demande de vous connecter. Connectez-vous dans le navigateur, puis utilisez un nouveau lien ; la partie téléchargée est conservée.",
+    ),
+    (
+        "private_file",
+        "Le fichier n'est pas partagé publiquement. Demandez à son propriétaire de le partager avec toute personne disposant du lien, ou téléchargez-le dans votre navigateur en étant connecté.",
+    ),
+    (
+        "range_not_honoured",
+        "Le serveur n'envoie plus le fichier par morceaux. Réessayez avec une seule connexion.",
+    ),
+    (
+        "network",
+        "La connexion au serveur a échoué. Vérifiez votre réseau et réessayez.",
+    ),
+    (
+        "checksum",
+        "Le fichier téléchargé ne correspond pas à sa somme de contrôle. Il est peut-être endommagé ; téléchargez-le à nouveau.",
+    ),
+    (
+        "io",
+        "Le fichier n'a pas pu être écrit. Vérifiez que le dossier existe et que le disque a de l'espace libre.",
+    ),
+    (
+        "corrupt_meta",
+        "Les données de reprise de ce téléchargement sont endommagées. Téléchargez-le à nouveau depuis le début.",
+    ),
+    (
+        "drm_protected",
+        "Ce flux est protégé par DRM. Downpipe ne télécharge pas les médias protégés.",
+    ),
+    (
+        "live_stream",
+        "C'est un direct. Seuls les flux terminés peuvent être téléchargés.",
+    ),
+    (
+        "invalid_manifest",
+        "La liste de lecture du flux n'a pas pu être lue.",
+    ),
+    (
+        "unsupported_media",
+        "Ce type de flux n'est pas pris en charge.",
+    ),
+    (
+        "tool_missing",
+        "Un programme dont ce téléchargement a besoin (yt-dlp, Deno ou FFmpeg) n'est pas installé. Installez-le dans Préférences, Médias.",
+    ),
+    (
+        "unavailable",
+        "Cette vidéo n'est pas disponible : elle est privée, supprimée, réservée aux membres ou bloquée dans votre région.",
+    ),
+    ("extractor", "yt-dlp n'a pas pu lire cette page vidéo."),
+    (
+        "site_forbidden",
+        "YouTube a refusé le téléchargement. Une version plus récente de yt-dlp règle souvent le problème : mettez-la à jour dans Paramètres, Médias, puis réessayez.",
+    ),
+    (
+        "site_sign_in",
+        "YouTube demande un navigateur connecté pour ce téléchargement. Downpipe n'utilise pas les cookies du navigateur : patientez un moment ou utilisez un autre réseau, puis réessayez.",
+    ),
+    (
+        "site_age_restricted",
+        "YouTube ne montre cette vidéo qu'aux adultes connectés. Downpipe n'utilise ni compte ni cookies du navigateur ; il ne peut donc pas la télécharger.",
+    ),
+    (
+        "site_js_runtime",
+        "yt-dlp n'a pas pu répondre aux défis JavaScript de YouTube. Téléchargez Deno dans Paramètres, Médias, puis réessayez.",
+    ),
+    (
+        "site_po_token",
+        "YouTube a demandé un jeton de preuve d'origine (PO) pour cette vidéo. Mettez à jour yt-dlp dans Paramètres, Médias, ou choisissez une autre qualité.",
+    ),
+    (
+        "site_outdated",
+        "yt-dlp ne comprend plus cette page ; YouTube l'a probablement modifiée. Mettez à jour yt-dlp dans Paramètres, Médias, puis réessayez.",
+    ),
+];
+
+static IT_FAILURES: &[(&str, &str)] = &[
+    (
+        "invalid_url",
+        "Questo link non è un indirizzo http o https valido.",
+    ),
+    (
+        "invalid_header",
+        "Una delle intestazioni personalizzate di questo download non è valida.",
+    ),
+    (
+        "auth_required",
+        "Il server chiede un nome utente e una password.",
+    ),
+    (
+        "forbidden",
+        "Il server ha rifiutato il download. Il link potrebbe essere scaduto o il sito potrebbe chiederti di accedere.",
+    ),
+    (
+        "not_found",
+        "Il file non è stato trovato sul server. Controlla il link o usane uno nuovo.",
+    ),
+    (
+        "throttled",
+        "Il server sta limitando i download. Riprova più tardi o con meno connessioni.",
+    ),
+    (
+        "http_status",
+        "Il server ha risposto con un errore (HTTP {status}).",
+    ),
+    (
+        "resource_changed",
+        "Il file sul server è cambiato durante il download. Scaricalo di nuovo dall'inizio.",
+    ),
+    (
+        "different_file",
+        "Il nuovo link porta a un file diverso. La parte scaricata è stata conservata.",
+    ),
+    (
+        "expired_link",
+        "Il link è scaduto: il server ha inviato una pagina web invece del file. Usa un nuovo link; la parte scaricata viene conservata.",
+    ),
+    (
+        "login_required",
+        "Il server chiede di accedere. Accedi nel browser, poi usa un nuovo link; la parte scaricata viene conservata.",
+    ),
+    (
+        "private_file",
+        "Il file non è condiviso pubblicamente. Chiedi al proprietario di condividerlo con chiunque abbia il link, oppure scaricalo nel browser dopo aver effettuato l'accesso.",
+    ),
+    (
+        "range_not_honoured",
+        "Il server ha smesso di inviare il file a parti. Riprova con una sola connessione.",
+    ),
+    (
+        "network",
+        "La connessione al server non è riuscita. Controlla la rete e riprova.",
+    ),
+    (
+        "checksum",
+        "Il file scaricato non corrisponde al suo checksum. Potrebbe essere danneggiato; scaricalo di nuovo.",
+    ),
+    (
+        "io",
+        "Non è stato possibile scrivere il file. Controlla che la cartella esista e che il disco abbia spazio libero.",
+    ),
+    (
+        "corrupt_meta",
+        "I dati di ripresa di questo download sono danneggiati. Scaricalo di nuovo dall'inizio.",
+    ),
+    (
+        "drm_protected",
+        "Questo stream è protetto da DRM. Downpipe non scarica contenuti protetti.",
+    ),
+    (
+        "live_stream",
+        "Questa è una diretta. Si possono scaricare solo gli stream terminati.",
+    ),
+    (
+        "invalid_manifest",
+        "Non è stato possibile leggere la playlist dello stream.",
+    ),
+    (
+        "unsupported_media",
+        "Questo tipo di stream non è supportato.",
+    ),
+    (
+        "tool_missing",
+        "Manca un programma che serve a questo download (yt-dlp, Deno o FFmpeg). Installalo in Preferenze, Media.",
+    ),
+    (
+        "unavailable",
+        "Questo video non è disponibile: è privato, rimosso, riservato agli abbonati o bloccato nella tua zona.",
+    ),
+    (
+        "extractor",
+        "yt-dlp non è riuscito a leggere questa pagina video.",
+    ),
+    (
+        "site_forbidden",
+        "YouTube ha rifiutato il download. Di solito una versione più recente di yt-dlp risolve: aggiornala in Impostazioni, Media, poi riprova.",
+    ),
+    (
+        "site_sign_in",
+        "Per questo download YouTube chiede un browser con accesso effettuato. Downpipe non usa i cookie del browser: aspetta un po' o usa un'altra rete, poi riprova.",
+    ),
+    (
+        "site_age_restricted",
+        "YouTube mostra questo video solo agli adulti che hanno effettuato l'accesso. Downpipe non usa account né cookie del browser, quindi non può scaricarlo.",
+    ),
+    (
+        "site_js_runtime",
+        "yt-dlp non è riuscito a rispondere alle verifiche JavaScript di YouTube. Scarica Deno in Impostazioni, Media, poi riprova.",
+    ),
+    (
+        "site_po_token",
+        "YouTube ha chiesto un token di prova di origine (PO) per questo video. Aggiorna yt-dlp in Impostazioni, Media, o scegli un'altra qualità.",
+    ),
+    (
+        "site_outdated",
+        "yt-dlp non capisce più questa pagina; probabilmente YouTube l'ha cambiata. Aggiorna yt-dlp in Impostazioni, Media, poi riprova.",
+    ),
+];
+
+static PT_BR_FAILURES: &[(&str, &str)] = &[
+    (
+        "invalid_url",
+        "Este link não é um endereço http ou https válido.",
+    ),
+    (
+        "invalid_header",
+        "Um dos cabeçalhos personalizados deste download não é válido.",
+    ),
+    (
+        "auth_required",
+        "O servidor pede um nome de usuário e uma senha.",
+    ),
+    (
+        "forbidden",
+        "O servidor recusou o download. O link pode ter expirado, ou o site pode pedir que você entre na sua conta.",
+    ),
+    (
+        "not_found",
+        "O arquivo não foi encontrado no servidor. Confira o link ou use um novo.",
+    ),
+    (
+        "throttled",
+        "O servidor está limitando os downloads. Tente de novo mais tarde ou com menos conexões.",
+    ),
+    (
+        "http_status",
+        "O servidor respondeu com um erro (HTTP {status}).",
+    ),
+    (
+        "resource_changed",
+        "O arquivo no servidor mudou durante o download. Baixe-o de novo desde o início.",
+    ),
+    (
+        "different_file",
+        "O novo link leva a outro arquivo. A parte baixada foi mantida.",
+    ),
+    (
+        "expired_link",
+        "O link expirou: o servidor enviou uma página da web em vez do arquivo. Use um link novo; a parte baixada é mantida.",
+    ),
+    (
+        "login_required",
+        "O servidor pede que você entre na sua conta. Entre no navegador e depois use um link novo; a parte baixada é mantida.",
+    ),
+    (
+        "private_file",
+        "O arquivo não está compartilhado publicamente. Peça ao dono para compartilhá-lo com qualquer pessoa que tenha o link, ou baixe-o no navegador com sua conta conectada.",
+    ),
+    (
+        "range_not_honoured",
+        "O servidor parou de enviar o arquivo em partes. Tente de novo com uma conexão só.",
+    ),
+    (
+        "network",
+        "A conexão com o servidor falhou. Confira sua rede e tente de novo.",
+    ),
+    (
+        "checksum",
+        "O arquivo baixado não confere com o checksum. Ele pode estar danificado; baixe-o de novo.",
+    ),
+    (
+        "io",
+        "Não foi possível gravar o arquivo. Confira se a pasta existe e se o disco tem espaço livre.",
+    ),
+    (
+        "corrupt_meta",
+        "Os dados para retomar este download estão danificados. Baixe-o de novo desde o início.",
+    ),
+    (
+        "drm_protected",
+        "Esta transmissão é protegida por DRM. O Downpipe não baixa mídia protegida.",
+    ),
+    (
+        "live_stream",
+        "Esta é uma transmissão ao vivo. Só transmissões encerradas podem ser baixadas.",
+    ),
+    (
+        "invalid_manifest",
+        "Não foi possível ler a playlist da transmissão.",
+    ),
+    (
+        "unsupported_media",
+        "Este tipo de transmissão não é suportado.",
+    ),
+    (
+        "tool_missing",
+        "Falta um programa de que este download precisa (yt-dlp, Deno ou FFmpeg). Instale-o em Preferências, Mídia.",
+    ),
+    (
+        "unavailable",
+        "Este vídeo não está disponível: ele é privado, foi removido, é exclusivo para membros ou está bloqueado na sua região.",
+    ),
+    (
+        "extractor",
+        "O yt-dlp não conseguiu ler esta página de vídeo.",
+    ),
+    (
+        "site_forbidden",
+        "O YouTube recusou o download. Uma versão mais nova do yt-dlp costuma resolver: atualize-o em Configurações, Mídia e tente de novo.",
+    ),
+    (
+        "site_sign_in",
+        "O YouTube quer um navegador conectado para este download. O Downpipe não usa cookies do navegador: espere um pouco ou use outra rede e tente de novo.",
+    ),
+    (
+        "site_age_restricted",
+        "O YouTube mostra este vídeo apenas para adultos conectados. O Downpipe não usa contas nem cookies do navegador, então não consegue baixá-lo.",
+    ),
+    (
+        "site_js_runtime",
+        "O yt-dlp não conseguiu responder aos desafios de JavaScript do YouTube. Baixe o Deno em Configurações, Mídia e tente de novo.",
+    ),
+    (
+        "site_po_token",
+        "O YouTube pediu um token de prova de origem (PO) para este vídeo. Atualize o yt-dlp em Configurações, Mídia ou escolha outra qualidade.",
+    ),
+    (
+        "site_outdated",
+        "O yt-dlp não entende mais esta página; provavelmente o YouTube a mudou. Atualize o yt-dlp em Configurações, Mídia e tente de novo.",
+    ),
+];
+
+static RU_FAILURES: &[(&str, &str)] = &[
+    (
+        "invalid_url",
+        "Эта ссылка не является правильным адресом http или https.",
+    ),
+    (
+        "invalid_header",
+        "Один из пользовательских заголовков этой загрузки недопустим.",
+    ),
+    (
+        "auth_required",
+        "Сервер запрашивает имя пользователя и пароль.",
+    ),
+    (
+        "forbidden",
+        "Сервер отказал в загрузке. Возможно, ссылка устарела или сайт требует войти в аккаунт.",
+    ),
+    (
+        "not_found",
+        "Файл не найден на сервере. Проверьте ссылку или используйте новую.",
+    ),
+    (
+        "throttled",
+        "Сервер ограничивает загрузки. Повторите попытку позже или с меньшим числом подключений.",
+    ),
+    ("http_status", "Сервер ответил ошибкой (HTTP {status})."),
+    (
+        "resource_changed",
+        "Файл на сервере изменился во время загрузки. Загрузите его заново с начала.",
+    ),
+    (
+        "different_file",
+        "Новая ссылка ведёт к другому файлу. Загруженная часть сохранена.",
+    ),
+    (
+        "expired_link",
+        "Срок действия ссылки истёк: сервер прислал веб-страницу вместо файла. Используйте новую ссылку; загруженная часть сохранена.",
+    ),
+    (
+        "login_required",
+        "Сервер требует войти в аккаунт. Войдите в браузере, затем используйте новую ссылку; загруженная часть сохранена.",
+    ),
+    (
+        "private_file",
+        "Файл не открыт для общего доступа. Попросите владельца открыть его всем, у кого есть ссылка, или скачайте его в браузере, войдя в аккаунт.",
+    ),
+    (
+        "range_not_honoured",
+        "Сервер перестал отдавать файл по частям. Повторите попытку с одним подключением.",
+    ),
+    (
+        "network",
+        "Не удалось подключиться к серверу. Проверьте сеть и повторите попытку.",
+    ),
+    (
+        "checksum",
+        "Загруженный файл не совпадает с контрольной суммой. Возможно, он повреждён; загрузите его заново.",
+    ),
+    (
+        "io",
+        "Не удалось записать файл. Проверьте, что папка существует и на диске есть свободное место.",
+    ),
+    (
+        "corrupt_meta",
+        "Данные для возобновления этой загрузки повреждены. Загрузите файл заново с начала.",
+    ),
+    (
+        "drm_protected",
+        "Этот поток защищён DRM. Downpipe не загружает защищённые медиа.",
+    ),
+    (
+        "live_stream",
+        "Это прямая трансляция. Загрузить можно только завершённые потоки.",
+    ),
+    ("invalid_manifest", "Не удалось прочитать плейлист потока."),
+    ("unsupported_media", "Такой поток не поддерживается."),
+    (
+        "tool_missing",
+        "Не настроена программа, нужная этой загрузке (yt-dlp, Deno или FFmpeg). Установите её в разделе «Параметры», «Медиа».",
+    ),
+    (
+        "unavailable",
+        "Это видео недоступно: оно личное, удалено, доступно только спонсорам или заблокировано в вашем регионе.",
+    ),
+    (
+        "extractor",
+        "yt-dlp не смог прочитать эту страницу с видео.",
+    ),
+    (
+        "site_forbidden",
+        "YouTube отказал в загрузке. Обычно помогает более новая версия yt-dlp: обновите ее в настройках, в разделе «Медиа», и попробуйте снова.",
+    ),
+    (
+        "site_sign_in",
+        "Для этой загрузки YouTube требует браузер с выполненным входом. Downpipe не использует файлы cookie браузера: подождите немного или подключитесь к другой сети и попробуйте снова.",
+    ),
+    (
+        "site_age_restricted",
+        "YouTube показывает это видео только взрослым пользователям, выполнившим вход. Downpipe не использует аккаунты и файлы cookie браузера, поэтому не может его загрузить.",
+    ),
+    (
+        "site_js_runtime",
+        "yt-dlp не смог ответить на JavaScript-проверки YouTube. Загрузите Deno в настройках, в разделе «Медиа», и попробуйте снова.",
+    ),
+    (
+        "site_po_token",
+        "YouTube запросил для этого видео токен подтверждения происхождения (PO). Обновите yt-dlp в настройках, в разделе «Медиа», или выберите другое качество.",
+    ),
+    (
+        "site_outdated",
+        "yt-dlp больше не понимает эту страницу; вероятно, YouTube ее изменил. Обновите yt-dlp в настройках, в разделе «Медиа», и попробуйте снова.",
+    ),
+];
+
+static ZH_CN_FAILURES: &[(&str, &str)] = &[
+    ("invalid_url", "此链接不是有效的 http 或 https 地址。"),
+    ("invalid_header", "此下载的某个自定义标头无效。"),
+    ("auth_required", "服务器要求提供用户名和密码。"),
+    (
+        "forbidden",
+        "服务器拒绝了下载。链接可能已过期，或者网站要求登录。",
+    ),
+    (
+        "not_found",
+        "服务器上找不到该文件。请检查链接或使用新链接。",
+    ),
+    (
+        "throttled",
+        "服务器正在限制下载。请稍后再试，或减少连接数后再试。",
+    ),
+    ("http_status", "服务器返回了错误（HTTP {status}）。"),
+    (
+        "resource_changed",
+        "下载过程中服务器上的文件发生了变化。请从头重新下载。",
+    ),
+    (
+        "different_file",
+        "新链接指向另一个文件。已下载的部分已保留。",
+    ),
+    (
+        "expired_link",
+        "链接已过期：服务器返回了网页而不是文件。请使用新链接；已下载的部分会保留。",
+    ),
+    (
+        "login_required",
+        "服务器要求登录。请先在浏览器中登录，然后使用新链接；已下载的部分会保留。",
+    ),
+    (
+        "private_file",
+        "该文件未公开共享。请让所有者将其共享给任何拥有链接的人，或在浏览器中登录后下载。",
+    ),
+    (
+        "range_not_honoured",
+        "服务器不再分段发送文件。请改用单个连接重试。",
+    ),
+    ("network", "无法连接到服务器。请检查网络后重试。"),
+    (
+        "checksum",
+        "下载的文件与校验和不符，可能已损坏。请重新下载。",
+    ),
+    ("io", "无法写入文件。请确认文件夹存在且磁盘有可用空间。"),
+    ("corrupt_meta", "此下载的续传数据已损坏。请从头重新下载。"),
+    (
+        "drm_protected",
+        "此流受 DRM 保护。Downpipe 不下载受保护的媒体。",
+    ),
+    ("live_stream", "这是直播。只能下载已结束的流。"),
+    ("invalid_manifest", "无法读取该流的播放列表。"),
+    ("unsupported_media", "不支持此类流。"),
+    (
+        "tool_missing",
+        "此下载所需的程序（yt-dlp、Deno 或 FFmpeg）尚未设置。请在“首选项 > 媒体”中设置。",
+    ),
+    (
+        "unavailable",
+        "此视频不可用：它是私享视频、已被移除、仅限会员观看或在你所在的地区被屏蔽。",
+    ),
+    ("extractor", "yt-dlp 无法读取此视频页面。"),
+    (
+        "site_forbidden",
+        "YouTube 拒绝了此次下载。更新 yt-dlp 通常可以解决：请在“设置”的“媒体”中更新，然后重试。",
+    ),
+    (
+        "site_sign_in",
+        "YouTube 要求使用已登录的浏览器进行此次下载。Downpipe 不使用浏览器 Cookie：请稍等片刻或换一个网络，然后重试。",
+    ),
+    (
+        "site_age_restricted",
+        "YouTube 只向已登录的成年用户显示此视频。Downpipe 不使用账号或浏览器 Cookie，因此无法下载。",
+    ),
+    (
+        "site_js_runtime",
+        "yt-dlp 无法应答 YouTube 的 JavaScript 验证。请在“设置”的“媒体”中下载 Deno，然后重试。",
+    ),
+    (
+        "site_po_token",
+        "YouTube 要求为此视频提供来源证明（PO）令牌。请在“设置”的“媒体”中更新 yt-dlp，或选择其他画质。",
+    ),
+    (
+        "site_outdated",
+        "yt-dlp 已无法解析此页面，YouTube 可能更改了页面。请在“设置”的“媒体”中更新 yt-dlp，然后重试。",
+    ),
+];
+
+static JA_FAILURES: &[(&str, &str)] = &[
+    (
+        "invalid_url",
+        "このリンクは有効な http または https のアドレスではありません。",
+    ),
+    (
+        "invalid_header",
+        "このダウンロードのカスタムヘッダーのひとつが無効です。",
+    ),
+    (
+        "auth_required",
+        "サーバーがユーザー名とパスワードを求めています。",
+    ),
+    (
+        "forbidden",
+        "サーバーがダウンロードを拒否しました。リンクの有効期限が切れたか、サイトへのログインが必要な可能性があります。",
+    ),
+    (
+        "not_found",
+        "サーバー上にファイルが見つかりません。リンクを確認するか、新しいリンクを使ってください。",
+    ),
+    (
+        "throttled",
+        "サーバーがダウンロードを制限しています。時間をおくか、接続数を減らしてやり直してください。",
+    ),
+    (
+        "http_status",
+        "サーバーがエラーを返しました（HTTP {status}）。",
+    ),
+    (
+        "resource_changed",
+        "ダウンロード中にサーバー上のファイルが変わりました。最初からダウンロードし直してください。",
+    ),
+    (
+        "different_file",
+        "新しいリンクは別のファイルを指しています。ダウンロード済みの部分は保持されました。",
+    ),
+    (
+        "expired_link",
+        "リンクの有効期限が切れています。サーバーはファイルではなくウェブページを返しました。新しいリンクを使ってください。ダウンロード済みの部分は保持されます。",
+    ),
+    (
+        "login_required",
+        "サーバーがログインを求めています。ブラウザーでログインしてから新しいリンクを使ってください。ダウンロード済みの部分は保持されます。",
+    ),
+    (
+        "private_file",
+        "このファイルは一般公開されていません。リンクを知っている全員に共有するよう所有者に依頼するか、ログインした状態でブラウザからダウンロードしてください。",
+    ),
+    (
+        "range_not_honoured",
+        "サーバーがファイルの分割送信をやめました。接続数 1 でやり直してください。",
+    ),
+    (
+        "network",
+        "サーバーに接続できませんでした。ネットワークを確認してやり直してください。",
+    ),
+    (
+        "checksum",
+        "ダウンロードしたファイルがチェックサムと一致しません。破損している可能性があるので、ダウンロードし直してください。",
+    ),
+    (
+        "io",
+        "ファイルを書き込めませんでした。フォルダーがあり、ディスクに空きがあるか確認してください。",
+    ),
+    (
+        "corrupt_meta",
+        "このダウンロードの再開用データが壊れています。最初からダウンロードし直してください。",
+    ),
+    (
+        "drm_protected",
+        "このストリームは DRM で保護されています。Downpipe は保護されたメディアをダウンロードしません。",
+    ),
+    (
+        "live_stream",
+        "これはライブ配信です。ダウンロードできるのは終了した配信だけです。",
+    ),
+    (
+        "invalid_manifest",
+        "ストリームのプレイリストを読み取れませんでした。",
+    ),
+    (
+        "unsupported_media",
+        "この種類のストリームには対応していません。",
+    ),
+    (
+        "tool_missing",
+        "このダウンロードに必要なプログラム（yt-dlp、Deno、FFmpeg）が設定されていません。環境設定の「メディア」で設定してください。",
+    ),
+    (
+        "unavailable",
+        "この動画は利用できません。非公開、削除済み、メンバー限定、またはお住まいの地域でブロックされています。",
+    ),
+    (
+        "extractor",
+        "yt-dlp はこの動画ページを読み取れませんでした。",
+    ),
+    (
+        "site_forbidden",
+        "YouTube にダウンロードを拒否されました。多くの場合、新しい yt-dlp で解決します。「設定」の「メディア」で更新してから、もう一度お試しください。",
+    ),
+    (
+        "site_sign_in",
+        "このダウンロードには、YouTube にログインしたブラウザーが必要です。Downpipe はブラウザーの Cookie を使いません。しばらく待つか別のネットワークを使って、もう一度お試しください。",
+    ),
+    (
+        "site_age_restricted",
+        "YouTube はこの動画をログインした成人にのみ表示します。Downpipe はアカウントもブラウザーの Cookie も使わないため、ダウンロードできません。",
+    ),
+    (
+        "site_js_runtime",
+        "yt-dlp が YouTube の JavaScript チャレンジに応答できませんでした。「設定」の「メディア」で Deno をダウンロードしてから、もう一度お試しください。",
+    ),
+    (
+        "site_po_token",
+        "YouTube がこの動画に発信元証明（PO）トークンを求めました。「設定」の「メディア」で yt-dlp を更新するか、別の画質を選んでください。",
+    ),
+    (
+        "site_outdated",
+        "yt-dlp がこのページを読み取れなくなりました。YouTube がページを変更した可能性があります。「設定」の「メディア」で yt-dlp を更新してから、もう一度お試しください。",
+    ),
+];
 
 #[cfg(test)]
 mod tests {
@@ -422,6 +1633,112 @@ mod tests {
         );
         assert_eq!(Lang::from_tag("de-AT"), Some(Lang::De));
         assert_eq!(Lang::from_tag("xx"), None);
+    }
+
+    /// `FAILURE_KINDS` in src/lib/errors.ts and the `site_*` codes of
+    /// src/lib/siteErrors.ts.
+    const FAILURE_KINDS: &[&str] = &[
+        "invalid_url",
+        "invalid_header",
+        "auth_required",
+        "forbidden",
+        "not_found",
+        "throttled",
+        "http_status",
+        "resource_changed",
+        "different_file",
+        "expired_link",
+        "login_required",
+        "private_file",
+        "range_not_honoured",
+        "network",
+        "checksum",
+        "io",
+        "corrupt_meta",
+        "drm_protected",
+        "live_stream",
+        "invalid_manifest",
+        "unsupported_media",
+        "tool_missing",
+        "unavailable",
+        "extractor",
+        "site_forbidden",
+        "site_sign_in",
+        "site_age_restricted",
+        "site_js_runtime",
+        "site_po_token",
+        "site_outdated",
+    ];
+
+    const ALL: [Lang; 10] = [
+        Lang::En,
+        Lang::Tr,
+        Lang::Es,
+        Lang::De,
+        Lang::Fr,
+        Lang::It,
+        Lang::PtBr,
+        Lang::Ru,
+        Lang::ZhCn,
+        Lang::Ja,
+    ];
+
+    #[test]
+    fn every_failure_kind_has_a_text_in_every_language() {
+        for lang in ALL {
+            let t = lang.texts();
+            assert_eq!(
+                t.failure_kinds.len(),
+                FAILURE_KINDS.len(),
+                "{lang:?} has a kind no other language has"
+            );
+            for kind in FAILURE_KINDS {
+                let text = failure_text(t, kind, "unexpected HTTP status 502")
+                    .unwrap_or_else(|| panic!("{lang:?} has no text for {kind}"));
+                assert!(!text.trim().is_empty(), "{lang:?}: {kind}");
+                assert!(!text.contains('{'), "{lang:?}: {kind}: {text}");
+            }
+            let status = failure_text(t, "http_status", "unexpected HTTP status 502").unwrap();
+            assert!(status.contains("502"), "{lang:?}: {status}");
+            assert!(!t.server_error.trim().is_empty(), "{lang:?}");
+        }
+    }
+
+    #[test]
+    fn failures_read_as_in_the_web_view() {
+        let en = Lang::En.texts();
+        assert_eq!(
+            failure_text(en, "not_found", "HTTP 404 Not Found").as_deref(),
+            Some("The file was not found on the server. Check the link or use a new one.")
+        );
+        assert_eq!(
+            failure_text(
+                Lang::Tr.texts(),
+                "http_status",
+                "unexpected HTTP status 503"
+            )
+            .as_deref(),
+            Some("Sunucu bir hatayla yanıt verdi (HTTP 503).")
+        );
+        assert_eq!(
+            failure_text(en, "http_status", "the server closed the connection").as_deref(),
+            Some(en.server_error),
+            "no status in the message"
+        );
+        assert_eq!(
+            failure_text(en, "http_status", "status 6000 or 0502").as_deref(),
+            Some(en.server_error),
+            "only a whole three-digit status counts"
+        );
+    }
+
+    #[test]
+    fn unknown_kinds_are_left_to_the_engine() {
+        assert_eq!(
+            failure_text(Lang::De.texts(), "torrent", "tracker said no"),
+            None
+        );
+        assert_eq!(failure_text(Lang::De.texts(), "", ""), None);
     }
 
     #[test]

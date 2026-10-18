@@ -2,6 +2,12 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
+## Unreleased
+
+### Fixed
+
+- **"Download failed" notifications in your language.** The system notification for a failed download gives the reason in the app's language, in the same words as the list and the details (the HTTP status included for a server error), instead of the engine's English text. A reason this version has no words for still shows the engine's message.
+
 ## 0.5.0 — 2026-10-18
 
 BitTorrent, YouTube playlists and channels, a site grabber and RSS feeds, per-site rules, actions after a download, backup and IDM import, a remote control page for phones, and Linux and macOS packages. The download engine also handles what users of other download managers keep running into: hosts that cap connections, silent connections, sign-in pages saved as files, network switches and awkward file names.

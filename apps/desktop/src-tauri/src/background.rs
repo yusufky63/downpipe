@@ -421,10 +421,23 @@ fn notify_finished(app: &AppHandle, task: &TaskSnapshot, texts: &Texts) {
                 .join(" · "),
         )
     } else {
-        let why = r.error.clone().unwrap_or_default();
-        (texts.failed.to_string(), format!("{name}: {why}"))
+        (
+            texts.failed.to_string(),
+            failed_body(texts, &name, r.error_kind.as_deref(), r.error.as_deref()),
+        )
     };
     let _ = app.notification().builder().title(title).body(body).show();
+}
+
+/// The engine explains failures in English; a known kind is worded in the
+/// user's language, as the list does, and anything else keeps the engine's
+/// message so the notification still says what went wrong.
+fn failed_body(texts: &Texts, name: &str, kind: Option<&str>, raw: Option<&str>) -> String {
+    let raw = raw.unwrap_or_default();
+    let why = kind
+        .and_then(|kind| i18n::failure_text(texts, kind, raw))
+        .unwrap_or_else(|| raw.to_string());
+    format!("{name}: {why}")
 }
 
 fn notify_threat(app: &AppHandle, task: &TaskSnapshot, texts: &Texts) {
@@ -665,6 +678,30 @@ mod tests {
             "Microsoft Defender found Virus:DOS/EICAR_Test_File in a.zip. Nothing was extracted or run, and the file was not deleted."
         );
         assert!(threat_body(en, "clamscan", None, "a.zip").contains("found a threat in a.zip"));
+    }
+
+    #[test]
+    fn failure_notifications_word_the_kind_in_the_users_language() {
+        let ja = i18n::texts("ja");
+        assert_eq!(
+            failed_body(
+                ja,
+                "a.zip",
+                Some("http_status"),
+                Some("unexpected HTTP status 502")
+            ),
+            "a.zip: サーバーがエラーを返しました（HTTP 502）。"
+        );
+        let en = i18n::texts("en");
+        assert_eq!(
+            failed_body(en, "a.zip", Some("torrent"), Some("tracker said no")),
+            "a.zip: tracker said no",
+            "an unknown kind keeps the engine's message"
+        );
+        assert_eq!(
+            failed_body(en, "a.zip", None, Some("disk full")),
+            "a.zip: disk full"
+        );
     }
 
     #[test]
