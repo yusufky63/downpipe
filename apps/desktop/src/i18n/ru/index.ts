@@ -11,5 +11,6 @@ import { errors } from "./errors";
 import { app, list } from "./list";
 import { media } from "./media";
 import { settings } from "./settings";
+import { sites } from "./sites";
 
-export const ru: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, media, confirm, errors, builtin };
+export const ru: Catalog = { common, states, chrome, list, app, add, details, dialogs, settings, sites, media, confirm, errors, builtin };

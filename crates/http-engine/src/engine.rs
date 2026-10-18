@@ -56,8 +56,9 @@ pub(crate) struct Inner {
     pub(crate) limiter: Arc<RateLimiter>,
     /// Connections a host accepted when it refused more (`host:port` to
     /// count), so later downloads from it start there instead of tripping
-    /// the limit again. Lives as long as the engine: a session.
-    hosts: Mutex<HashMap<String, usize>>,
+    /// the limit again. Shared with the engines [`Engine::derive`] builds
+    /// and kept for the session.
+    hosts: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 impl Inner {
@@ -217,21 +218,54 @@ impl Engine {
         config: EngineConfig,
         limiter: Arc<RateLimiter>,
     ) -> Result<Self, DownloadError> {
+        Self::build(config, limiter, Arc::default())
+    }
+
+    fn build(
+        config: EngineConfig,
+        limiter: Arc<RateLimiter>,
+        hosts: Arc<Mutex<HashMap<String, usize>>>,
+    ) -> Result<Self, DownloadError> {
         let client = http::build_client(&config)?;
         Ok(Self {
             inner: Arc::new(Inner {
                 client,
                 config,
                 limiter,
-                hosts: Mutex::new(HashMap::new()),
+                hosts,
             }),
         })
+    }
+
+    /// An engine with another configuration (a proxy or user agent) that
+    /// shares this one's speed limiter and what it learned about hosts, so
+    /// a host that refused extra connections is not tried again through a
+    /// new connection pool.
+    pub fn derive(&self, config: EngineConfig) -> Result<Self, DownloadError> {
+        Self::build(config, self.inner.limiter.clone(), self.inner.hosts.clone())
     }
 
     /// Connections the host of `url` accepted when it refused more during
     /// this session; downloads from it never open more than this.
     pub fn connection_limit(&self, url: &str) -> Option<usize> {
         self.inner.host_limit(&http::parse_url(url).ok()?)
+    }
+
+    /// Every host that refused extra connections this session, as
+    /// `(host, port, connections)`, sorted by host.
+    pub fn connection_limits(&self) -> Vec<(String, u16, usize)> {
+        let mut out: Vec<(String, u16, usize)> = self
+            .inner
+            .hosts
+            .lock()
+            .iter()
+            .filter_map(|(key, &n)| {
+                let (host, port) = key.rsplit_once(':')?;
+                Some((host.to_string(), port.parse().ok()?, n))
+            })
+            .collect();
+        out.sort();
+        out
     }
 
     pub fn config(&self) -> &EngineConfig {
@@ -393,6 +427,7 @@ impl Job {
 
     fn limits(&self) -> Limits {
         Limits::new(self.inner.limiter.clone(), self.req.limiter.clone())
+            .with_site(self.req.site_limiter.clone())
     }
 
     async fn run(mut self) -> Result<Outcome, DownloadError> {
@@ -798,7 +833,7 @@ impl Job {
         F: Fn() -> RequestBuilder,
     {
         let cfg = &self.inner.config;
-        let attempts = (cfg.max_retries + 1).min(MAX_INITIAL_ATTEMPTS);
+        let attempts = (self.req.retries(cfg) + 1).min(MAX_INITIAL_ATTEMPTS);
         let budget = retry::Budget::new(attempts - 1, cfg.offline_grace);
         let mut failures = 0;
         loop {
@@ -901,7 +936,8 @@ impl Job {
         let mut workers = WorkerSet::new();
         let mut target = cfg.initial_connections.clamp(1, max);
         let mut ramp = Ramp::new(cfg.ramp_window, cfg.ramp_gain);
-        let mut budget = retry::Budget::new(cfg.max_retries, cfg.offline_grace);
+        let max_retries = self.req.retries(cfg);
+        let mut budget = retry::Budget::new(max_retries, cfg.offline_grace);
         // (due, segment, failed on the network): network retries are pulled
         // forward as soon as bytes flow again.
         let mut retries: Vec<(Instant, SegmentId, bool)> = Vec::new();
@@ -1004,7 +1040,7 @@ impl Job {
                     // that really expired runs out of retries and fails.
                     let lingering = limited && matches!(err, DownloadError::Forbidden);
                     let allowed = if lingering {
-                        failures <= cfg.max_retries
+                        failures <= max_retries
                     } else {
                         budget.allows(&err, failures, now)
                     };
@@ -1165,7 +1201,7 @@ impl Job {
                 }
             };
             match self.stream_body(session, resp).await {
-                Err(err) if err.is_retryable() && attempt < cfg.max_retries => {
+                Err(err) if err.is_retryable() && attempt < self.req.retries(cfg) => {
                     let delay = retry::backoff(attempt, cfg.retry_base_delay, cfg.retry_max_delay);
                     attempt += 1;
                     tracing::debug!(attempt, ?delay, "stream failed, restarting: {err}");

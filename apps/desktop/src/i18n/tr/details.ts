@@ -37,6 +37,7 @@ export const details: Messages["details"] = {
     bestQuality: "En iyi kalite",
     fragments: { one: "{done} / {count} parça", other: "{done} / {count} parça" },
     queue: "Kuyruk",
+    siteRule: "Site kuralı",
     checksum: "Sağlama toplamı",
     added: "Eklenme",
     finished: "Bitiş",

@@ -39,6 +39,8 @@ pub struct SiteRequest {
     /// From the quality chooser; `None` takes the best.
     pub selection: Option<MediaSelection>,
     pub tools: Tools,
+    /// `None`: yt-dlp's own choice (the system proxy). An empty string
+    /// connects directly.
     pub proxy: Option<String>,
     /// Bytes per second, 0 for no limit.
     pub rate_limit: u64,

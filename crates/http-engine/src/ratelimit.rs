@@ -70,25 +70,38 @@ impl RateLimiter {
     }
 }
 
-/// The buckets one download draws from: the engine's (the global limit) and,
-/// when the download has a speed limit of its own, its own bucket. A
-/// download then runs at whichever limit is lower.
+/// The buckets one download draws from: the engine's (the global limit),
+/// its own when it has a speed limit, and its site's when a site rule sets
+/// one. A download then runs at whichever limit is lowest.
 #[derive(Debug, Clone)]
 pub(crate) struct Limits {
     global: Arc<RateLimiter>,
     own: Option<Arc<RateLimiter>>,
+    site: Option<Arc<RateLimiter>>,
 }
 
 impl Limits {
     pub(crate) fn new(global: Arc<RateLimiter>, own: Option<Arc<RateLimiter>>) -> Self {
-        Self { global, own }
+        Self {
+            global,
+            own,
+            site: None,
+        }
+    }
+
+    pub(crate) fn with_site(mut self, site: Option<Arc<RateLimiter>>) -> Self {
+        self.site = site;
+        self
     }
 
     pub(crate) async fn acquire(&self, bytes: usize) {
-        // Own bucket first: while this download sleeps off its own debt the
-        // global bucket refills for the others instead of being held.
+        // Narrowest bucket first: while this download sleeps off its own
+        // debt the shared buckets refill for the others instead of being held.
         if let Some(own) = &self.own {
             own.acquire(bytes).await;
+        }
+        if let Some(site) = &self.site {
+            site.acquire(bytes).await;
         }
         self.global.acquire(bytes).await;
     }
@@ -168,6 +181,19 @@ mod tests {
             Arc::new(RateLimiter::new(100 * 1024)),
             Some(Arc::new(RateLimiter::new(10 * 1024 * 1024))),
         );
+        let start = Instant::now();
+        for _ in 0..10 {
+            limits.acquire(10 * 1024).await;
+        }
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(850), "{elapsed:?}");
+    }
+
+    #[tokio::test]
+    async fn a_site_limit_applies_under_faster_other_ones() {
+        let fast = || Some(Arc::new(RateLimiter::new(10 * 1024 * 1024)));
+        let limits = Limits::new(Arc::new(RateLimiter::new(10 * 1024 * 1024)), fast())
+            .with_site(Some(Arc::new(RateLimiter::new(100 * 1024))));
         let start = Instant::now();
         for _ in 0..10 {
             limits.acquire(10 * 1024).await;

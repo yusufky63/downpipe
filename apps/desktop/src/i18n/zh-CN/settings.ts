@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "队列",
     categories: "类别",
     network: "网络",
+    sites: "站点",
     media: "媒体",
     schedule: "计划",
     app: "应用",

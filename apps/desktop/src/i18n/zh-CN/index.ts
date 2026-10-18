@@ -11,5 +11,6 @@ import { errors } from "./errors";
 import { app, list } from "./list";
 import { media } from "./media";
 import { settings } from "./settings";
+import { sites } from "./sites";
 
-export const zhCN: Catalog = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, media, errors, builtin };
+export const zhCN: Catalog = { common, states, chrome, list, app, add, confirm, details, dialogs, settings, sites, media, errors, builtin };

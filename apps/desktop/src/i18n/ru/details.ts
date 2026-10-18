@@ -43,6 +43,7 @@ export const details: Messages["details"] = {
       other: "{done} из {count} фрагмента",
     },
     queue: "Очередь",
+    siteRule: "Правило сайта",
     checksum: "Контрольная сумма",
     added: "Добавлено",
     finished: "Завершено",

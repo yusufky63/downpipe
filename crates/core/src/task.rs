@@ -123,6 +123,10 @@ pub struct TaskRecord {
     /// Set when the URL is a video page a site provider downloads (YouTube).
     #[serde(default)]
     pub site: Option<SiteInfo>,
+    /// Pattern of the site rule that applied when the download was added
+    /// or last started; `None` when no rule matched.
+    #[serde(default)]
+    pub site_rule: Option<String>,
     /// This download's own limit in bytes per second, under the global one.
     /// `None`: only the global limit applies.
     #[serde(default)]

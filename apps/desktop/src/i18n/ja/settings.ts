@@ -11,6 +11,7 @@ export const settings: Messages["settings"] = {
     queues: "キュー",
     categories: "カテゴリ",
     network: "ネットワーク",
+    sites: "サイト",
     media: "メディア",
     schedule: "スケジュール",
     app: "アプリ",

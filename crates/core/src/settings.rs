@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::rules::{SiteRule, normalize_rules};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -56,6 +58,8 @@ pub struct Settings {
     /// Deno, which yt-dlp needs for YouTube. Empty: the tools folder, then
     /// `PATH` (and Node 22 or newer when there is no Deno at all).
     pub deno_path: String,
+    /// Per-site overrides; see [`crate::rules`].
+    pub site_rules: Vec<SiteRule>,
     /// The answer to "this link is already in the list" once the user chose
     /// "Don't ask again": one of [`DUPLICATE_ANSWERS`]. `ask` asks every
     /// time. The desktop app applies it; the core still holds a browser's
@@ -154,6 +158,7 @@ impl Default for Settings {
             ffmpeg_path: String::new(),
             yt_dlp_path: String::new(),
             deno_path: String::new(),
+            site_rules: Vec::new(),
             duplicate_answer: "ask".into(),
         }
     }
@@ -209,7 +214,29 @@ impl Settings {
         {
             self.schedule.queue = String::new();
         }
+        self.site_rules = normalize_rules(std::mem::take(&mut self.site_rules));
+        for rule in &mut self.site_rules {
+            if !rule.queue.is_empty() && !self.queues.iter().any(|q| q.id == rule.queue) {
+                rule.queue = String::new();
+            }
+        }
         self
+    }
+
+    /// The rule that applies to downloads from `url`, if any.
+    pub fn site_rule_for(&self, url: &url::Url) -> Option<&SiteRule> {
+        crate::rules::rule_for(&self.site_rules, url)
+    }
+
+    /// Where `dir` of a rule or category points: absolute as it is,
+    /// otherwise inside the download folder.
+    pub fn resolve_dir(&self, folder: &str) -> PathBuf {
+        let folder = folder.trim();
+        if Path::new(folder).is_absolute() {
+            PathBuf::from(folder)
+        } else {
+            self.download_dir.join(folder)
+        }
     }
 
     pub fn queue(&self, id: &str) -> Option<&Queue> {
@@ -252,10 +279,8 @@ impl Settings {
         if folder.is_empty() {
             self.download_dir
                 .join(downpipe_http::filename::sanitize(&category.name))
-        } else if Path::new(folder).is_absolute() {
-            PathBuf::from(folder)
         } else {
-            self.download_dir.join(folder)
+            self.resolve_dir(folder)
         }
     }
 }

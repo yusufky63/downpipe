@@ -164,7 +164,8 @@ impl MediaJob {
         let ctx = Arc::new(FragCtx {
             client: self.inner.client.clone(),
             headers,
-            limits: Limits::new(self.inner.limiter.clone(), self.req.limiter.clone()),
+            limits: Limits::new(self.inner.limiter.clone(), self.req.limiter.clone())
+                .with_site(self.req.site_limiter.clone()),
             stall_timeout: self.inner.config.stall_timeout,
             response_timeout: self.inner.config.response_timeout,
             buffer_size: self.inner.config.buffer_size,
@@ -334,7 +335,7 @@ impl MediaJob {
         let mut failures = vec![0u32; total_count];
         let mut retries: Vec<(Instant, usize, bool)> = Vec::new();
         let mut hold_until: Option<Instant> = None;
-        let mut budget = retry::Budget::new(cfg.max_retries, cfg.offline_grace);
+        let mut budget = retry::Budget::new(self.req.retries(cfg), cfg.offline_grace);
         // The latest failure and when it happened: what a waiting download
         // shows, unless nothing failed since the bytes stopped.
         let mut last_failure = (Instant::now(), WaitReason::Network);

@@ -37,6 +37,7 @@ export const details: Messages["details"] = {
     bestQuality: "最高画質",
     fragments: { other: "フラグメント {done} / {count}" },
     queue: "キュー",
+    siteRule: "サイトのルール",
     checksum: "チェックサム",
     added: "追加日時",
     finished: "完了日時",

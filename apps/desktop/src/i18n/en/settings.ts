@@ -9,6 +9,7 @@ export const settings = {
     queues: "Queues",
     categories: "Categories",
     network: "Network",
+    sites: "Sites",
     media: "Media",
     schedule: "Schedule",
     app: "App",

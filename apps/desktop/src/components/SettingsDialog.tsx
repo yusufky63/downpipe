@@ -1,4 +1,4 @@
-import { FolderOpen, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { Fragment, useEffect, useId, useState, type ReactNode } from "react";
 
 import { LOCALES, systemLocaleName, useI18n } from "../i18n";
@@ -11,17 +11,21 @@ import {
   type DuplicateAnswer,
   type Queue,
   type Settings,
+  type SiteRulesCheck,
   type ToolsStatus,
 } from "../lib/api";
 import { BROWSER_NAMES, bridgeStateInfo, canRegister } from "../lib/bridge";
+import { fromRuleDraft, toRuleDraft, type RuleDraft } from "../lib/siteRules";
 import { bytesToRate, decimalField, parseDecimal, rateToBytes, type RateUnit } from "../lib/format";
 import { categoryLabel, storedCategoryName } from "../lib/categories";
 import { installButtonLabel, toolRows, toolsToInstall } from "../lib/tools";
+import { FolderInput } from "./FolderInput";
 import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } from "./primitives";
+import { SiteRules } from "./SiteRules";
 
-export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "media" | "schedule" | "app";
+export type SettingsTab = "downloads" | "queues" | "categories" | "network" | "sites" | "media" | "schedule" | "app";
 
-const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "network", "media", "schedule", "app"];
+const TABS: readonly SettingsTab[] = ["downloads", "queues", "categories", "network", "sites", "media", "schedule", "app"];
 
 /** Short day names, Monday first like `schedule.days`; 1 January 2024 was a Monday. */
 function weekdays(locale: string): string[] {
@@ -114,6 +118,9 @@ export function SettingsDialog({
   const [ytDlpPath, setYtDlpPath] = useState(settings.yt_dlp_path);
   const [denoPath, setDenoPath] = useState(settings.deno_path);
   const [language, setLanguage] = useState(settings.language);
+  const [ruleDrafts, setRuleDrafts] = useState<RuleDraft[]>(() => settings.site_rules.map(toRuleDraft));
+  const [ruleAddress, setRuleAddress] = useState("");
+  const [ruleCheck, setRuleCheck] = useState<SiteRulesCheck | null>(null);
   const [duplicateAnswer, setDuplicateAnswer] = useState<DuplicateAnswer>(settings.duplicate_answer);
   const [error, setError] = useState<string | null>(null);
   const tabIds = useId();
@@ -121,7 +128,28 @@ export function SettingsDialog({
   const limitValue = limit.trim() === "" ? 0 : parseDecimal(limit);
   const limitInvalid = Number.isNaN(limitValue);
 
+  // Drafts are checked by the same Rust code that applies saved rules, a
+  // moment after each change, so the tester never disagrees with downloads.
+  useEffect(() => {
+    let live = true;
+    const timer = window.setTimeout(() => {
+      api
+        .checkSiteRules(ruleDrafts.map(fromRuleDraft), ruleAddress.trim() || null)
+        .then((check) => live && setRuleCheck(check))
+        .catch(() => live && setRuleCheck(null));
+    }, 120);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [ruleDrafts, ruleAddress]);
+
   const save = async () => {
+    if (ruleCheck && ruleCheck.problems.length > 0) {
+      setTab("sites");
+      setError(t("sites.fix"));
+      return;
+    }
     if (limitInvalid) {
       setTab("downloads");
       return;
@@ -149,6 +177,7 @@ export function SettingsDialog({
         ffmpeg_path: ffmpegPath.trim(),
         yt_dlp_path: ytDlpPath.trim(),
         deno_path: denoPath.trim(),
+        site_rules: ruleDrafts.map(fromRuleDraft),
         duplicate_answer: duplicateAnswer,
       });
       onSaved(saved);
@@ -403,6 +432,17 @@ export function SettingsDialog({
               )}
             </Field>
           </>
+        )}
+
+        {tab === "sites" && (
+          <SiteRules
+            drafts={ruleDrafts}
+            onChange={setRuleDrafts}
+            address={ruleAddress}
+            onAddress={setRuleAddress}
+            check={ruleCheck}
+            queues={schedulable.map((q) => ({ id: q.id, name: q.name.trim() }))}
+          />
         )}
 
         {tab === "media" && (
@@ -679,24 +719,6 @@ function SiteTools({
       )}
       <Banner tone="neutral">{t("settings.siteTools.cookies")}</Banner>
     </section>
-  );
-}
-
-function FolderInput({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
-  const { t } = useI18n();
-  return (
-    <div className="flex gap-2">
-      <input id={id} value={value} onChange={(e) => onChange(e.target.value)} spellCheck={false} className={`${inputClass} h-9 font-mono text-[13px]`} />
-      <Button
-        onClick={async () => {
-          const picked = await api.pickFolder(value || null).catch(() => null);
-          if (picked) onChange(picked);
-        }}
-      >
-        <FolderOpen size={16} strokeWidth={1.75} />
-        {t("common.browse")}
-      </Button>
-    </div>
   );
 }
 

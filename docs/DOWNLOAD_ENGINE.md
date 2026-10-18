@@ -70,7 +70,7 @@ All connections run HTTP/1.1. Under HTTP/2 every segment would share one TCP con
 4. If the new rate is less than `ramp_gain` times the previous one, go back to the previous count and stop probing.
 5. A `429` or `503` reduces the count to the connections still running and stops probing for this download.
 
-Many hosts cap connections per client and refuse one too many with `403`, `429` or `503` while the others are served. A refusal of that kind, while other connections of the same download are running, is not a failure: the count drops to the connections that work, the segment goes to the next free one, and probing stops. The engine remembers the working count per host (`host:port`) for as long as it runs, so later downloads from that host start within it instead of tripping the limit again (`Engine::connection_limit`). A `403` with no other connection left is retried like a server failure once the host has shown such a limit (it may still count a connection that just closed); a link that really expired runs out of retries and fails with `forbidden`.
+Many hosts cap connections per client and refuse one too many with `403`, `429` or `503` while the others are served. A refusal of that kind, while other connections of the same download are running, is not a failure: the count drops to the connections that work, the segment goes to the next free one, and probing stops. The engine remembers the working count per host (`host:port`) for as long as it runs, so later downloads from that host start within it instead of tripping the limit again (`Engine::connection_limit`, and `Engine::connection_limits` for all of them). Engines made with `Engine::derive` (another proxy or user agent) share that memory. A `403` with no other connection left is retried like a server failure once the host has shown such a limit (it may still count a connection that just closed); a link that really expired runs out of retries and fails with `forbidden`.
 
 ## Retries, silence and network outages
 
@@ -141,6 +141,11 @@ Progress counts finished fragments and the bytes of those in flight. The total i
 One token bucket per engine (the desktop app and CLI use one engine). Connections take tokens for each chunk and sleep off any debt, which keeps the total rate exact even with Windows' coarse timer. The rate can change while downloads run.
 
 A download can have a bucket of its own as well (`DownloadRequest::limiter`). Its connections take from that one first and then from the engine's, so the download runs at the lower of the two limits while the global one still holds for all of them together. Taking from its own bucket first means a download sleeping off its own debt does not hold tokens other downloads could use. The owner of the bucket (the core) can change its rate while the download runs.
+`DownloadRequest::site_limiter` adds a third bucket, which the desktop app shares among the downloads one site rule applies to. A connection takes from the download's own bucket, then the site's, then the engine's, so the lowest of the three limits wins.
+
+## Per-download overrides
+
+Besides `max_connections`, `limiter` and `site_limiter`, a request can set `max_retries` (in place of `EngineConfig::max_retries`, also for the first request and for streams). A proxy is a property of the client, so a download through another proxy runs on an engine from `Engine::derive`, which shares the limiter and the host memory; `EngineConfig::no_proxy` connects directly, ignoring the system proxy. The desktop app's site rules use all of these ([site-rules.md](site-rules.md)).
 
 ## Measuring
 

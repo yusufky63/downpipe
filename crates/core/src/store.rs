@@ -11,7 +11,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use crate::settings::Settings;
 use crate::task::{MediaInfo, SiteInfo, TaskRecord, TaskState};
 
-const SCHEMA_VERSION: i32 = 6;
+const SCHEMA_VERSION: i32 = 7;
 
 #[derive(Debug)]
 pub struct Store {
@@ -94,6 +94,11 @@ impl Store {
                 "ALTER TABLE downloads ADD COLUMN speed_limit INTEGER;
                  ALTER TABLE downloads ADD COLUMN resume_at INTEGER;",
             )?;
+            conn.pragma_update(None, "user_version", 6)?;
+        }
+        if version < 7 {
+            // The pattern of the site rule the download last started with.
+            conn.execute_batch("ALTER TABLE downloads ADD COLUMN site_rule TEXT;")?;
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         Ok(Self { conn })
@@ -104,9 +109,10 @@ impl Store {
             "INSERT INTO downloads (id, url, dir, file_name, path, state, total, downloaded,
                                     error, error_kind, checksum, max_connections,
                                     created_at, updated_at, completed_at, category, auto_dir,
-                                    queue, position, media, site, speed_limit, resume_at)
+                                    queue, position, media, site, speed_limit, resume_at,
+                                    site_rule)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                     ?18, ?19, ?20, ?21, ?22, ?23)
+                     ?18, ?19, ?20, ?21, ?22, ?23, ?24)
              ON CONFLICT(id) DO UPDATE SET
                 url = excluded.url, dir = excluded.dir, file_name = excluded.file_name,
                 path = excluded.path, state = excluded.state, total = excluded.total,
@@ -117,7 +123,7 @@ impl Store {
                 category = excluded.category, auto_dir = excluded.auto_dir,
                 queue = excluded.queue, position = excluded.position, media = excluded.media,
                 site = excluded.site, speed_limit = excluded.speed_limit,
-                resume_at = excluded.resume_at",
+                resume_at = excluded.resume_at, site_rule = excluded.site_rule",
             params![
                 r.id,
                 r.url,
@@ -142,6 +148,7 @@ impl Store {
                 site_json(r.site.as_ref()),
                 r.speed_limit.map(to_i64),
                 r.resume_at,
+                r.site_rule,
             ],
         )?;
         Ok(())
@@ -157,7 +164,8 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT id, url, dir, file_name, path, state, total, downloaded, error, error_kind,
                     checksum, max_connections, created_at, updated_at, completed_at,
-                    category, auto_dir, queue, position, media, site, speed_limit, resume_at
+                    category, auto_dir, queue, position, media, site, speed_limit, resume_at,
+                    site_rule
              FROM downloads ORDER BY created_at, rowid",
         )?;
         let rows = stmt.query_map([], row_to_record)?;
@@ -225,6 +233,7 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<TaskRecord> {
             .map(to_u64)
             .filter(|&l| l > 0),
         resume_at: row.get(22)?,
+        site_rule: row.get(23)?,
     })
 }
 
@@ -274,6 +283,7 @@ mod tests {
             site: None,
             speed_limit: None,
             resume_at: None,
+            site_rule: Some("*.example.org".into()),
             created_at: created,
             updated_at: created,
             completed_at: None,
