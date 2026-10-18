@@ -328,6 +328,59 @@ export interface CommandError {
   id: string | null;
 }
 
+/** What a backup file holds, read and checked by Rust for the import preview. */
+export interface BackupPreview {
+  /** The file's name, without its folder. */
+  file: string;
+  /** The Downpipe that wrote it; empty when unknown. */
+  app_version: string;
+  /** Seconds since the epoch; 0 when unknown. */
+  exported_at: number;
+  downloads: number;
+  /** Of `downloads`, the ones whose link is not in the list yet. */
+  new_downloads: number;
+  /** Damaged entries that will be left out. */
+  invalid: number;
+  /** Queues besides the main queue. */
+  queues: number;
+  categories: number;
+}
+
+/** What to take from a backup. */
+export interface ImportChoice {
+  settings: boolean;
+  downloads: boolean;
+}
+
+export interface ImportReport {
+  settings: boolean;
+  added: number;
+  /** Links already in the list (or twice in the file), left alone. */
+  duplicates: number;
+  invalid: number;
+}
+
+/** One download from IDM's list (downpipe_core::idm::IdmEntry). */
+export interface IdmRow {
+  url: string;
+  file_name: string | null;
+  /** The folder IDM saves to; exported lists have none. */
+  dir: string | null;
+  size: number | null;
+  /** IDM downloaded every byte. */
+  finished: boolean;
+  /** The link is in Downpipe's list already. */
+  listed: boolean;
+}
+
+export interface IdmList {
+  /** The exported file's name; null for the list on this computer. */
+  file: string | null;
+  rows: IdmRow[];
+}
+
+export type IdmSource = "computer" | "file";
+
 export const api = {
   list: () => invoke<Task[]>("list_downloads"),
   add: (options: AddOptions) => invoke<Task>("add_download", { options }),
@@ -364,6 +417,15 @@ export const api = {
   stopQueue: (queue: string) => invoke<null>("stop_queue", { queue }),
   /** Number of links written, or null when the save dialog was closed. */
   exportLinks: () => invoke<number | null>("export_downloads"),
+  /** Settings and list to a JSON file; null when the save dialog was closed. */
+  exportBackup: () => invoke<{ file: string; downloads: number } | null>("export_backup"),
+  /** Pick and check a backup; null when the dialog was closed. Rust keeps it for `importBackup`. */
+  inspectBackup: () => invoke<BackupPreview | null>("inspect_backup"),
+  importBackup: (choice: ImportChoice) => invoke<ImportReport>("import_backup", { choice }),
+  /** IDM's list, read only; null when the file dialog was closed. Rust keeps it for `importIdm`. */
+  readIdmList: (source: IdmSource) => invoke<IdmList | null>("read_idm_list", { source }),
+  /** Adds the rows at these positions of the last list read, paused. */
+  importIdm: (rows: number[]) => invoke<ImportReport>("import_idm", { rows }),
   startDrag: (id: string) => invoke<null>("start_drag", { id }),
   whenDone: () => invoke<WhenDoneView>("get_when_done"),
   setWhenDone: (action: WhenDone) => invoke<WhenDoneView>("set_when_done", { action }),

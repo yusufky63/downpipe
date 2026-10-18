@@ -687,6 +687,7 @@ export function App() {
             api.settingsClosed().catch(() => undefined);
           }}
           onSaved={setSettings}
+          onImported={(message) => toast(message, "neutral")}
         />
       )}
       {removing.length > 0 && (

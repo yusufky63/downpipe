@@ -9,6 +9,8 @@ The download engine handles what users of other download managers keep running i
 ### New
 
 - **Downpipe starts from the browser.** A link, stream or video page sent from the browser while Downpipe is closed starts it in the tray and is then added, instead of failing with "Downpipe is not running" (IDM does the same). The bridge starts only the Downpipe next to it, never a program a message names, waits at most 10 seconds and otherwise gives the old answer, so a captured download stays with the browser. **Start Downpipe when it is closed** on the extension's Filters page turns it off. Bridge: an optional `start_app` field on `download`, `media` and `page`.
+- **Backup and restore.** **Settings → App → Export settings and list…** saves the settings (queues and categories included) and the download list (links, folders, names, states and progress) to one JSON file, never with headers or cookies. **Import…** shows what a backup holds and takes the settings, the downloads or both: links already in the list are skipped, unfinished downloads are added paused, no file is replaced, and every entry is checked on its own, so a damaged one is left out instead of failing the import. The paths to FFmpeg, yt-dlp and Deno are never taken from a file.
+- **Import from IDM.** **Settings → App → Import from Internet Download Manager** reads IDM's download list, on Windows straight from IDM's registry keys (link, file name, folder and size only, opened read only) or from a list exported from IDM as text or `.ef2` (links and file names only; cookies and headers in the file are skipped), shows it with checkboxes and adds the ticked downloads paused. IDM's data is never changed. What is read is listed in [docs/BACKUP_AND_IMPORT.md](docs/BACKUP_AND_IMPORT.md).
 
 ### Fixed
 

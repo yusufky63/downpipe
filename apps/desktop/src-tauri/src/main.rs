@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod background;
+mod backup;
 mod clipboard;
 mod confirm;
 mod i18n;
@@ -652,6 +653,7 @@ fn main() {
             }
             start_browser_bridge(manager.clone());
             app.manage(Background::default());
+            app.manage(backup::PendingImports::default());
             app.manage(confirm::ConfirmWindow::default());
             background::spawn(app.handle().clone(), manager.clone());
             clipboard::spawn(app.handle().clone(), manager.clone());
@@ -724,6 +726,11 @@ fn main() {
             start_queue,
             stop_queue,
             export_downloads,
+            backup::export_backup,
+            backup::inspect_backup,
+            backup::import_backup,
+            backup::read_idm_list,
+            backup::import_idm,
             start_drag,
             get_when_done,
             set_when_done,

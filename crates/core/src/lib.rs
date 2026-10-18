@@ -1,6 +1,8 @@
 //! Downpipe's application core: a persistent download queue on top of
 //! [`downpipe_http`]. Desktop, CLI and future web UIs all drive this.
 
+pub mod backup;
+pub mod idm;
 mod manager;
 pub mod schedule;
 mod settings;
