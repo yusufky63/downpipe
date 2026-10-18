@@ -8,7 +8,7 @@ import { linkFields } from "./lib/capture";
 import { collectPageLinks } from "./lib/collect";
 import { hostOf, matchingSite, normalizeSitePattern, withSite } from "./lib/filters";
 import { captureHeld, captureStarted, claimIn, parseOffered, type HandoffDeps } from "./lib/handoff";
-import { callHost } from "./lib/host";
+import { callHost, type HostResult } from "./lib/host";
 import {
   MAX_PAGE_LINKS,
   collectionFromPage,
@@ -73,6 +73,8 @@ import {
   pageMessage,
   pingMessage,
   tasksMessage,
+  withStartApp,
+  type HostMessage,
   type TaskStatus,
 } from "./lib/protocol";
 import { isOwnContentScript, isTrustedSender } from "./lib/sender";
@@ -105,6 +107,11 @@ const LINK_TIMEOUT_MS = 10_000;
 /** A captured download waits for this answer, so it is kept short. */
 const CAPTURE_TIMEOUT_MS = 5_000;
 /**
+ * Added to the timeouts above while the host may start Downpipe: it waits
+ * up to 10 s for the app to come up (crates/native-host/src/launch.rs).
+ */
+const START_APP_MS = 12_000;
+/**
  * A later answer is still acted on: the host waits 10 seconds for the app,
  * so an acceptance can arrive after the browser went on with its copy.
  */
@@ -127,6 +134,19 @@ const sendNative = (host: string, message: object): Promise<unknown> =>
 // Before anything is worded: menus, notifications, the toolbar tooltip and
 // the replies to the pages and the overlay.
 activateBrowserLanguage();
+
+/**
+ * Send a download, stream or video page to Downpipe. Unless the options
+ * page turned it off, the host starts a closed Downpipe first, which takes
+ * longer than an answer from a running one.
+ */
+async function addToApp(message: HostMessage, timeoutMs: number): Promise<HostResult> {
+  if (message.type !== "download" && message.type !== "media" && message.type !== "page") {
+    return callHost(sendNative, message, timeoutMs);
+  }
+  const { startApp } = await cachedSettings();
+  return callHost(sendNative, withStartApp(message, startApp), startApp ? timeoutMs + START_APP_MS : timeoutMs);
+}
 
 // ---------- Context menus ----------
 
@@ -205,7 +225,7 @@ async function sendLink(info: chrome.contextMenus.OnClickData): Promise<void> {
     });
     return;
   }
-  const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+  const result = await addToApp(message, LINK_TIMEOUT_MS);
   const { outcome, message: text, fileName, taskId, awaitingConfirmation } = downloadOutcome(result);
   await report({ source: "link", label: fileName ?? label, outcome, message: text, taskId, awaitingConfirmation });
 }
@@ -272,7 +292,7 @@ async function sendVideoPage(
   if (!page || !message) {
     return { outcome: "failed", message: t("errors.notVideoPage"), stop: false };
   }
-  const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+  const result = await addToApp(message, LINK_TIMEOUT_MS);
   const outcome = pageOutcome(result);
   await report(
     {
@@ -311,7 +331,7 @@ async function sendPageLink(url: string, pageUrl: string | undefined): Promise<L
   if (!message) {
     return { outcome: "failed", message: t("errors.code.invalid_url"), stop: false };
   }
-  const result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+  const result = await addToApp(message, LINK_TIMEOUT_MS);
   const outcome = downloadOutcome(result);
   // Into the popup's list, but without a badge or notification per link:
   // the links page shows the results itself.
@@ -355,11 +375,12 @@ function handoffDeps(): HandoffDeps {
     filters: settings,
     // The race with the browser's patience is lib/handoff.ts's; this only
     // bounds a bridge that never answers at all.
-    send: (message) => callHost(sendNative, message, CAPTURE_TIMEOUT_MS + CAPTURE_LATE_MS),
+    send: (message) => addToApp(message, CAPTURE_TIMEOUT_MS + CAPTURE_LATE_MS),
     report: (entry) => report(entry),
     claim: claimDownload,
     answerMs: CAPTURE_TIMEOUT_MS,
-    lateMs: CAPTURE_LATE_MS,
+    // Starting a closed Downpipe first can make the answer later still.
+    lateMs: CAPTURE_LATE_MS + START_APP_MS,
   };
 }
 
@@ -718,7 +739,7 @@ async function sendMedia(tabId: number, mediaId: string): Promise<LinkResult> {
     const fileName = titleFileName(title, item);
     const message = downloadMessage({ resourceUrl: item.url, pageUrl, referrer, mimeType: item.mime, fileName }, id);
     if (!message) return { outcome: "failed", message: t("errors.mediaInvalid"), stop: false };
-    result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+    result = await addToApp(message, LINK_TIMEOUT_MS);
     outcome = downloadOutcome(result);
   } else {
     const message = mediaMessage(
@@ -726,7 +747,7 @@ async function sendMedia(tabId: number, mediaId: string): Promise<LinkResult> {
       id,
     );
     if (!message) return { outcome: "failed", message: t("errors.streamInvalid"), stop: false };
-    result = await callHost(sendNative, message, LINK_TIMEOUT_MS);
+    result = await addToApp(message, LINK_TIMEOUT_MS);
     outcome = streamOutcome(result);
   }
   await report({
@@ -994,6 +1015,7 @@ async function status(): Promise<StatusReply> {
     bridge: bridgeStatus(result),
     capture,
     notify: prefs.notify,
+    startApp: prefs.startApp,
     excludedSites: prefs.excludedSites,
     activity,
     tasks: tasks ?? [],
@@ -1021,6 +1043,8 @@ async function answer(request: PopupRequest): Promise<Reply> {
       return settings();
     case "set_notify":
       return changeSettings((s) => ({ ...s, notify: request.enabled }));
+    case "set_start_app":
+      return changeSettings((s) => ({ ...s, startApp: request.enabled }));
     case "save_filters":
       return changeSettings((s) => ({ ...s, ...request.filters }));
     case "set_site_paused":

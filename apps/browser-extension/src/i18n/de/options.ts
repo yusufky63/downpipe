@@ -47,6 +47,10 @@ export const options: Messages["options"] = {
   bypassHelp: "Solange Downloads abgefangen werden, bleibt ein Download beim Browser, wenn der Link mit gedrückter Taste angeklickt wird. Andere Klicks und die Tastenkürzel des Browsers bleiben, wie sie sind.",
   bypassAccess: "Dafür ist Zugriff auf die besuchten Websites nötig, um den Klick zu bemerken. Erst wenn Sie einen Link so anklicken, wird etwas gelesen oder gesendet.",
   bypassAllow: "Zugriff erlauben",
+  appHeading: "06 — Desktop-App",
+  startApp: "Downpipe starten, wenn es geschlossen ist",
+  startAppDetail:
+    "Ein aus dem Browser gesendeter Download startet Downpipe zuerst im Infobereich, statt fehlzuschlagen. Ist dies aus, muss Downpipe geöffnet sein.",
   save: "Speichern",
   moreErrors: { one: "Und {count} weiterer.", other: "Und {count} weitere." },
   unsaved: "Nicht gespeicherte Änderungen",

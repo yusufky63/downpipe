@@ -21,6 +21,8 @@ export type PopupRequest =
   | { kind: "ping" }
   | { kind: "get_settings" }
   | { kind: "set_notify"; enabled: boolean }
+  /** The options page's "Start Downpipe when it is closed". */
+  | { kind: "set_start_app"; enabled: boolean }
   | { kind: "save_filters"; filters: CaptureFilters }
   /** The options page's media settings. */
   | { kind: "save_media"; media: MediaFilters }
@@ -117,8 +119,9 @@ export function parsePopupRequest(value: unknown): PopupRequest | null {
   if (simple) return hasKeys(v, "kind") ? { kind: simple } : null;
   switch (v.kind) {
     case "set_notify":
+    case "set_start_app":
       return hasKeys(v, "kind", "enabled") && typeof v.enabled === "boolean"
-        ? { kind: "set_notify", enabled: v.enabled }
+        ? { kind: v.kind, enabled: v.enabled }
         : null;
     case "save_filters": {
       const filters = hasKeys(v, "kind", "filters") ? validFilters(v.filters) : null;
@@ -265,6 +268,8 @@ export function overlayResultText(reply: unknown): { text: string; failed: boole
 export interface Settings extends CaptureFilters, MediaFilters {
   /** Show a notification when a download is handed over, or could not be. */
   notify: boolean;
+  /** Let the browser bridge start Downpipe, in the tray, when it is closed. */
+  startApp: boolean;
   /** Held while clicking a link, the browser downloads it itself (lib/bypass.ts). */
   bypassKey: BypassKey;
 }
@@ -275,7 +280,13 @@ export interface Settings extends CaptureFilters, MediaFilters {
  */
 export function parseSettings(value: unknown): Settings {
   const v = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-  return { notify: v.notify !== false, ...parseFilters(v), ...parseMediaFilters(v), bypassKey: parseBypassKey(v.bypassKey) };
+  return {
+    notify: v.notify !== false,
+    startApp: v.startApp !== false,
+    ...parseFilters(v),
+    ...parseMediaFilters(v),
+    bypassKey: parseBypassKey(v.bypassKey),
+  };
 }
 
 export function isSettings(value: unknown): value is Settings {
@@ -283,6 +294,7 @@ export function isSettings(value: unknown): value is Settings {
   const v = value as Record<string, unknown>;
   return (
     typeof v.notify === "boolean" &&
+    typeof v.startApp === "boolean" &&
     isBypassKey(v.bypassKey) &&
     validFilters({
       captureAll: v.captureAll,
@@ -348,6 +360,8 @@ export interface StatusReply {
   /** The `downloads` permission is granted, so browser downloads are captured. */
   capture: boolean;
   notify: boolean;
+  /** The bridge may start a closed Downpipe (Settings.startApp). */
+  startApp: boolean;
   /** For the popup's "Pause capture on this site". */
   excludedSites: string[];
   activity: Activity[];

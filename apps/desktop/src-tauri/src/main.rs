@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod background;
+mod backup;
 mod clipboard;
 mod confirm;
 mod grab;
@@ -785,8 +786,12 @@ fn main() {
     // Runs with their own DOWNPIPE_DATA_DIR (tests, portable copies, a
     // development build next to an installed one) stay separate on purpose.
     if std::env::var_os("DOWNPIPE_DATA_DIR").is_none() {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            tray::show_main(app);
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // The browser bridge starts Downpipe with `--hidden` for a
+            // download; two of them at once must not open the window.
+            if !args.iter().any(|a| a == HIDDEN_ARG) {
+                tray::show_main(app);
+            }
         }));
     }
 
@@ -809,24 +814,35 @@ fn main() {
             if manager.settings().register_browser_host {
                 tauri::async_runtime::spawn_blocking(register_browser_host);
             }
-            start_browser_bridge(manager.clone());
+            app.manage(manager.clone());
             let feeds = Feeds::open(&data_dir, manager.clone())?;
             grab::spawn_feeds(app.handle().clone(), feeds.clone());
             app.manage(feeds);
             app.manage(grab::Grabs::default());
             app.manage(Background::default());
+            app.manage(backup::PendingImports::default());
             app.manage(confirm::ConfirmWindow::default());
             background::spawn(app.handle().clone(), manager.clone());
             clipboard::spawn(app.handle().clone(), manager.clone());
             app.manage(remote::Remote::default());
             remote::spawn(app.handle().clone(), manager.clone());
+            // After the background loop listens, so a download the browser
+            // sends at once still gets its confirmation window.
+            start_browser_bridge(manager.clone());
             if let Err(err) = tray::create(app.handle()) {
                 tracing::warn!("no tray icon: {err}");
             }
             if let Err(err) = sync_autostart(app.handle(), manager.settings().start_with_system) {
                 tracing::warn!("could not update the login item: {err}");
             }
-            app.manage(manager);
+            // The main window is built here, after the bridge is up, rather
+            // than from the config before setup runs (`create: false`):
+            // creating a web view can take seconds, longer while a previous
+            // one is still closing, and the browser extension that just
+            // started Downpipe for a download must not wait for it.
+            if let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &config.clone())?.build()?;
+            }
             // The window starts hidden (tauri.conf.json) so a login start
             // stays in the tray without a flash; normal starts show it now.
             if !std::env::args().any(|a| a == HIDDEN_ARG) {
@@ -898,6 +914,11 @@ fn main() {
             start_queue,
             stop_queue,
             export_downloads,
+            backup::export_backup,
+            backup::inspect_backup,
+            backup::import_backup,
+            backup::read_idm_list,
+            backup::import_idm,
             start_drag,
             get_when_done,
             set_when_done,

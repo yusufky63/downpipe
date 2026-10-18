@@ -40,6 +40,10 @@ export const options: Messages["options"] = {
   bypassHelp: "捕获开启时，按住此键点击链接，这一次下载会留给浏览器。其他点击和浏览器自身的快捷键不受影响。",
   bypassAccess: "需要访问你浏览的网站，才能察觉这次点击。在你以这种方式点击链接之前，不会读取或发送任何内容。",
   bypassAllow: "允许访问",
+  appHeading: "06 — 桌面应用",
+  startApp: "Downpipe 未运行时自动启动",
+  startAppDetail:
+    "从浏览器发送的下载会先在系统托盘中启动 Downpipe，而不是直接失败。关闭此项后，必须先打开 Downpipe。",
   save: "保存",
   moreErrors: { other: "还有 {count} 个。" },
   unsaved: "有未保存的更改",

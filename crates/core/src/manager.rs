@@ -19,6 +19,9 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
+use crate::backup::{
+    Backup, BackupDownload, BackupSummary, ImportChoice, ImportReport, merge_settings,
+};
 use crate::post::{self, Plan, PostActions, PostReport, Update};
 use crate::rules::{self, RefusedHost, RuleProxy, SiteRule};
 use crate::settings::{MAIN_QUEUE, Settings};
@@ -1104,6 +1107,214 @@ impl Manager {
         });
         self.inner.schedule();
         Ok(settings)
+    }
+
+    /// The settings and the list, in list order, as a backup file keeps
+    /// them (see [`crate::backup`]).
+    pub fn backup(&self, app_version: &str) -> Backup {
+        let st = self.inner.state.lock();
+        let mut records: Vec<TaskRecord> = st.tasks.iter().map(|e| e.record.clone()).collect();
+        records.sort_by_key(|r| r.position);
+        Backup::new(app_version, unix_now(), &st.settings, &records)
+    }
+
+    /// What importing `backup` would bring, for the preview.
+    pub fn backup_summary(&self, backup: &Backup) -> BackupSummary {
+        let listed = self.listed(backup.downloads.iter().map(|d| d.url.as_str()));
+        let mut seen: Vec<&str> = Vec::new();
+        let mut new_downloads = 0;
+        for (download, in_list) in backup.downloads.iter().zip(listed) {
+            if !in_list && !seen.contains(&download.url.as_str()) {
+                new_downloads += 1;
+            }
+            seen.push(&download.url);
+        }
+        BackupSummary {
+            app_version: backup.app_version.clone(),
+            exported_at: backup.exported_at,
+            downloads: backup.downloads.len(),
+            new_downloads,
+            invalid: backup.invalid,
+            queues: backup
+                .settings
+                .queues
+                .iter()
+                .filter(|q| q.id != MAIN_QUEUE)
+                .count(),
+            categories: backup.settings.categories.len(),
+            site_rules: backup.settings.site_rules.len(),
+            feeds: backup.feeds.len(),
+        }
+    }
+
+    /// Take the settings and/or the downloads of a backup. Settings merge
+    /// as [`merge_settings`] describes (a proxy or user agent this version
+    /// refuses keeps the current one); downloads are added by
+    /// [`Manager::import_downloads`].
+    pub fn import_backup(
+        &self,
+        backup: &Backup,
+        choice: ImportChoice,
+    ) -> Result<ImportReport, CoreError> {
+        let mut report = ImportReport {
+            invalid: backup.invalid,
+            ..ImportReport::default()
+        };
+        if choice.settings {
+            let current = self.settings();
+            let merged = merge_settings(&current, &backup.settings);
+            if let Err(err) = self.update_settings(merged.clone()) {
+                match err {
+                    CoreError::InvalidSetting(why) => {
+                        tracing::warn!("backup: kept the current proxy and user agent: {why}");
+                        self.update_settings(Settings {
+                            proxy: current.proxy,
+                            user_agent: current.user_agent,
+                            ..merged
+                        })?;
+                    }
+                    other => return Err(other),
+                }
+            }
+            report.settings = true;
+        }
+        if choice.downloads {
+            let added = self.import_downloads(backup.downloads.clone())?;
+            report.added = added.added;
+            report.duplicates = added.duplicates;
+            report.invalid += added.invalid;
+        }
+        Ok(report)
+    }
+
+    /// Add downloads from a backup or another download manager. Each is
+    /// checked again ([`BackupDownload::validated`]); unfinished ones are
+    /// added paused, finished and canceled ones as they were. A link that
+    /// is already in the list, or comes twice, is skipped. Nothing in the
+    /// downloads' folders is written (only a resume file's progress is
+    /// read), so no file is ever overwritten.
+    pub fn import_downloads(&self, items: Vec<BackupDownload>) -> Result<ImportReport, CoreError> {
+        let mut report = ImportReport::default();
+        let mut snapshots = Vec::new();
+        {
+            let mut st = self.inner.state.lock();
+            let now = unix_now();
+            for item in items {
+                let item = match item.validated() {
+                    Ok(item) => item,
+                    Err(why) => {
+                        tracing::debug!("import: skipped a download: {why}");
+                        report.invalid += 1;
+                        continue;
+                    }
+                };
+                if st.tasks.iter().any(|e| e.record.url == item.url) {
+                    report.duplicates += 1;
+                    continue;
+                }
+                let url = url::Url::parse(&item.url).ok();
+                let hint = item
+                    .file_name
+                    .clone()
+                    .or_else(|| url.as_ref().and_then(filename::from_url));
+                let sorted = hint
+                    .as_deref()
+                    .and_then(|name| st.settings.category_for(name))
+                    .cloned();
+                let dir = if item.dir.as_os_str().is_empty() {
+                    sorted
+                        .as_ref()
+                        .map(|c| st.settings.category_dir(c))
+                        .unwrap_or_else(|| st.settings.download_dir.clone())
+                } else {
+                    item.dir.clone()
+                };
+                let path = match (item.state, &item.file_name) {
+                    (TaskState::Completed, Some(name)) => Some(dir.join(name)),
+                    _ => None,
+                };
+                let queue = Some(item.queue)
+                    .filter(|q| st.settings.queue(q).is_some())
+                    .unwrap_or_else(|| MAIN_QUEUE.into());
+                let mut record = TaskRecord {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    url: item.url,
+                    dir,
+                    file_name: item.file_name,
+                    path,
+                    state: item.state,
+                    total: item.total,
+                    downloaded: item.downloaded,
+                    error: None,
+                    error_kind: None,
+                    checksum: item.checksum,
+                    max_connections: None,
+                    category: item.category.or_else(|| sorted.map(|c| c.name)),
+                    auto_dir: item.auto_dir,
+                    queue,
+                    position: next_position(&st.tasks),
+                    media: item.media,
+                    site: item.site,
+                    created_at: if item.created_at > 0 {
+                        item.created_at
+                    } else {
+                        now
+                    },
+                    updated_at: now,
+                    completed_at: item.completed_at,
+                    speed_limit: item.speed_limit,
+                    // Looked up again when it starts, like any download's.
+                    site_rule: None,
+                    // Nothing waits for a time after an import.
+                    resume_at: None,
+                    // Backups carry no commands; nothing ran here yet.
+                    post_actions: PostActions::default(),
+                    post: None,
+                };
+                refresh_from_meta(&mut record);
+                st.store.upsert(&record)?;
+                let record_limit = record.speed_limit.unwrap_or(0);
+                let entry = Entry {
+                    url: record.url.clone(),
+                    record,
+                    live: Live::default(),
+                    headers: Vec::new(),
+                    control: None,
+                    supervisor: None,
+                    after_stop: AfterStop::Pause,
+                    last_persist: Instant::now(),
+                    relink: false,
+                    limiter: Arc::new(RateLimiter::new(record_limit)),
+                    post_job: None,
+                };
+                snapshots.push(entry.snapshot());
+                st.tasks.push(entry);
+                report.added += 1;
+            }
+        }
+        for snapshot in snapshots {
+            self.inner.emit(ManagerEvent::Updated {
+                task: Box::new(snapshot),
+            });
+        }
+        Ok(report)
+    }
+
+    /// For each link, whether the list has it already, compared the way
+    /// [`Manager::add`] compares links (video pages by their canonical link).
+    pub fn listed<'a>(&self, urls: impl IntoIterator<Item = &'a str>) -> Vec<bool> {
+        let keys: Vec<Option<String>> = urls
+            .into_iter()
+            .map(|raw| {
+                let url = url::Url::parse(raw.trim()).ok()?;
+                let url = pages::recognize(&url).map_or(url, |p| p.url);
+                Some(downpipe_http::redact_url(&url))
+            })
+            .collect();
+        let st = self.inner.state.lock();
+        keys.into_iter()
+            .map(|key| key.is_some_and(|key| st.tasks.iter().any(|e| e.record.url == key)))
+            .collect()
     }
 
     /// Stop everything cleanly so it resumes on the next start.

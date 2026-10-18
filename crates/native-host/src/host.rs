@@ -2,10 +2,12 @@
 //! from stdin, validate it, forward it to the app, write the answer to stdout.
 
 use std::io::{self, Read, Write};
-use std::time::Duration;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use crate::frame::{self, FrameError};
 use crate::ipc::{self, AppRequest, AppResponse, Endpoint, IpcError};
+use crate::launch;
 use crate::protocol::{self, FEATURES, Request, RequestKind, Response, ResponseBody, code};
 
 /// Adding a download is a database write; anything slower means the app hangs.
@@ -14,6 +16,24 @@ pub const APP_TIMEOUT: Duration = Duration::from_secs(10);
 /// How the host reaches the app. Tests swap in a fake.
 pub trait AppLink {
     fn call(&self, request: &AppRequest) -> Result<AppResponse, IpcError>;
+
+    /// Start the app because it is not running. `Ok(false)` when this link
+    /// has no app to start.
+    fn start_app(&self) -> io::Result<bool> {
+        Ok(false)
+    }
+
+    /// How long a started app gets to open its end of the pipe.
+    fn launch_wait(&self) -> Duration {
+        launch::LAUNCH_WAIT
+    }
+
+    /// Is the started app answering yet? A ping with a short timeout of its
+    /// own, so one that meets the app halfway through starting cannot use up
+    /// the whole wait.
+    fn probe(&self) -> Result<AppResponse, IpcError> {
+        self.call(&AppRequest::ping())
+    }
 }
 
 /// The real link: the local pipe or socket.
@@ -21,11 +41,25 @@ pub trait AppLink {
 pub struct PipeLink {
     pub endpoint: Endpoint,
     pub timeout: Duration,
+    /// The app next to the host ([`launch::app_beside`]), started when a
+    /// download arrives while it is closed. None: never start anything.
+    pub app: Option<PathBuf>,
 }
 
 impl AppLink for PipeLink {
     fn call(&self, request: &AppRequest) -> Result<AppResponse, IpcError> {
         ipc::call(&self.endpoint, request, self.timeout)
+    }
+
+    fn start_app(&self) -> io::Result<bool> {
+        match &self.app {
+            Some(app) => launch::start(app).map(|()| true),
+            None => Ok(false),
+        }
+    }
+
+    fn probe(&self) -> Result<AppResponse, IpcError> {
+        ipc::call(&self.endpoint, &AppRequest::ping(), launch::PROBE_TIMEOUT)
     }
 }
 
@@ -67,7 +101,11 @@ fn send(output: &mut impl Write, response: &Response) -> io::Result<()> {
 
 /// Answer one message.
 pub fn respond(bytes: &[u8], link: &impl AppLink, origin: Option<&str>) -> Response {
-    let Request { id, kind } = match protocol::parse_request(bytes) {
+    let Request {
+        id,
+        kind,
+        start_app,
+    } = match protocol::parse_request(bytes) {
         Ok(request) => request,
         Err(rejected) => return Response::rejected(rejected),
     };
@@ -108,15 +146,15 @@ pub fn respond(bytes: &[u8], link: &impl AppLink, origin: Option<&str>) -> Respo
         }
         RequestKind::Download(request) => {
             let request = AppRequest::download(request, origin.map(str::to_string));
-            Response::new(id, added(link.call(&request), "a download"))
+            Response::new(id, added(deliver(link, &request, start_app), "a download"))
         }
         RequestKind::Media(request) => {
             let request = AppRequest::media(request, origin.map(str::to_string));
-            Response::new(id, added(link.call(&request), "a stream"))
+            Response::new(id, added(deliver(link, &request, start_app), "a stream"))
         }
         RequestKind::Page(request) => {
             let request = AppRequest::page(request, origin.map(str::to_string));
-            Response::new(id, added(link.call(&request), "a page"))
+            Response::new(id, added(deliver(link, &request, start_app), "a page"))
         }
         RequestKind::Tasks(task_ids) => {
             let body = match link.call(&AppRequest::tasks(task_ids)) {
@@ -132,6 +170,45 @@ pub fn respond(bytes: &[u8], link: &impl AppLink, origin: Option<&str>) -> Respo
                 Err(e) => unavailable(&e),
             };
             Response::new(id, body)
+        }
+    }
+}
+
+/// Send a download to the app, starting the app first when it is closed and
+/// `start_app` allows it. A request that met no app was never delivered, so
+/// sending it again once the app answers cannot add it twice. When the app
+/// cannot be started, or does not answer in time, the answer is the one
+/// from before this existed: not running.
+fn deliver(
+    link: &impl AppLink,
+    request: &AppRequest,
+    start_app: bool,
+) -> Result<AppResponse, IpcError> {
+    match link.call(request) {
+        Err(IpcError::NotRunning) if start_app => {}
+        answer => return answer,
+    }
+    match link.start_app() {
+        Ok(true) => tracing::info!("started Downpipe for the extension"),
+        Ok(false) => return Err(IpcError::NotRunning),
+        Err(err) => {
+            tracing::warn!("could not start Downpipe: {err}");
+            return Err(IpcError::NotRunning);
+        }
+    }
+    let deadline = Instant::now() + link.launch_wait();
+    loop {
+        std::thread::sleep(launch::POLL_INTERVAL.min(link.launch_wait()));
+        // A ping, not the request: the pipe can exist before the app takes
+        // calls, and a ping that fails costs nothing.
+        match link.probe() {
+            Ok(_) => return link.call(request),
+            Err(IpcError::NotRunning | IpcError::Timeout(_)) if Instant::now() < deadline => {}
+            Err(IpcError::NotRunning | IpcError::Timeout(_)) => {
+                tracing::warn!("Downpipe did not open the bridge in time");
+                return Err(IpcError::NotRunning);
+            }
+            Err(err) => return Err(err),
         }
     }
 }
@@ -363,6 +440,214 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// A closed app that the host can start: it answers once `pings_to_wake`
+    /// pings have found it still starting.
+    struct ClosedApp {
+        start: Box<dyn Fn() -> io::Result<bool>>,
+        pings_to_wake: Option<usize>,
+        wait: Duration,
+        started: std::cell::Cell<usize>,
+        pings: std::cell::Cell<usize>,
+        delivered: RefCell<Vec<AppRequest>>,
+    }
+
+    impl ClosedApp {
+        fn new(
+            start: impl Fn() -> io::Result<bool> + 'static,
+            pings_to_wake: Option<usize>,
+        ) -> Self {
+            Self {
+                start: Box::new(start),
+                pings_to_wake,
+                wait: Duration::from_secs(5),
+                started: Default::default(),
+                pings: Default::default(),
+                delivered: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn up(&self) -> bool {
+            self.started.get() > 0 && self.pings_to_wake.is_some_and(|n| self.pings.get() > n)
+        }
+    }
+
+    impl AppLink for ClosedApp {
+        fn call(&self, request: &AppRequest) -> Result<AppResponse, IpcError> {
+            if matches!(request.action, ipc::AppAction::Ping) && self.started.get() > 0 {
+                self.pings.set(self.pings.get() + 1);
+            }
+            if !self.up() {
+                return Err(IpcError::NotRunning);
+            }
+            self.delivered.borrow_mut().push(request.clone());
+            Ok(match &request.action {
+                ipc::AppAction::Ping => AppResponse::Pong {
+                    app_version: "1.0.0".into(),
+                    features: Vec::new(),
+                },
+                _ => AppResponse::Accepted {
+                    task_id: "woken".into(),
+                    file_name: None,
+                    awaiting_confirmation: false,
+                },
+            })
+        }
+
+        fn start_app(&self) -> io::Result<bool> {
+            let started = (self.start)()?;
+            if started {
+                self.started.set(self.started.get() + 1);
+            }
+            Ok(started)
+        }
+
+        fn launch_wait(&self) -> Duration {
+            self.wait
+        }
+    }
+
+    const DOWNLOAD: &[u8] =
+        br#"{"protocol_version":1,"type":"download","resource_url":"https://example.org/a.zip"}"#;
+
+    fn error_code(response: &Response) -> &str {
+        match &response.body {
+            ResponseBody::Error { code, .. } => code,
+            other => panic!("not an error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_closed_app_is_started_and_gets_the_download_once() {
+        let app = ClosedApp::new(|| Ok(true), Some(3));
+        let r = respond(DOWNLOAD, &app, None);
+        assert!(
+            matches!(&r.body, ResponseBody::Accepted { task_id, .. } if task_id == "woken"),
+            "{r:?}"
+        );
+        assert_eq!(app.started.get(), 1);
+        let delivered = app.delivered.borrow();
+        let downloads = delivered
+            .iter()
+            .filter(|r| matches!(r.action, ipc::AppAction::Download { .. }))
+            .count();
+        assert_eq!(downloads, 1, "{delivered:?}");
+
+        // Streams and video pages start it too.
+        for message in [
+            r#"{"protocol_version":1,"type":"media","manifest_url":"https://a.org/m.m3u8","kind":"hls"}"#,
+            r#"{"protocol_version":1,"type":"page","page_url":"https://www.youtube.com/watch?v=jNQXAC9IVRw"}"#,
+        ] {
+            let app = ClosedApp::new(|| Ok(true), Some(0));
+            let r = respond(message.as_bytes(), &app, None);
+            assert!(matches!(r.body, ResponseBody::Accepted { .. }), "{message}");
+            assert_eq!(app.started.get(), 1);
+        }
+    }
+
+    #[test]
+    fn the_app_is_not_started_when_the_extension_says_so() {
+        let app = ClosedApp::new(|| Ok(true), Some(0));
+        let r = respond(
+            br#"{"protocol_version":1,"type":"download","resource_url":"https://example.org/a.zip","start_app":false}"#,
+            &app,
+            None,
+        );
+        assert_eq!(error_code(&r), code::APP_NOT_RUNNING);
+        assert_eq!(app.started.get(), 0);
+
+        // Nor for the popup's status or progress questions.
+        let r = respond(br#"{"protocol_version":1,"type":"ping"}"#, &app, None);
+        assert!(matches!(
+            r.body,
+            ResponseBody::Pong {
+                app_running: false,
+                ..
+            }
+        ));
+        let r = respond(
+            br#"{"protocol_version":1,"type":"tasks","task_ids":["a"]}"#,
+            &app,
+            None,
+        );
+        assert_eq!(error_code(&r), code::APP_NOT_RUNNING);
+        assert_eq!(app.started.get(), 0);
+    }
+
+    #[test]
+    fn failing_to_start_keeps_the_old_answer() {
+        // No app next to the host.
+        let app = ClosedApp::new(|| Ok(false), Some(0));
+        let r = respond(DOWNLOAD, &app, None);
+        assert_eq!(error_code(&r), code::APP_NOT_RUNNING);
+
+        // The executable could not be run.
+        let app = ClosedApp::new(|| Err(io::Error::other("access denied")), Some(0));
+        let r = respond(DOWNLOAD, &app, None);
+        assert_eq!(error_code(&r), code::APP_NOT_RUNNING);
+
+        // Started, but the pipe never came up.
+        let mut app = ClosedApp::new(|| Ok(true), None);
+        app.wait = Duration::from_millis(400);
+        let started = Instant::now();
+        let r = respond(DOWNLOAD, &app, None);
+        assert_eq!(error_code(&r), code::APP_NOT_RUNNING);
+        assert!(started.elapsed() >= Duration::from_millis(400));
+        assert!(started.elapsed() < Duration::from_secs(3), "bounded wait");
+        assert!(app.delivered.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_probe_that_meets_the_app_halfway_is_repeated() {
+        struct Starting {
+            probes: std::cell::Cell<usize>,
+            downloads: std::cell::Cell<usize>,
+        }
+        impl AppLink for Starting {
+            fn call(&self, request: &AppRequest) -> Result<AppResponse, IpcError> {
+                if self.probes.get() < 2 {
+                    return Err(IpcError::NotRunning);
+                }
+                assert!(matches!(request.action, ipc::AppAction::Download { .. }));
+                self.downloads.set(self.downloads.get() + 1);
+                Ok(AppResponse::Accepted {
+                    task_id: "late".into(),
+                    file_name: None,
+                    awaiting_confirmation: false,
+                })
+            }
+            fn start_app(&self) -> io::Result<bool> {
+                Ok(true)
+            }
+            fn probe(&self) -> Result<AppResponse, IpcError> {
+                self.probes.set(self.probes.get() + 1);
+                match self.probes.get() {
+                    1 => Err(IpcError::Timeout(launch::PROBE_TIMEOUT)),
+                    _ => Ok(AppResponse::Pong {
+                        app_version: "1".into(),
+                        features: Vec::new(),
+                    }),
+                }
+            }
+        }
+        let app = Starting {
+            probes: Default::default(),
+            downloads: Default::default(),
+        };
+        let r = respond(DOWNLOAD, &app, None);
+        assert!(matches!(r.body, ResponseBody::Accepted { .. }), "{r:?}");
+        assert_eq!((app.probes.get(), app.downloads.get()), (2, 1));
+    }
+
+    #[test]
+    fn a_running_app_is_never_started_again() {
+        let app = FakeApp::running();
+        let r = respond(DOWNLOAD, &app, None);
+        assert!(matches!(r.body, ResponseBody::Accepted { .. }));
+        // FakeApp keeps the default `start_app`, which starts nothing; the
+        // one call is the download itself.
+        assert_eq!(app.seen.borrow().len(), 1);
     }
 
     #[test]

@@ -47,6 +47,10 @@ export const options: Messages["options"] = {
   bypassHelp: "Con la cattura attiva, un clic su un link tenendo premuto questo tasto lascia quel download al browser. Gli altri clic e le scorciatoie del browser restano come sono.",
   bypassAccess: "Serve l'accesso ai siti che visiti per accorgersi del clic. Non viene letto né inviato nulla finché non clicchi un link in questo modo.",
   bypassAllow: "Consenti l'accesso",
+  appHeading: "06 — App desktop",
+  startApp: "Avvia Downpipe se è chiuso",
+  startAppDetail:
+    "Un download inviato dal browser avvia prima Downpipe nell'area di notifica, invece di non riuscire. Se questa opzione è disattivata, Downpipe deve essere aperto.",
   save: "Salva",
   moreErrors: { one: "E {count} altro.", many: "E altri {count}.", other: "E altri {count}." },
   unsaved: "Modifiche non salvate",

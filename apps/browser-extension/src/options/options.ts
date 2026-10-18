@@ -30,6 +30,7 @@ const els = {
   captureOff: byId("capture-off"),
   loadError: byId("load-error"),
   captureAll: byId<HTMLInputElement>("capture-all"),
+  startApp: byId<HTMLInputElement>("start-app"),
   types: byId<HTMLTextAreaElement>("types"),
   typesField: byId<HTMLTextAreaElement>("types").closest<HTMLElement>(".field"),
   typesDefault: byId<HTMLButtonElement>("types-default"),
@@ -149,6 +150,7 @@ function fill(s: Settings): void {
   const mediaSize = sizeFields(s.mediaMinBytes);
   els.mediaSize.value = mediaSize.value;
   els.mediaUnit.value = mediaSize.unit;
+  els.startApp.checked = s.startApp;
   els.bypassKey.value = s.bypassKey;
   syncTypes();
   void loadAccess();
@@ -207,6 +209,7 @@ els.bypassAllow.addEventListener("click", () => {
     .catch(() => false)
     .then(() => loadAccess());
 });
+els.startApp.addEventListener("change", edited);
 
 els.mediaTypesDefault.addEventListener("click", () => {
   els.mediaTypes.value = DEFAULT_MEDIA_TYPES.join(" ");
@@ -244,13 +247,15 @@ els.form.addEventListener("submit", (event) => {
   }
   els.save.disabled = true;
   setState(t("options.saving"));
-  // Three writes, one after the other: the service worker chains them anyway.
+  const startApp = els.startApp.checked;
+  // Four writes, one after the other: the service worker chains them anyway.
   void ext.runtime
     .sendMessage({ kind: "save_filters", filters: result.filters })
     .then((reply: unknown) => (isSettings(reply) ? ext.runtime.sendMessage({ kind: "save_media", media: media.media }) : null))
     .then((reply: unknown) =>
       isSettings(reply) ? ext.runtime.sendMessage({ kind: "set_bypass_key", key: parseBypassKey(els.bypassKey.value) }) : null,
     )
+    .then((reply: unknown) => (isSettings(reply) ? ext.runtime.sendMessage({ kind: "set_start_app", enabled: startApp }) : null))
     .catch(() => null)
     .then((reply: unknown) => {
       if (!isSettings(reply)) {

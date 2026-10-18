@@ -6,6 +6,8 @@ export const status: Messages["status"] = {
   connected: "已连接到 Downpipe",
   connectedDetail: "应用 {app}，浏览器桥接 {bridge}",
   appNotRunning: "Downpipe 未运行",
+  /** Instead of appNotRunningDetail while the bridge may start Downpipe. */
+  appNotRunningStarts: "发送下载时会在系统托盘中启动它。",
   appNotRunningDetail: "请打开 Downpipe 应用。应用关闭时发送的链接不会进入队列。",
   hostMissing: "未安装浏览器桥接",
   hostMissingDetail: "请打开一次 Downpipe 应用，它会在启动时注册桥接。如果是从源代码构建的版本，请运行：",

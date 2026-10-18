@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
+use crate::backup::BackupFeed;
 use crate::manager::{CoreError, Manager};
 use crate::settings::MAIN_QUEUE;
 use crate::task::{AddOptions, TaskId};
@@ -79,6 +80,16 @@ impl Default for FeedInput {
             download_existing: false,
         }
     }
+}
+
+/// What importing a backup's feeds did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct FeedImport {
+    pub added: usize,
+    /// Already subscribed to.
+    pub duplicates: usize,
+    /// Refused by the checks, or not readable now.
+    pub failed: usize,
 }
 
 /// What one check did.
@@ -249,6 +260,45 @@ impl Feeds {
         }
         self.changed();
         Ok(())
+    }
+
+    /// Subscribe to the feeds of a backup, one after the other. A feed this
+    /// list has already is skipped, and one that cannot be read now is left
+    /// out and counted. As when subscribing, each feed's current items are
+    /// remembered rather than downloaded.
+    pub async fn import(&self, feeds: Vec<BackupFeed>) -> FeedImport {
+        let mut out = FeedImport::default();
+        for feed in feeds {
+            let feed = match feed.validated() {
+                Ok(feed) => feed,
+                Err(why) => {
+                    tracing::debug!("feed import: skipped a feed: {why}");
+                    out.failed += 1;
+                    continue;
+                }
+            };
+            if self.list().iter().any(|f| same_url(&f.url, &feed.url)) {
+                out.duplicates += 1;
+                continue;
+            }
+            let input = FeedInput {
+                url: feed.url,
+                filter: feed.filter,
+                interval_minutes: feed.interval_minutes,
+                queue: feed.queue,
+                enabled: feed.enabled,
+                download_existing: false,
+            };
+            match self.add(input).await {
+                Ok(_) => out.added += 1,
+                Err(FeedsError::Duplicate(_)) => out.duplicates += 1,
+                Err(err) => {
+                    tracing::warn!("feed import: could not subscribe: {err}");
+                    out.failed += 1;
+                }
+            }
+        }
+        out
     }
 
     pub fn get(&self, id: &str) -> Result<Feed, FeedsError> {

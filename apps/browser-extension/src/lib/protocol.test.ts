@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 // so a change on one side that the other does not accept fails a test.
 import capturedFixture from "../../../../crates/native-host/tests/fixtures/download-captured.json";
 import linkFixture from "../../../../crates/native-host/tests/fixtures/download-link.json";
+import noStartFixture from "../../../../crates/native-host/tests/fixtures/download-no-start.json";
 import mediaFixture from "../../../../crates/native-host/tests/fixtures/media-hls.json";
 import pageFixture from "../../../../crates/native-host/tests/fixtures/page-youtube.json";
 import pingFixture from "../../../../crates/native-host/tests/fixtures/ping.json";
@@ -24,6 +25,7 @@ import {
   pingMessage,
   tasksMessage,
   titleHint,
+  withStartApp,
 } from "./protocol";
 import { MAX_URL_LENGTH, referrerFor } from "./url";
 
@@ -38,6 +40,16 @@ describe("messages match the host's fixtures", () => {
       pageUrl: "https://example.org/downloads",
     });
     expect(fields && downloadMessage(fields, "m1")).toEqual(linkFixture);
+  });
+
+  it("download with starting Downpipe turned off", () => {
+    const message = downloadMessage(
+      { resourceUrl: "https://example.org/files/report.pdf", fileName: "report.pdf" },
+      "m3",
+    );
+    expect(message && withStartApp(message, false)).toEqual(noStartFixture);
+    // On, the field is left out: the host's default starts the app.
+    expect(message && withStartApp(message, true)).not.toHaveProperty("start_app");
   });
 
   it("captured browser download", () => {

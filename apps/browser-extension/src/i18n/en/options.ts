@@ -46,6 +46,10 @@ export const options = {
   bypassHelp: "While capture is on, clicking a link with this key held leaves that one download to the browser. Other clicks and the browser's own shortcuts stay as they are.",
   bypassAccess: "This needs access to the sites you visit, to notice the click. Nothing is read or sent until you click a link this way.",
   bypassAllow: "Allow access",
+  appHeading: "06 — Desktop app",
+  startApp: "Start Downpipe when it is closed",
+  startAppDetail:
+    "A download sent from the browser starts Downpipe in the tray first, instead of failing. When this is off, Downpipe has to be open.",
   save: "Save",
   /** After the first few errors under a field. */
   moreErrors: { one: "And {count} more.", other: "And {count} more." },

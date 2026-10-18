@@ -20,6 +20,7 @@ import { bytesToRate, decimalField, parseDecimal, rateToBytes, type RateUnit } f
 import { categoryLabel, storedCategoryName } from "../lib/categories";
 import { hasArchiveTypes } from "../lib/post";
 import { installButtonLabel, toolRows, toolsToInstall } from "../lib/tools";
+import { BackupSection, IdmImport } from "./BackupSection";
 import { FolderInput } from "./FolderInput";
 import { Badge, Banner, Button, Dialog, Field, IconButton, Switch, inputClass } from "./primitives";
 import { RemoteSettingsPanel } from "./RemoteSettings";
@@ -99,11 +100,14 @@ export function SettingsDialog({
   initialTab = "downloads",
   onClose,
   onSaved,
+  onImported,
 }: {
   settings: Settings;
   initialTab?: SettingsTab;
   onClose: () => void;
   onSaved: (s: Settings) => void;
+  /** A backup's settings were imported; the dialog closes with this message. */
+  onImported: (message: string) => void;
 }) {
   const { t, locale } = useI18n();
   const initialRate = bytesToRate(settings.speed_limit);
@@ -675,6 +679,16 @@ export function SettingsDialog({
               onChange={setConfirmBrowser}
             />
             <BrowserBridge registerHost={registerHost} onRegisterHostChange={setRegisterHost} />
+            <BackupSection
+              onSettingsImported={(imported, message) => {
+                // The drafts above show the old settings; saving them now
+                // would undo the import.
+                onSaved(imported);
+                onImported(message);
+                onClose();
+              }}
+            />
+            <IdmImport windows={navigator.userAgent.includes("Windows")} />
           </>
         )}
 

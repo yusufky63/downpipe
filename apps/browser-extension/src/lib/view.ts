@@ -116,6 +116,8 @@ export interface StatusView {
 export function statusView(
   status: BridgeStatus | null,
   extension: { id: string; firefox: boolean },
+  /** The bridge starts a closed Downpipe when a download is sent (an option, on by default). */
+  startApp = false,
 ): StatusView {
   if (!status) {
     return { tone: "muted", title: t("status.checking"), detail: "", guide: false };
@@ -129,10 +131,11 @@ export function statusView(
         guide: false,
       };
     case "app_not_running":
+      // Closed is no problem when sending starts it.
       return {
-        tone: "warning",
+        tone: startApp ? "muted" : "warning",
         title: t("status.appNotRunning"),
-        detail: t("status.appNotRunningDetail"),
+        detail: t(startApp ? "status.appNotRunningStarts" : "status.appNotRunningDetail"),
         guide: false,
       };
     case "host_missing":

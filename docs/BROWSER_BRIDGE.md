@@ -104,11 +104,13 @@ Before it compiles the app, `tauri build` runs `pnpm sidecar`, which builds `dow
 
 **Download with Downpipe** appears in the context menu of http and https links. The link goes to the app with the page it was on and a referrer. The referrer follows the browser's default policy (`strict-origin-when-cross-origin`): the full page address for links on the same site, only the site's origin for other sites, and nothing from an https page to an http link.
 
+**Downpipe closed?** A download, stream or video page sent while the app is closed starts it first, in the tray, as IDM does: the host starts the app next to it with `--hidden`, waits up to 10 seconds for its pipe and then hands the download over (see [Starting the app](#starting-the-app)). **Start Downpipe when it is closed**, at the end of the Filters page, turns this off; the extension then reports that Downpipe is not running, as before. Checking the bridge (opening the popup) and live progress never start the app; while the option is on, the popup says that a download you send starts Downpipe instead of asking you to open it.
+
 **Capture browser downloads** (off by default) is a switch in the popup. Turning it on asks the browser for the `downloads` permission; turning it off removes the permission again. While it is on:
 
 - A download the browser starts is offered to Downpipe. If the app accepts it (or already has it), the browser's copy is cancelled and removed from the browser's download list.
-- If Downpipe is not running or refuses it, the browser keeps downloading as if the extension were not there, and the popup notes that the browser kept the file.
-- The browser waits 5 seconds for the app's answer. When the app accepts later (the host itself waits up to 10 seconds for it), the browser's copy, which went on meanwhile, is cancelled and removed then, unless the browser already finished it; a finished file is never erased from the browser's list, which would hide it beside the app's copy. Each browser download is offered once: the ids already offered are kept in session storage, so a second event for the same download (after the service worker restarted, for one) does not send it again. Nothing is kept for later, so neither a browser nor an app restart sends a capture again; downloads the browser brings back after its restart are interrupted ones, which capture skips.
+- If Downpipe is not running (and cannot be started, or starting it is turned off) or refuses it, the browser keeps downloading as if the extension were not there, and the popup notes that the browser kept the file.
+- The browser waits 5 seconds for the app's answer. When the app accepts later (the host itself waits up to 10 seconds for it, plus up to 10 seconds more when it starts Downpipe first), the browser's copy, which went on meanwhile, is cancelled and removed then, unless the browser already finished it; a finished file is never erased from the browser's list, which would hide it beside the app's copy. Each browser download is offered once: the ids already offered are kept in session storage, so a second event for the same download (after the service worker restarted, for one) does not send it again. Nothing is kept for later, so neither a browser nor an app restart sends a capture again; downloads the browser brings back after its restart are interrupted ones, which capture skips.
 - Always skipped: downloads in private windows (the app keeps a history of its downloads), `blob:` and `data:` URLs (they only exist inside the browser), and downloads the extension started itself.
 - Then the capture filters below decide. A download they leave out is never touched: the browser downloads it as usual, with no notification.
 - Chrome and Edge decide in `downloads.onDeterminingFilename`, after the server's file name, type and usually its size are known. Firefox has no such event; there the filters are checked in `downloads.onCreated`, and a download they let through is paused, offered to Downpipe and resumed if Downpipe does not take it. A download that finished before the pause (a small file on a fast line) stays with the browser. The hand-over is `apps/browser-extension/src/lib/handoff.ts`, tested against fake `downloads` and host answers in `handoff.test.ts`.
@@ -117,7 +119,7 @@ Before it compiles the app, `tauri build` runs `pnpm sidecar`, which builds `dow
 
 Downpipe never receives browser cookies. Downloads that only work while you are signed in to a site, and downloads that come from submitting a form, fail in Downpipe. Pause capture for those sites, or let the browser download them; a per-site cookie opt-in is on the roadmap.
 
-**Filters** opens from the link under the capture switch in the popup (it is also the extension's options page). Its first three parts are the capture filters; the fourth, **Media on pages**, is for media detection (below). It works like IDM's file type settings. Nothing changes until **Save** is pressed; invalid entries are pointed out under their field and nothing is saved until they are fixed.
+**Filters** opens from the link under the capture switch in the popup (it is also the extension's options page). Its first three parts are the capture filters; the fourth, **Media on pages**, is for media detection (below), the fifth, **Download in the browser**, sets the key for letting the browser download a clicked link itself, and the sixth, **Desktop app**, holds **Start Downpipe when it is closed** (on by default). It works like IDM's file type settings. Nothing changes until **Save** is pressed; invalid entries are pointed out under their field and nothing is saved until they are fixed.
 
 - **File types.** Only downloads whose file name ends in one of the listed extensions are captured. The list is separated by spaces or commas; `.zip`, `*.zip` and `ZIP` all mean `zip`, and compound extensions such as `tar.gz` work. The name is the browser's final file name (in Chrome and Edge it already includes the server's `Content-Disposition` name); when the browser has none, the last segment of the URL path, so `get.php?file=a.zip` counts as `php`. The default list covers archives (`zip`, `7z`, `rar`, `tar`, `gz`, `xz` and more), programs and packages (`exe`, `msi`, `apk`, `dmg`, `pkg`, `deb`, `rpm`, `appimage`), disk images (`iso`, `img`, `bin`, `vhd`), documents (`pdf`, `epub`, Office and OpenDocument files), audio (`mp3`, `m4a`, `flac`, `ogg`, `wav` and more) and video (`mp4`, `mkv`, `webm`, `mov`, `avi` and more). Web pages, images and scripts stay in the browser. **Capture all file types** ignores the list (and keeps it for later); **Restore the default list** brings the defaults back.
 - **Excluded sites.** One host per line. They apply to media detection too. `example.com` matches only that host; `*.example.com` matches `example.com` and all of its subdomains. A download is left to the browser when its URL, the address it was redirected to, or the page it started on (the referrer) is on one of these sites. Matching ignores case, ports and paths, and pasted URLs are reduced to their host. International names are stored in their ASCII (punycode) form, which is how URLs carry them, so `bücher.de` is saved as `xn--bcher-kva.de`.
@@ -133,7 +135,7 @@ The filters are stored with the other extension settings in `storage.local`. Set
 - The links open in a new tab next to the page. The service worker hands them over through `storage.session` under a random id that is part of the new tab's address; the links page validates what it reads and removes the entry, keeping a copy in its own tab's `sessionStorage` so a reload still shows the list. A collection nobody opened is dropped the next time a page is read, once it is ten minutes old, and session storage is cleared when the browser closes anyway.
 - The links page shows the page's title and address, a text filter (every word must appear in the link text or address), **Hide web pages** (on by default: `html`, `htm`, `php`, `asp`, `aspx` and similar, and addresses without an extension), a chip for each of the twelve most common file extensions found plus **Other** for the rest and for addresses without one, **Select all** and **Select none** for the links on show, and a count. Links that are not web pages start selected. When every link is a web page, **Hide web pages** starts off so the list is not empty.
 - **Download N links** sends the selected links that are on show, three at a time, each as its own `download` request with the page as `page_url` and the same referrer rule as the context menu. Each row then says **Added**, **In Downpipe** (already there) or **Failed** with the reason under the address, and a summary follows. Sent links are deselected, so pressing again retries only the failures. **Stop** lets the links already on their way finish and sends no more. The links also go into the popup's Downloads list, but without a notification or badge for each one.
-- Before sending, the page checks the bridge. If Downpipe is not running, or the bridge is missing or refuses the extension, nothing is sent and the page shows the same guidance as the popup. If the app goes away halfway, the page stops at the first such answer instead of failing every remaining link.
+- Before sending, the page checks the bridge. If the bridge is missing or refuses the extension, or Downpipe is not running and **Start Downpipe when it is closed** is off, nothing is sent and the page shows the same guidance as the popup. With the option on, the first link is sent alone and starts Downpipe, and the rest follow once it runs, so the links do not each start a copy. If the app goes away halfway, the page stops at the first such answer instead of failing every remaining link.
 - Pages the browser does not let extensions read (its own settings pages, extension stores, some built-in viewers) open the links page with a note saying so.
 
 **Media on this page** finds what a page plays, like IDM's "Download this video" button. It is off until you turn on its switch in the popup (shown on http and https pages). The browser then asks for two optional permissions, `webRequest` and access to all http and https sites; turning the switch off removes both and forgets every list.
@@ -250,6 +252,9 @@ Requests:
  "title": "Me at the zoo"}
 {"protocol_version": 1, "type": "tasks", "id": "t1",
  "task_ids": ["8e48dd86-5481-41af-a2fc-edf3044e29b8"]}
+{"protocol_version": 1, "type": "download", "id": "m3",
+ "resource_url": "https://example.org/files/report.pdf",
+ "file_name": "report.pdf", "start_app": false}
 ```
 
 | Field | Rules |
@@ -266,6 +271,7 @@ Requests:
 | `mime_type` | Optional, reduced to `type/subtype`. |
 | `file_name` | Optional hint, at most 255 characters, no folders and no control characters. The app sanitizes it like a server-supplied name. |
 | `task_ids` | Required for `tasks`, allowed nowhere else. 1 to 20 ids as returned in `accepted` (or `duplicate`). |
+| `start_app` | Optional boolean, for `download`, `media` and `page`; `ping` and `tasks` refuse it. Missing or `true`: the host starts a closed app first. `false`: it answers `app_not_running` instead. |
 
 `resource_url`, `mime_type` and `file_name` are `download` fields and `manifest_url`, `kind`, `origin` and `title` are `media` fields; each message type refuses the other's. A `page` message carries only `page_url` and `title`. Unknown fields, duplicate fields and any field whose name contains `cookie` are rejected. A message over 64 KiB is answered with `message_too_large`, after which the host exits, because the rest of the stream can no longer be framed reliably.
 
@@ -298,6 +304,8 @@ Ids the app does not know in a `tasks` query, for example removed downloads, are
 
 Messages may also gain types within version 1, as `media` and `page` did: a host or app that predates one answers `invalid_message` ("unknown message type"), which an extension can tell from a broken bridge, and `pong` lists the ones both ends know in `features`, so the extension can check before sending. The pipe between host and app gained the `media` and `page` actions the same way, without a new `ipc_version`, since older actions are unchanged.
 
+Requests gained one optional field the same way, `start_app`. The extension sends it only as `false`, when its option is off; a host from before it refuses the unknown field with `invalid_message`, and since such a host never starts the app, the extension then sends the message again without it.
+
 Answers may gain optional fields within version 1; the extension ignores fields it does not know, and the host and the app accept each other's answers with or without them. That is why the confirmation is a flag and not a tenth `state`: the download really is paused in the app's catalog, and extensions from before the flag drop task entries with a state outside their fixed list, which would cost them that row's live state. With the flag they keep showing Paused, which is still true.
 
 | Error code | Meaning |
@@ -307,7 +315,7 @@ Answers may gain optional fields within version 1; the extension ignores fields 
 | `cookies_not_accepted` | The message tried to carry cookies. |
 | `unsupported_version` | `protocol_version` is not 1. |
 | `message_too_large` | Over 64 KiB. |
-| `app_not_running` | The host could not find the app's pipe or socket. |
+| `app_not_running` | The host could not find the app's pipe or socket, and did not start the app: `start_app` was `false`, there is no app next to the host, it could not be run, or it did not open its pipe within 10 seconds. |
 | `app_unavailable` | The app did not answer within 10 seconds or answered something unexpected. |
 | `version_mismatch` | The host and the app speak different pipe versions; run `install` from the same build as the app. |
 | `duplicate` | An unfinished download with this URL already exists; `task_id` names it. |
@@ -325,13 +333,22 @@ The host opens one connection per message, sends `{"ipc_version": 1, "action": .
 
 Starting Downpipe while it is already running brings the open window forward instead of starting a second copy, so the bridge stays with the first one. Copies started with their own `DOWNPIPE_DATA_DIR` (tests, portable setups, a development build next to an installed Downpipe) run side by side on purpose; the later one logs `browser bridge is off` unless it also gets its own `DOWNPIPE_BRIDGE_ENDPOINT`.
 
+### Starting the app
+
+When a `download`, `media` or `page` message finds no app and `start_app` allows it, the host starts the desktop app and delivers the message once the app answers:
+
+- **Which program.** Only an executable in the host's own folder, under a fixed name: `Downpipe.exe`, `downpipe.exe` or `downpipe-desktop.exe` on Windows (`Downpipe`, `downpipe` or `downpipe-desktop` elsewhere), the names the installers and Cargo give the app. The installers put the host next to the app, and a development build has both in Cargo's target folder. Nothing in the message takes part in choosing it, and a host without an app beside it (a copy run by hand, the AppImage's registration) starts nothing.
+- **How.** With `--hidden`, so Downpipe opens in the tray like the login item starts it, with no inherited standard streams (stdout carries the protocol), in its own process group, and on Windows outside the browser's job object where the browser allows it, so closing the browser does not close Downpipe.
+- **Waiting.** The host asks the pipe every 150 ms with a `ping` for up to 10 seconds and then sends the message. A message that found no pipe never reached the app, so sending it after the start cannot add it twice. If the app cannot be run or does not answer in time, the answer is `app_not_running`, as it was before the host could start it, and a captured download stays with the browser. The extension waits 12 seconds longer for these answers while the option is on.
+- **Several at once.** Two messages arriving together may both start the app; the second copy hands over to the first (single instance) and exits, and `--hidden` keeps it from opening the window.
+
 ## Troubleshooting
 
 | Popup says | Do this |
 |---|---|
 | Browser bridge not installed | Start Downpipe; it registers the bridge for your user account. **Settings → Browser bridge** shows the state for each browser. With the start-up registration off, use **Register now** there or run `downpipe-native-host install`. |
 | Bridge does not allow this extension | The extension has a different id than the manifest allows. Run the command the popup shows; it includes this extension's id. The app keeps that id when it rewrites the manifest later. |
-| Downpipe is not running | Start the app. If it is running, check its log for `browser bridge is off`. |
+| Downpipe is not running | Start the app. If it is running, check its log for `browser bridge is off`. A download sent from the browser starts Downpipe by itself unless **Start Downpipe when it is closed** is off on the Filters page, or the registered host has no app next to it (`downpipe-native-host status` shows the host). |
 | Bridge error | Restart Downpipe or use **Register now** so the browsers start the host that came with this version of the app. `downpipe-native-host status` shows what is registered. |
 | Update Downpipe to download streams | The app, or the bridge it registered, is older than the extension. Update Downpipe and start it once. |
 | Media on this page stays empty | Play the video. If it was already playing when detection was turned on, reload the page. Videos that use DRM are never listed. |

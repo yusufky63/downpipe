@@ -7,6 +7,8 @@ export const status: Messages["status"] = {
   connected: "Подключено к Downpipe",
   connectedDetail: "Приложение {app}, компонент связи {bridge}",
   appNotRunning: "Downpipe не запущен",
+  /** Instead of appNotRunningDetail while the bridge may start Downpipe. */
+  appNotRunningStarts: "Отправленная загрузка запустит его в области уведомлений.",
   appNotRunningDetail: "Откройте приложение Downpipe. Ссылки, отправленные при закрытом приложении, в очередь не ставятся.",
   hostMissing: "Компонент связи с браузером не установлен",
   hostMissingDetail:

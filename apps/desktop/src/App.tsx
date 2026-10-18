@@ -734,6 +734,7 @@ export function App() {
             api.settingsClosed().catch(() => undefined);
           }}
           onSaved={setSettings}
+          onImported={(message) => toast(message, "neutral")}
         />
       )}
       {webDialog === "grabber" && settings && (
