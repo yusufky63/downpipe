@@ -21,6 +21,17 @@ The download engine handles what users of other download managers keep running i
 - New error kinds `expired_link` and `login_required`; `Progress::waiting` and the snapshot's `waiting` give the reason while a download waits; `EngineConfig::offline_grace` (10 min) and `response_timeout` (60 s); `Engine::connection_limit` reports a host's remembered limit.
 - Test server: `max_conns` and `limit_status` (refuse connections beyond N), `stall_at`/`stall_times` and `hang_times` (silence mid-body or before the headers), `html`/`html_after` and `/login` (web pages instead of the file), `cd` (a raw `Content-Disposition`), `fail_from`, and `TestServer::stop`/`restart` to take the server off the network and back.
 
+### App and extension
+
+- **Failures in your language.** Every reason the engine gives for a failed download (file not found, the server refused it, network failure, disk full, DRM, a live stream, yt-dlp could not read the page and so on) is shown translated in the list, the details, the progress window, the confirmation dialog and messages. The engine's own English text stays under **Technical details** in the details dialog (and the confirmation dialog), for searching or reporting. The popup words the same reasons, with the app's text in the row's tooltip, and words the bridge's remaining codes too.
+- **Numbers in your language.** Sizes, speeds, percents and bit rates follow the language: `1,5 MiB` and `%50` in Turkish, `50 %` in German and French. English is unchanged.
+- **Decimal commas.** The speed limit in Settings and the minimum sizes in the extension's Filters accept `1,5` as well as `1.5`, and show stored values with the language's decimal sign. An invalid speed limit is pointed out instead of quietly meaning "no limit".
+- **Category names in your language.** The built-in categories (Compressed, Documents, Music, Video, Programs, Disk images) show translated until you rename them; their folders on disk keep their names. Searching finds a category by either name.
+- **A smaller Download button over videos.** The button is now a small icon with a menu arrow, and you can drag it anywhere inside the video; the place is remembered per site. Its menu has **Hide on this site**, which adds the site to a list of its own under Filters → Media on pages (detection and capture still work there), and Filters has **Show it only while the pointer is over the video**.
+- **No double downloads.** A capture the app accepts after the browser stopped waiting for it (the app was slow to answer) now removes the browser's copy too, in Chrome, Edge and Firefox, unless the browser already finished it. In Firefox, a download that finished before it could be paused is no longer handed to the app a second time. Each browser download is offered once, also when the extension's service worker restarts in the middle.
+- **Large lists stay fast.** The download list draws only the rows in view, so thousands of downloads scroll and update like a few. Keyboard selection, checkboxes, the right-click menu and dragging files out work as before.
+- Bridge: `tasks` answers carry `error_kind` next to `error` for failed downloads.
+
 ## 0.4.0 — 2026-10-18
 
 Media detection: the videos and audio a web page plays, including HLS and DASH streams behind `blob:` players, download in Downpipe. YouTube pages download through yt-dlp.
