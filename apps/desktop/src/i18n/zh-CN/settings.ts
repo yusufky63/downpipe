@@ -74,12 +74,12 @@ export const settings: Messages["settings"] = {
   },
   media: {
     ffmpegHint:
-      "将流中分开的视频和声音合并为一个文件，不重新编码。留空则使用 PATH 中的 ffmpeg。Downpipe 不附带 FFmpeg。",
-    ffmpegPlaceholder: "PATH 中的 ffmpeg",
+      "将流中分开的视频和声音合并为一个文件，不重新编码。留空则使用 Downpipe 下载的副本，没有则使用 PATH 中的 ffmpeg。",
+    ffmpegPlaceholder: "下载的副本，否则为 PATH 中的 ffmpeg",
     found: "已找到",
     notFound: "未找到",
     ffmpegMissing:
-      "视频和声音分开提供的流会保存为两个文件。请安装 FFmpeg 并将其添加到 PATH，或在上方输入 ffmpeg 的路径，然后保存。",
+      "视频和声音分开的流会保存为两个文件。请在下方“页面中的视频”中下载 FFmpeg，或在上方填写 ffmpeg 的路径后保存。",
     streams:
       "流来自浏览器扩展的媒体检测，或在此处添加的 .m3u8 和 .mpd 链接。不会下载受 DRM 保护的流和直播流。",
   },
@@ -103,11 +103,11 @@ export const settings: Messages["settings"] = {
     ytDlpPlaceholder: "已下载的副本，否则为 PATH 中的 yt-dlp",
     denoHint: "需要 2.3.0 或更高版本。留空则使用下方下载的副本，否则使用 PATH 中的 deno，再否则使用 Node 22 或更高版本。",
     denoPlaceholder: "已下载的副本，否则为 PATH 中的 deno",
-    looking: "正在查找 yt-dlp 和 Deno…",
+    looking: "正在查找 yt-dlp、Deno 和 FFmpeg…",
     listLabel: "用于页面中视频的工具",
     downloading: "正在下载…",
     installNote:
-      "仅在你按下此按钮时：从 github.com/yt-dlp/yt-dlp 和 github.com/denoland/deno 获取官方版本，分别对照其发布页公布的 SHA-256 进行校验后，放入 {folder}。YouTube 经常变化；再按一次即可获取最新的 yt-dlp。",
+      "仅在你按下按钮时：从 github.com/yt-dlp/yt-dlp 和 github.com/denoland/deno 获取官方版本，以及从 github.com/BtbN/FFmpeg-Builds 获取 FFmpeg 的 LGPL 版本，分别对照其发布页公布的 SHA-256 进行校验后，放入 {folder}。",
     toolsFolder: "Downpipe 的工具文件夹",
     cookies:
       "Downpipe 不会向 yt-dlp 发送任何 Cookie，因此不会下载私享、会员专属和有年龄限制的视频，也不会下载受保护（DRM）的视频和直播。是否遵守 YouTube 的条款由你自行负责。",

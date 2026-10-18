@@ -40,9 +40,25 @@ export const media: Messages["media"] = {
       ytDlp: "Necessário para vídeos em páginas.",
       runtime: "Sem o Deno (ou o Node), o yt-dlp não obtém algumas qualidades do YouTube.",
       ffmpeg: "Sem ele, só funcionam a opção Somente áudio e as qualidades com som próprio.",
+      ffmpegManual: "O Downpipe não consegue baixar o FFmpeg para este sistema. Instale-o (no macOS: brew install ffmpeg) e informe o caminho no topo desta aba, por exemplo /opt/homebrew/bin/ffmpeg.",
     },
     // {tools} is a list such as "yt-dlp e Deno", joined by Intl.ListFormat.
-    download: "Baixar {tools}",
-    update: "Atualizar {tools}",
+    download: "Baixar",
+    update: "Atualizar",
+    installAll: "Instalar tudo (cerca de {size})",
+    offer: "Baixar as ferramentas que faltam (cerca de {size})",
+    missingForVideo: "Falta para este vídeo: {tools}.",
+    missingForQuality: "Falta para esta qualidade: {tools}.",
+    starting: "Iniciando o download…",
+    progress: "Baixando {tool}… {done} de {total}",
+    progressUnknown: "Baixando {tool}… {done}",
+    installing: "Instalando {tool}…",
+    sourceNote:
+      "Os lançamentos oficiais no GitHub, cada um verificado com o SHA-256 publicado no respectivo lançamento. Nada é baixado antes de você clicar.",
+    checked: "Última busca por uma versão nova: {time}",
+    neverChecked: "Ainda não houve busca por uma versão nova. O Downpipe verifica uma vez por dia, quando o download de um vídeo começa.",
+    autoUpdate: "Manter o yt-dlp atualizado",
+    autoUpdateHint:
+      "Uma vez por dia, quando o download de um vídeo começa, o Downpipe procura um yt-dlp mais recente e o instala, verificado com o SHA-256 dele como um download feito aqui. Só a cópia baixada pelo Downpipe é substituída, nunca uma sua.",
   },
 };

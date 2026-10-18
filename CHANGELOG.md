@@ -2,6 +2,18 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
+## Unreleased
+
+### New
+
+- **The media tools set themselves up.** When a YouTube link or a video page needs yt-dlp or Deno, or a quality needs FFmpeg, and the tool is missing, the Add dialog and the quality dialog offer one button, **Download the missing tools (about N MiB)**, show the download's progress and carry on: the qualities appear, or the Add dialog goes on to them. Nothing is downloaded before that click. **Settings → Media** has a **Download** or **Update** button on each tool's row and **Install all**.
+- **FFmpeg is downloaded too.** On Windows and Linux (x86-64 and arm64) Downpipe fetches FFmpeg's static LGPL build from BtbN/FFmpeg-Builds, checked against the SHA-256 its release publishes, and takes only `ffmpeg` and `ffprobe` from the archive. Stream downloads use it as well. macOS has no FFmpeg build with published checksums: install it with Homebrew and enter its path; the row in Settings says so.
+- **yt-dlp stays current.** Once a day, when a video download starts, Downpipe looks for a newer yt-dlp in the background and installs it with the same checks, only for the copy it downloaded itself, never for one you installed or changed. **Settings → Media** shows when it last looked and has a switch to turn it off.
+
+### Changed
+
+- **Clearer tool rows.** The buttons on the tool rows read **Download** and **Update** in every language, instead of a sentence built around the tool names that read badly in some languages.
+
 ## 0.5.2 — 2026-10-18
 
 ### Changed

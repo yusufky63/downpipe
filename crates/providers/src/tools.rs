@@ -8,14 +8,13 @@
 //! Each is looked up in the path set in the settings (a wrong path counts
 //! as missing, so a typo is not papered over by another copy), then in
 //! Downpipe's own tools folder (filled only by [`crate::install`] after the
-//! user asks), then on `PATH`. Node is only taken from `PATH`. FFmpeg is
-//! never downloaded by Downpipe; see docs/LEGAL.md.
+//! user asks), then on `PATH`. Node is only taken from `PATH`.
 
 use std::path::{Path, PathBuf};
 
-use downpipe_http::media::mux;
 use serde::Serialize;
 
+use crate::install::{self, Records, Tool};
 use crate::process;
 
 /// Oldest Deno yt-dlp accepts.
@@ -101,9 +100,13 @@ pub fn find(config: &ToolConfig) -> Tools {
                 path,
             })
         });
-    let ffmpeg =
-        mux::find_ffmpeg(Some(config.ffmpeg.as_path()).filter(|p| !p.as_os_str().is_empty()));
+    let ffmpeg = find_ffmpeg(config);
     Tools { yt_dlp, js, ffmpeg }
+}
+
+/// FFmpeg alone, for stream downloads, which need nothing else.
+pub fn find_ffmpeg(config: &ToolConfig) -> Option<PathBuf> {
+    locate(&config.ffmpeg, config.managed_dir.as_deref(), "ffmpeg").map(|(p, _)| p)
 }
 
 /// Settings path, else the tools folder, else `PATH`.
@@ -149,8 +152,34 @@ pub struct ToolsStatus {
     pub js: ToolStatus,
     pub js_kind: Option<JsKind>,
     pub ffmpeg: ToolStatus,
-    /// Where the download button puts yt-dlp and Deno.
+    /// Where the download buttons put the tools.
     pub managed_dir: Option<PathBuf>,
+    /// About how much each download is; `None` where Downpipe has no build
+    /// to download for this system (FFmpeg on macOS).
+    pub sizes: Sizes,
+    /// When Downpipe last looked for a newer yt-dlp, in seconds since the
+    /// epoch; `None` before the first look.
+    pub yt_dlp_checked: Option<u64>,
+}
+
+/// Bytes, approximately.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Sizes {
+    pub yt_dlp: Option<u64>,
+    pub deno: Option<u64>,
+    pub ffmpeg: Option<u64>,
+}
+
+impl Sizes {
+    pub fn here() -> Self {
+        let size =
+            |tool| install::download_size(tool, std::env::consts::OS, std::env::consts::ARCH);
+        Self {
+            yt_dlp: size(Tool::YtDlp),
+            deno: size(Tool::Deno),
+            ffmpeg: size(Tool::Ffmpeg),
+        }
+    }
 }
 
 /// Find every tool and ask each for its version. Starts each program once.
@@ -188,21 +217,18 @@ pub async fn status(config: &ToolConfig) -> ToolsStatus {
         None => (missing(&config.deno, "deno"), None),
     };
 
-    let configured_ffmpeg = !config.ffmpeg.as_os_str().is_empty();
-    let ffmpeg = match find(config).ffmpeg {
-        Some(path) => {
-            let version = process::first_line(&path, &["-version"])
-                .await
-                .and_then(|line| ffmpeg_version(&line));
+    let ffmpeg = match locate(&config.ffmpeg, managed, "ffmpeg") {
+        Some((path, source)) => {
+            let line = process::first_line(&path, &["-version"]).await;
+            let version = line.as_deref().and_then(ffmpeg_version);
+            let problem = line
+                .is_none()
+                .then(|| "It did not start. Download it again, or check the path.".to_string());
             ToolStatus {
                 path: Some(path),
-                source: Some(if configured_ffmpeg {
-                    ToolSource::Settings
-                } else {
-                    ToolSource::Path
-                }),
+                source: Some(source),
                 version,
-                problem: None,
+                problem,
             }
         }
         None => missing(&config.ffmpeg, "ffmpeg"),
@@ -214,6 +240,8 @@ pub async fn status(config: &ToolConfig) -> ToolsStatus {
         js_kind,
         ffmpeg,
         managed_dir: config.managed_dir.clone(),
+        sizes: Sizes::here(),
+        yt_dlp_checked: managed.and_then(|dir| Records::read(dir).yt_dlp_checked),
     }
 }
 

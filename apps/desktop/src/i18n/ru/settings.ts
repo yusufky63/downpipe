@@ -76,12 +76,12 @@ export const settings: Messages["settings"] = {
   },
   media: {
     ffmpegHint:
-      "Объединяет раздельные видео и звук потока в один файл без перекодирования. Если пусто, используется ffmpeg из PATH. FFmpeg не входит в состав Downpipe.",
-    ffmpegPlaceholder: "ffmpeg из PATH",
+      "Объединяет раздельные видео и звук потока в один файл без перекодирования. Если пусто, используется копия, скачанная Downpipe, а без неё — ffmpeg из PATH.",
+    ffmpegPlaceholder: "Скачанная копия или ffmpeg из PATH",
     found: "Найден",
     notFound: "Не найден",
     ffmpegMissing:
-      "Потоки, в которых видео и звук идут раздельно, сохраняются двумя файлами. Установите FFmpeg и добавьте его в PATH или укажите путь к ffmpeg выше, затем сохраните.",
+      "Потоки с раздельными видео и звуком сохраняются двумя файлами. Скачайте FFmpeg ниже, в разделе «Видео на страницах», или укажите выше путь к ffmpeg и сохраните.",
     streams:
       "Потоки берутся из обнаружения медиа в расширении браузера или из добавленных здесь ссылок .m3u8 и .mpd. Потоки с защитой DRM и прямые трансляции не загружаются.",
   },
@@ -105,11 +105,11 @@ export const settings: Messages["settings"] = {
     ytDlpPlaceholder: "Загруженная копия, иначе yt-dlp из PATH",
     denoHint: "Версия 2.3.0 или новее. Если пусто, используется копия, загруженная ниже, иначе deno из PATH, иначе Node 22 или новее.",
     denoPlaceholder: "Загруженная копия, иначе deno из PATH",
-    looking: "Поиск yt-dlp и Deno…",
+    looking: "Поиск yt-dlp, Deno и FFmpeg…",
     listLabel: "Инструменты для видео на страницах",
     downloading: "Загрузка…",
     installNote:
-      "Только по нажатию кнопки: официальные сборки с github.com/yt-dlp/yt-dlp и github.com/denoland/deno, каждая проверенная по SHA-256 из своего выпуска, помещаются в {folder}. YouTube часто меняется; нажмите кнопку снова, чтобы получить последнюю версию yt-dlp.",
+      "Только по нажатию кнопки: официальные сборки с github.com/yt-dlp/yt-dlp и github.com/denoland/deno, а также LGPL-сборка FFmpeg с github.com/BtbN/FFmpeg-Builds, каждая проверенная по SHA-256 из своего выпуска, помещаются в {folder}.",
     // Stands in for {folder} after "в" above, hence the accusative.
     toolsFolder: "папку инструментов Downpipe",
     cookies:

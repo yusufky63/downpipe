@@ -44,10 +44,33 @@ export const media = {
     missing: {
       ytDlp: "Needed for videos on pages.",
       runtime: "Without Deno (or Node) yt-dlp misses some YouTube qualities.",
-      ffmpeg: "Without it only Audio only and qualities with their own sound work.",
+      ffmpeg: "Without it, only “Audio only” and qualities with their own sound work.",
+      /** Where Downpipe has no FFmpeg build to download (macOS). */
+      ffmpegManual: "Downpipe cannot download FFmpeg for this system. Install it (on macOS: brew install ffmpeg) and enter its path at the top of this tab, such as /opt/homebrew/bin/ffmpeg.",
     },
-    /** The button; {tools} is a list such as "yt-dlp and Deno". */
-    download: "Download {tools}",
-    update: "Update {tools}",
+    /** The button on a tool's row in Settings, Media. */
+    download: "Download",
+    update: "Update",
+    /** Downloads every missing tool; {size} is like "231 MiB". */
+    installAll: "Install all (about {size})",
+    /** The one button a dialog shows when a download needs a missing tool. */
+    offer: "Download the missing tools (about {size})",
+    /** {tools} is a list such as "yt-dlp, Deno and FFmpeg". */
+    missingForVideo: "Missing for this video: {tools}.",
+    missingForQuality: "Missing for this quality: {tools}.",
+    starting: "Starting the download…",
+    /** {done} is a number of MiB, {total} like "163 MiB". */
+    progress: "Downloading {tool}… {done} of {total}",
+    progressUnknown: "Downloading {tool}… {done}",
+    /** After the download: unpacking and putting the tool in place. */
+    installing: "Installing {tool}…",
+    /** The offer button's tooltip. */
+    sourceNote: "The official releases on GitHub, each checked against the SHA-256 its release publishes. Nothing is downloaded before you press it.",
+    /** {time} is a date and time. */
+    checked: "Last looked for a newer version: {time}",
+    neverChecked: "Not looked for a newer version yet. Downpipe looks once a day, when a video download starts.",
+    autoUpdate: "Keep yt-dlp up to date",
+    autoUpdateHint:
+      "Once a day, when a video download starts, Downpipe looks for a newer yt-dlp and installs it, checked against its SHA-256 like a download from here. Only the copy Downpipe downloaded is replaced, never one of your own.",
   },
 };

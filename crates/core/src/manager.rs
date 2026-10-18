@@ -35,9 +35,12 @@ use crate::task::{
 use crate::torrent::{self, MAX_TORRENT_FILE, Parsed, SeedState};
 
 const DB_FILE: &str = "downpipe.db";
-/// Folder in the data folder where yt-dlp and Deno go when the user has
-/// Downpipe download them.
+/// Folder in the data folder where yt-dlp, Deno and FFmpeg go when the user
+/// has Downpipe download them.
 const TOOLS_DIR: &str = "tools";
+/// How often Downpipe's own yt-dlp is checked for a newer release: YouTube
+/// breaks old ones within weeks.
+const YT_DLP_CHECK_EVERY: u64 = 24 * 60 * 60;
 /// Progress is written to SQLite at most this often while a task runs; the
 /// meta file next to the download is the precise record anyway.
 const PERSIST_EVERY: Duration = Duration::from_secs(5);
@@ -131,6 +134,14 @@ struct Inner {
     events: broadcast::Sender<ManagerEvent>,
     /// Downpipe's own copies of the site provider's tools.
     tools_dir: PathBuf,
+    /// One tool install at a time, so two windows asking for the same
+    /// missing tool get one download, and an update never races an install.
+    install_lock: tokio::sync::Mutex<()>,
+    /// The daily yt-dlp check is running.
+    updating_yt_dlp: AtomicBool,
+    /// Where tool releases are looked up: [`install::GITHUB`], or a test
+    /// server.
+    tool_releases: Mutex<url::Url>,
     /// BitTorrent: the session, `.torrent` files and seeding.
     torrents: torrent::Service,
     /// Engines for site rules with a proxy of their own (`""` for none),
@@ -266,6 +277,9 @@ impl Manager {
                 }),
                 events,
                 tools_dir: data_dir.join(TOOLS_DIR),
+                install_lock: tokio::sync::Mutex::new(()),
+                updating_yt_dlp: AtomicBool::new(false),
+                tool_releases: Mutex::new(url::Url::parse(install::GITHUB).expect("a valid URL")),
                 torrents,
                 proxied: Mutex::default(),
                 site_limiters: Mutex::default(),
@@ -929,10 +943,10 @@ impl Manager {
     }
 
     /// The FFmpeg stream downloads would use now: the one set in the
-    /// settings, else `ffmpeg` on `PATH`.
+    /// settings, else Downpipe's own copy, else `ffmpeg` on `PATH`.
     pub fn ffmpeg(&self) -> Option<PathBuf> {
-        let configured = self.inner.state.lock().settings.ffmpeg_path.clone();
-        find_ffmpeg(&configured)
+        let settings = self.settings();
+        downpipe_providers::tools::find_ffmpeg(&self.inner.tool_config(&settings))
     }
 
     /// What a video page offers, read by yt-dlp (which fetches the page and
@@ -1187,14 +1201,36 @@ impl Manager {
         downpipe_providers::tools::status(&self.inner.tool_config(&settings)).await
     }
 
-    /// Download the latest official yt-dlp and/or Deno into Downpipe's tools
-    /// folder, checked against their published SHA-256. Only ever called
-    /// when the user asks for it.
-    pub async fn install_site_tools(&self, tools: &[Tool]) -> Result<ToolsStatus, CoreError> {
+    /// Download the latest official yt-dlp, Deno and/or FFmpeg into
+    /// Downpipe's tools folder, checked against their published SHA-256,
+    /// telling `progress` how far each download is. With `only_missing`,
+    /// tools found by the time this install's turn comes are skipped (a
+    /// second window that asked for the same ones). Only ever called when
+    /// the user asks for it.
+    pub async fn install_site_tools(
+        &self,
+        tools: &[Tool],
+        only_missing: bool,
+        progress: impl Fn(install::Progress) + Send + Sync,
+    ) -> Result<ToolsStatus, CoreError> {
+        let _one = self.inner.install_lock.lock().await;
+        let found = downpipe_providers::tools::find(&self.inner.tool_config(&self.settings()));
         let client = self.inner.engine.lock().client().clone();
-        let base = url::Url::parse(install::GITHUB).expect("a valid URL");
+        let base = self.inner.tool_releases.lock().clone();
         for &tool in tools {
-            let installed = install::install(&client, &base, &self.inner.tools_dir, tool).await?;
+            let there = match tool {
+                Tool::YtDlp => found.yt_dlp.is_some(),
+                Tool::Deno => found
+                    .js
+                    .as_ref()
+                    .is_some_and(|js| js.kind == downpipe_providers::tools::JsKind::Deno),
+                Tool::Ffmpeg => found.ffmpeg.is_some(),
+            };
+            if only_missing && there {
+                continue;
+            }
+            let installed =
+                install::install(&client, &base, &self.inner.tools_dir, tool, &progress).await?;
             tracing::info!(
                 tool = tool.name(),
                 release = installed.release,
@@ -1204,6 +1240,19 @@ impl Manager {
             );
         }
         Ok(self.site_tools().await)
+    }
+
+    /// Look for a newer yt-dlp now, as the daily check does, whenever it
+    /// last looked; for tests.
+    #[doc(hidden)]
+    pub async fn check_yt_dlp_now(&self) {
+        self.inner.update_yt_dlp().await;
+    }
+
+    /// Where tool releases are looked up; for tests.
+    #[doc(hidden)]
+    pub fn set_tool_releases(&self, base: url::Url) {
+        *self.inner.tool_releases.lock() = base;
     }
 
     /// Reorder downloads inside their queues. Several ids move together and
@@ -1678,6 +1727,63 @@ impl Inner {
         let _ = self.events.send(event);
     }
 
+    /// Once a day, when a site download starts, a newer yt-dlp replaces the
+    /// copy Downpipe installed itself, in the background. A yt-dlp set in the
+    /// settings or found on `PATH`, or a copy the user changed, is never
+    /// touched.
+    fn check_yt_dlp_update(self: &Arc<Self>) {
+        let checked = install::Records::read(&self.tools_dir).yt_dlp_checked;
+        if !update_due(checked, unix_secs()) || self.updating_yt_dlp.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let inner = self.clone();
+        tokio::spawn(async move {
+            inner.update_yt_dlp().await;
+            inner.updating_yt_dlp.store(false, Ordering::SeqCst);
+        });
+    }
+
+    async fn update_yt_dlp(&self) {
+        let _one = self.install_lock.lock().await;
+        let settings = self.state.lock().settings.clone();
+        if !settings.yt_dlp_auto_update || !settings.yt_dlp_path.is_empty() {
+            return;
+        }
+        let dir = self.tools_dir.clone();
+        let own = {
+            let dir = dir.clone();
+            tokio::task::spawn_blocking(move || install::own_copy(&dir, Tool::YtDlp))
+                .await
+                .ok()
+                .flatten()
+        };
+        let Some(own) = own else { return };
+        let client = self.engine.lock().client().clone();
+        let base = self.tool_releases.lock().clone();
+        match install::latest(&client, &base, Tool::YtDlp).await {
+            Ok(latest) if latest == own.release => {}
+            Ok(latest) => {
+                match install::install(&client, &base, &dir, Tool::YtDlp, &|_| {}).await {
+                    Ok(installed) => tracing::info!(
+                        from = own.release,
+                        to = installed.release,
+                        sha256 = installed.sha256,
+                        "yt-dlp updated"
+                    ),
+                    // The old copy stays; the next day's check tries again.
+                    Err(e) => tracing::warn!(release = latest, "could not update yt-dlp: {e}"),
+                }
+            }
+            Err(e) => tracing::warn!("could not look for a newer yt-dlp: {e}"),
+        }
+        // Whatever came of it: at most one look a day.
+        let mut records = install::Records::read(&dir);
+        records.yt_dlp_checked = Some(unix_secs());
+        if let Err(e) = records.write(&dir) {
+            tracing::warn!("could not record the yt-dlp check: {e}");
+        }
+    }
+
     fn tool_config(&self, settings: &Settings) -> ToolConfig {
         ToolConfig {
             yt_dlp: PathBuf::from(&settings.yt_dlp_path),
@@ -1753,6 +1859,7 @@ impl Inner {
     fn schedule(self: &Arc<Self>) {
         let _runtime = self.runtime.enter();
         let mut started = Vec::new();
+        let mut site_started = false;
         {
             let mut st = self.state.lock();
             if st.shutting_down {
@@ -1795,6 +1902,7 @@ impl Inner {
                     self.torrents
                         .start(entry.torrent_request(&engine), settings)
                 } else if entry.record.site.is_some() {
+                    site_started = true;
                     let tools = site_tools
                         .get_or_insert_with(|| {
                             downpipe_providers::tools::find(&self.tool_config(settings))
@@ -1804,7 +1912,9 @@ impl Inner {
                 } else {
                     let tool = match &entry.record.media {
                         Some(_) => ffmpeg
-                            .get_or_insert_with(|| find_ffmpeg(&settings.ffmpeg_path))
+                            .get_or_insert_with(|| {
+                                downpipe_providers::tools::find_ffmpeg(&self.tool_config(settings))
+                            })
                             .clone(),
                         None => None,
                     };
@@ -1833,6 +1943,9 @@ impl Inner {
                 ));
                 started.push(entry.snapshot());
             }
+        }
+        if site_started {
+            self.check_yt_dlp_update();
         }
         for task in started {
             self.emit(ManagerEvent::Updated {
@@ -2432,10 +2545,14 @@ fn remove_partial(record: &TaskRecord) {
     }
 }
 
-/// `configured` when set (the settings field), else `ffmpeg` on `PATH`.
-fn find_ffmpeg(configured: &str) -> Option<PathBuf> {
-    let configured = Path::new(configured);
-    media::mux::find_ffmpeg((!configured.as_os_str().is_empty()).then_some(configured))
+/// Whether a day has passed since the last look for a newer yt-dlp, or
+/// there was none. A clock set back counts as a day passed.
+fn update_due(checked: Option<u64>, now: u64) -> bool {
+    checked.is_none_or(|at| at > now || now - at >= YT_DLP_CHECK_EVERY)
+}
+
+fn unix_secs() -> u64 {
+    u64::try_from(unix_now()).unwrap_or(0)
 }
 
 /// A name for a stream before its container is known: the hint without a

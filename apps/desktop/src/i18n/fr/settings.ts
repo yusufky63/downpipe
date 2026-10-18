@@ -75,12 +75,12 @@ export const settings: Messages["settings"] = {
   },
   media: {
     ffmpegHint:
-      "Fusionne la vidéo et le son séparés d'un flux en un seul fichier, sans réencodage. Laissez vide pour utiliser ffmpeg du PATH. Downpipe n'inclut pas FFmpeg.",
-    ffmpegPlaceholder: "ffmpeg dans le PATH",
+      "Fusionne la vidéo et le son séparés d'un flux en un seul fichier, sans réencodage. Laissez vide pour utiliser la copie téléchargée par Downpipe, sinon ffmpeg du PATH.",
+    ffmpegPlaceholder: "Copie téléchargée, sinon ffmpeg du PATH",
     found: "Trouvé",
     notFound: "Introuvable",
     ffmpegMissing:
-      "Les flux dont la vidéo et le son arrivent séparément sont enregistrés en deux fichiers. Installez FFmpeg et ajoutez-le au PATH, ou saisissez le chemin de ffmpeg ci-dessus, puis enregistrez.",
+      "Les flux dont la vidéo et le son arrivent séparément sont enregistrés en deux fichiers. Téléchargez FFmpeg plus bas, dans Vidéos sur les pages web, ou indiquez ci-dessus le chemin de ffmpeg, puis enregistrez.",
     streams:
       "Les flux proviennent de la détection de médias de l'extension de navigateur, ou des liens .m3u8 et .mpd ajoutés ici. Les flux protégés par DRM et les flux en direct ne sont pas téléchargés.",
   },
@@ -106,11 +106,11 @@ export const settings: Messages["settings"] = {
     denoHint:
       "Version 2.3.0 ou ultérieure. Laissez vide pour utiliser la copie téléchargée ci-dessous, sinon deno du PATH, sinon Node 22 ou ultérieur.",
     denoPlaceholder: "Copie téléchargée, sinon deno dans le PATH",
-    looking: "Recherche de yt-dlp et Deno…",
+    looking: "Recherche de yt-dlp, Deno et FFmpeg…",
     listLabel: "Outils pour les vidéos sur les pages web",
     downloading: "Téléchargement…",
     installNote:
-      "Uniquement lorsque vous cliquez sur ce bouton : les versions officielles de github.com/yt-dlp/yt-dlp et github.com/denoland/deno, chacune vérifiée avec l'empreinte SHA-256 publiée pour sa version, sont placées dans {folder}. YouTube change souvent ; cliquez de nouveau pour obtenir la dernière version de yt-dlp.",
+      "Uniquement lorsque vous cliquez sur un bouton : les versions officielles de github.com/yt-dlp/yt-dlp et github.com/denoland/deno, ainsi que la version LGPL de FFmpeg de github.com/BtbN/FFmpeg-Builds, chacune vérifiée avec l'empreinte SHA-256 publiée pour sa version, sont placées dans {folder}.",
     toolsFolder: "le dossier des outils de Downpipe",
     cookies:
       "Downpipe n'envoie aucun cookie à yt-dlp : les vidéos privées, réservées aux membres ou soumises à une limite d'âge ne sont donc pas téléchargées, pas plus que les vidéos protégées (DRM) et en direct. Le respect des conditions d'utilisation de YouTube relève de votre responsabilité.",

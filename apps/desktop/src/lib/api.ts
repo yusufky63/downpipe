@@ -407,11 +407,22 @@ export interface ToolsStatus {
   js: ToolStatus;
   js_kind: "deno" | "node" | null;
   ffmpeg: ToolStatus;
-  /** Where the download button puts yt-dlp and Deno. */
+  /** Where the download buttons put the tools. */
   managed_dir: string | null;
+  /** About how many bytes each download is; null where Downpipe has no build for this system (FFmpeg on macOS). */
+  sizes: Record<SiteTool, number | null>;
+  /** Seconds since the epoch of the last look for a newer yt-dlp; null before the first. */
+  yt_dlp_checked: number | null;
 }
 
-export type SiteTool = "yt_dlp" | "deno";
+export type SiteTool = "yt_dlp" | "deno" | "ffmpeg";
+
+/** How far a tool download has come; every window hears it. */
+export interface ToolsProgress {
+  tool: SiteTool;
+  done: number;
+  total: number | null;
+}
 
 export interface Settings {
   download_dir: string;
@@ -447,6 +458,8 @@ export interface Settings {
   yt_dlp_path: string;
   /** Deno for yt-dlp. Empty: the tools folder, then PATH, then Node 22+. */
   deno_path: string;
+  /** Once a day, when a video download starts, replace the yt-dlp Downpipe downloaded with a newer one. */
+  yt_dlp_auto_update: boolean;
   /** Names site downloads: {title}, {channel}, {date}, {index}, {id}. */
   media_name_template: string;
   /** Per-site overrides; the most specific matching pattern applies. */
@@ -886,7 +899,8 @@ export const api = {
   /** Picks a .torrent file in the system dialog and adds it; null when the dialog was closed. */
   openTorrentFile: (options: AddOptions) => invoke<Task | null>("open_torrent_file", { options }),
   /** Downloads yt-dlp and/or Deno from their official releases, checked by SHA-256. */
-  installSiteTools: (tools: SiteTool[]) => invoke<ToolsStatus>("install_site_tools", { tools }),
+  /** `onlyMissing` skips tools found by the time the install starts (another window got them). */
+  installSiteTools: (tools: SiteTool[], onlyMissing = false) => invoke<ToolsStatus>("install_site_tools", { tools, onlyMissing }),
   /** With `replace`, the old file is deleted first and the new one takes its name. */
   redownload: (id: string, replace: boolean) => invoke<null>("redownload", { id, replace }),
   move: (ids: string[], to: QueueMove) => invoke<null>("move_downloads", { ids, to }),
@@ -946,6 +960,10 @@ export function onFeeds(cb: (feeds: Feed[]) => void): Promise<UnlistenFn> {
 
 export function onWhenDone(cb: (view: WhenDoneView) => void): Promise<UnlistenFn> {
   return listen<WhenDoneView>("downpipe://when-done", (e) => cb(e.payload));
+}
+
+export function onToolsProgress(cb: (progress: ToolsProgress) => void): Promise<UnlistenFn> {
+  return listen<ToolsProgress>("downpipe://tools-progress", (e) => cb(e.payload));
 }
 
 export function onManagerEvent(cb: (event: ManagerEvent) => void): Promise<UnlistenFn> {

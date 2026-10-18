@@ -74,12 +74,12 @@ export const settings: Messages["settings"] = {
   },
   media: {
     ffmpegHint:
-      "Bir akışın ayrı gelen videosunu ve sesini yeniden kodlamadan tek bir dosyada birleştirir. Boşsa PATH'teki ffmpeg kullanılır. Downpipe, FFmpeg içermez.",
-    ffmpegPlaceholder: "PATH'teki ffmpeg",
+      "Bir akışın ayrı gelen videosunu ve sesini yeniden kodlamadan tek bir dosyada birleştirir. Boşsa Downpipe'ın indirdiği kopya, o da yoksa PATH'teki ffmpeg kullanılır.",
+    ffmpegPlaceholder: "İndirilen kopya, yoksa PATH'teki ffmpeg",
     found: "Bulundu",
     notFound: "Bulunamadı",
     ffmpegMissing:
-      "Videosu ve sesi ayrı gelen akışlar iki dosya olarak kaydedilir. FFmpeg'i yükleyip PATH'e ekleyin ya da yukarıya ffmpeg'in yolunu girin, sonra kaydedin.",
+      "Videosu ve sesi ayrı gelen akışlar iki dosya olarak kaydedilir. FFmpeg'i aşağıdaki Sayfalardaki videolar bölümünden indirin ya da yukarıya ffmpeg'in yolunu girip kaydedin.",
     streams:
       "Akışlar, tarayıcı eklentisinin medya algılamasından ya da buraya eklenen .m3u8 ve .mpd bağlantılarından gelir. DRM korumalı ve canlı akışlar indirilmez.",
   },
@@ -103,11 +103,11 @@ export const settings: Messages["settings"] = {
     ytDlpPlaceholder: "İndirilen kopya, yoksa PATH'teki yt-dlp",
     denoHint: "Sürüm 2.3.0 veya üstü. Boşsa aşağıda indirilen kopya, o da yoksa PATH'teki deno, o da yoksa Node 22 veya üstü kullanılır.",
     denoPlaceholder: "İndirilen kopya, yoksa PATH'teki deno",
-    looking: "yt-dlp ve Deno aranıyor…",
+    looking: "yt-dlp, Deno ve FFmpeg aranıyor…",
     listLabel: "Sayfalardaki videolar için araçlar",
     downloading: "İndiriliyor…",
     installNote:
-      "Yalnızca düğmeye bastığınızda: github.com/yt-dlp/yt-dlp ve github.com/denoland/deno adreslerindeki resmi derlemeler, her biri kendi sürümünün yayımladığı SHA-256 ile doğrulanarak {folder} içine konur. YouTube sık değişir; en son yt-dlp için düğmeye yeniden basın.",
+      "Yalnızca bir düğmeye bastığınızda: github.com/yt-dlp/yt-dlp ve github.com/denoland/deno adreslerindeki resmi derlemeler ile github.com/BtbN/FFmpeg-Builds adresindeki FFmpeg LGPL derlemesi, her biri kendi sürümünün yayımladığı SHA-256 ile doğrulanarak {folder} içine konur.",
     toolsFolder: "Downpipe'ın araçlar klasörü",
     cookies:
       "Downpipe, yt-dlp'ye çerez göndermez; bu nedenle özel, yalnızca üyelere açık ve yaş sınırlı videolar indirilmez, korumalı (DRM) ve canlı olanlar da indirilmez. YouTube'un koşullarına uymak size kalmıştır.",

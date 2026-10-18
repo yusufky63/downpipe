@@ -368,14 +368,27 @@ async fn site_tools(manager: State<'_, Manager>) -> CmdResult<ToolsStatus> {
     Ok(manager.site_tools().await)
 }
 
-/// Download yt-dlp and/or Deno from their official releases. Only the
-/// settings' button calls this.
+/// Each window's progress bar for a tool download.
+const TOOLS_PROGRESS: &str = "downpipe://tools-progress";
+
+/// Download yt-dlp, Deno and/or FFmpeg from their official releases. Only a
+/// button the user pressed calls this (in the settings, or in a dialog that
+/// needs a missing tool, which passes `only_missing`). Every window hears
+/// the progress, so a second dialog waiting for the same tools shows it too.
 #[tauri::command]
 async fn install_site_tools(
+    app: AppHandle,
     manager: State<'_, Manager>,
     tools: Vec<Tool>,
+    only_missing: Option<bool>,
 ) -> CmdResult<ToolsStatus> {
-    Ok(manager.install_site_tools(&tools).await?)
+    use tauri::Emitter as _;
+    let progress = move |p: downpipe_core::providers::install::Progress| {
+        let _ = app.emit(TOOLS_PROGRESS, p);
+    };
+    Ok(manager
+        .install_site_tools(&tools, only_missing.unwrap_or(false), progress)
+        .await?)
 }
 
 /// Download a finished file again; `replace` deletes the old copy first.
