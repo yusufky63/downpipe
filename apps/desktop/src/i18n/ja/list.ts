@@ -27,9 +27,9 @@ export const list: Messages["list"] = {
     more: "その他",
     clear: "選択を解除",
   },
-  failure: {
-    expiredLink: "リンクの有効期限が切れています。サーバーはファイルではなくウェブページを返しました。新しいリンクを使ってください。ダウンロード済みの部分は保持されます。",
-    loginRequired: "サーバーがログインを求めています。ブラウザーでログインしてから新しいリンクを使ってください。ダウンロード済みの部分は保持されます。",
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "{time} に再開",
   },
   menu: {
     label: "ダウンロードの操作",
@@ -54,6 +54,12 @@ export const list: Messages["list"] = {
     properties: "プロパティ",
     remove: "削除…",
     removeMany: { other: "{count} 件のダウンロードを削除…" },
+    speedLimit: "速度制限…",
+    pauseUntil: "指定時刻まで一時停止",
+    until30m: "30 分後まで",
+    until1h: "1 時間後まで",
+    untilTonight: "今夜 {time} まで",
+    untilCustom: "時刻を選択…",
   },
 };
 

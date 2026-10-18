@@ -494,6 +494,30 @@ async fn global_speed_limit_applies() {
 }
 
 #[tokio::test]
+async fn own_speed_limit_applies_and_changes_while_running() {
+    let server = TestServer::start().await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(config());
+    let own = Arc::new(RateLimiter::new(256 * KIB));
+    let mut req = DownloadRequest::new(server.url(&format!("/file/{}", 2 * MIB)), dir.path());
+    req.limiter = Some(own.clone());
+
+    let started = Instant::now();
+    let handle = engine.start(req);
+    // At 256 KiB/s the first half second brings well under a mebibyte.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let early = handle.progress().borrow().downloaded;
+    assert!(
+        early < MIB,
+        "the download's own limit was not applied: {early}"
+    );
+    // Lifting it lets the rest through at full speed.
+    own.set_rate(0);
+    completed_path(handle.wait().await.unwrap());
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+#[tokio::test]
 async fn probe_reports_server_capabilities() {
     let server = TestServer::start().await.unwrap();
     let engine = engine(config());

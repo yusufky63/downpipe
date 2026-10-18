@@ -226,6 +226,8 @@ export interface TaskStatus {
   /** Bytes per second. */
   speed: number;
   error?: string;
+  /** The failure's stable kind (`not_found`, `network`), from apps that send it. */
+  errorKind?: string;
   /**
    * Paused in the app until the user confirms its name, folder and queue.
    * A flag next to `paused` rather than a state of its own, so extensions
@@ -277,6 +279,7 @@ function parseTask(value: unknown): TaskStatus | null {
     total: count(v.total),
     speed,
     error: text(v.error),
+    errorKind: typeof v.error_kind === "string" && /^[a-z_]{1,32}$/.test(v.error_kind) ? v.error_kind : undefined,
     awaitingConfirmation: flag(v.awaiting_confirmation),
   };
 }

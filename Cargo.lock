@@ -1517,8 +1517,10 @@ dependencies = [
 name = "downpipe-core"
 version = "0.4.0"
 dependencies = [
+ "axum",
  "chrono",
  "dirs 7.0.0",
+ "downpipe-crawl",
  "downpipe-http",
  "downpipe-providers",
  "downpipe-test-server",
@@ -1531,9 +1533,29 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "downpipe-crawl"
+version = "0.4.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "parking_lot",
+ "percent-encoding",
+ "regex",
+ "reqwest",
+ "roxmltree",
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -1544,6 +1566,7 @@ dependencies = [
  "chrono",
  "downpipe-core",
  "downpipe-native-host",
+ "downpipe-remote",
  "drag",
  "keepawake",
  "parking_lot",
@@ -1558,6 +1581,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -1569,6 +1593,7 @@ name = "downpipe-http"
 version = "0.4.0"
 dependencies = [
  "aes",
+ "axum",
  "bytes",
  "cbc",
  "downpipe-test-server",
@@ -1629,6 +1654,28 @@ dependencies = [
  "url",
  "windows-sys 0.61.2",
  "zip",
+]
+
+[[package]]
+name = "downpipe-remote"
+version = "0.4.0"
+dependencies = [
+ "axum",
+ "downpipe-core",
+ "downpipe-test-server",
+ "getrandom 0.3.4",
+ "hex 0.4.3",
+ "parking_lot",
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]

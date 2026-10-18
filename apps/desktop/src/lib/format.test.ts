@@ -1,13 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { CATALOGS } from "../i18n/catalogs";
+import { activate, type Locale } from "../i18n/core";
 
 import {
   bytesToRate,
+  decimalField,
   formatBytes,
   formatDate,
+  formatDecimal,
   formatDuration,
+  formatPercent,
   formatSpeed,
   hostOf,
   nameFromUrl,
+  parseDecimal,
   parseUrls,
   percent,
   rateToBytes,
@@ -98,5 +105,60 @@ describe("rates", () => {
     expect(bytesToRate(2 * 1024 * 1024)).toEqual({ value: 2, unit: "MiB" });
     expect(bytesToRate(512 * 1024)).toEqual({ value: 512, unit: "KiB" });
     expect(bytesToRate(0)).toEqual({ value: 0, unit: "MiB" });
+  });
+});
+
+// Intl writes French and German percents with a no-break space (U+202F,
+// U+00A0); compare with plain spaces.
+const plain = (text: string) => text.replace(/[\u00a0\u202f]/g, " ");
+
+describe("numbers in the user's language", () => {
+  const use = (locale: Locale) => activate(locale, CATALOGS[locale]);
+  afterEach(() => use("en"));
+
+  it("keeps English as it was", () => {
+    expect(formatPercent(50)).toBe("50%");
+    expect(formatPercent(45.25, 1)).toBe("45.3%");
+    expect(formatDecimal(2.5, 1)).toBe("2.5");
+    expect(formatBytes(1023)).toBe("1023 B");
+  });
+
+  it("writes Turkish decimals and percents", () => {
+    use("tr");
+    expect(formatBytes(1536)).toBe("1,5 KiB");
+    expect(formatSpeed(2 * 1024 * 1024)).toBe("2,0 MiB/s");
+    expect(formatPercent(50)).toBe("%50");
+    expect(formatPercent(45.25, 1)).toBe("%45,3");
+  });
+
+  it("writes German and French decimals and percents", () => {
+    use("de");
+    expect(formatBytes(5.25 * 1024 ** 3)).toBe("5,3 GiB");
+    expect(plain(formatPercent(50))).toBe("50 %");
+    expect(formatBytes(1023)).toBe("1023 B");
+    use("fr");
+    expect(formatBytes(1536)).toBe("1,5 KiB");
+    expect(plain(formatPercent(7))).toBe("7 %");
+  });
+});
+
+describe("decimal fields", () => {
+  afterEach(() => activate("en", CATALOGS.en));
+
+  it("accepts a dot or a comma", () => {
+    expect(parseDecimal("1.5")).toBe(1.5);
+    expect(parseDecimal(" 1,5 ")).toBe(1.5);
+    expect(parseDecimal("12")).toBe(12);
+    expect(parseDecimal("1,5,0")).toBeNaN();
+    expect(parseDecimal("1.000,5")).toBeNaN();
+    expect(parseDecimal("-1")).toBeNaN();
+    expect(parseDecimal("")).toBeNaN();
+  });
+
+  it("shows a stored value with the language's decimal sign", () => {
+    expect(decimalField(1.5)).toBe("1.5");
+    activate("tr", CATALOGS.tr);
+    expect(decimalField(1.5)).toBe("1,5");
+    expect(decimalField(512)).toBe("512");
   });
 });

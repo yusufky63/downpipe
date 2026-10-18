@@ -606,6 +606,11 @@ pub struct TaskStatus {
     pub speed: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The failure's stable kind (`not_found`, `network`, ...), so the
+    /// extension can word it in the browser's language; `error` stays the
+    /// app's English text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<String>,
     /// Sent with `true` only, next to `state: "paused"`, while the app holds
     /// the download for the user to confirm its name, folder and queue.
     ///
@@ -1111,6 +1116,7 @@ mod tests {
             total: None,
             speed: 5,
             error: None,
+            error_kind: None,
             awaiting_confirmation: false,
         };
         let held = TaskStatus {
@@ -1121,10 +1127,22 @@ mod tests {
             total: None,
             speed: 0,
             error: None,
+            error_kind: None,
             awaiting_confirmation: true,
         };
+        let failed = TaskStatus {
+            task_id: "v".into(),
+            state: "failed".into(),
+            file_name: None,
+            downloaded: 0,
+            total: None,
+            speed: 0,
+            error: Some("the file was not found on the server (HTTP 404)".into()),
+            error_kind: Some("not_found".into()),
+            awaiting_confirmation: false,
+        };
         let body = ResponseBody::Tasks {
-            tasks: vec![running, held],
+            tasks: vec![running, held, failed],
         };
         let response = Response::new(Some("q".into()), body);
         let value = serde_json::to_value(&response).unwrap();
@@ -1132,7 +1150,9 @@ mod tests {
             value,
             json!({"protocol_version": 1, "id": "q", "type": "tasks", "tasks": [
                 {"task_id": "t", "state": "downloading", "file_name": "a.zip", "downloaded": 10, "speed": 5},
-                {"task_id": "u", "state": "paused", "downloaded": 0, "speed": 0, "awaiting_confirmation": true}
+                {"task_id": "u", "state": "paused", "downloaded": 0, "speed": 0, "awaiting_confirmation": true},
+                {"task_id": "v", "state": "failed", "downloaded": 0, "speed": 0,
+                 "error": "the file was not found on the server (HTTP 404)", "error_kind": "not_found"}
             ]})
         );
         assert_eq!(serde_json::from_value::<Response>(value).unwrap(), response);

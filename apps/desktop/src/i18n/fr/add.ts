@@ -68,9 +68,31 @@ export const add: Messages["add"] = {
     hint: "Facultatif, par ex. sha256:9f86d0… Le fichier ne prend son nom définitif que s'il correspond.",
     videoHint: "Uniquement pour les fichiers : yt-dlp assemble le fichier d'une vidéo à partir des formats du site.",
   },
+  /** Sent with every request, kept in memory only. */
+  headers: {
+    label: "En-têtes de la requête",
+    hint: "Facultatif. Un par ligne, sous la forme Nom : valeur. Envoyés avec chaque requête et gardés en mémoire seulement, jamais enregistrés.",
+  },
+  /** "Paste as cURL": a command from the browser's developer tools. */
+  curl: {
+    button: "Coller comme cURL",
+    label: "Commande cURL",
+    hint: "Dans les outils de développement du navigateur : Réseau, clic droit sur la requête, Copier en tant que cURL. Seules les requêtes GET peuvent être téléchargées.",
+    apply: "Remplir",
+    filled: "Rempli à partir de la commande : le lien et ses en-têtes.",
+    ignored: "Laissé de côté : {list}.",
+    notCurl: "Ce n'est pas une commande cURL. Elle doit commencer par curl.",
+    quote: "Un guillemet de la commande n'est jamais fermé. Copiez de nouveau la commande entière.",
+    noUrl: "La commande ne contient aucun lien http ou https.",
+    method: "Cette requête utilise {method}. Downpipe télécharge uniquement en GET et ne peut donc pas la répéter.",
+    data: "Cette requête envoie des données ({option}), ce qui en fait un POST. Downpipe télécharge uniquement en GET.",
+  },
   errors: {
     listTooLarge: "Ce fichier est trop volumineux pour une liste de liens.",
     noLinks: "Collez au moins un lien http, https ou magnet.",
     forLink: "{url} : {error}",
+    headerFormat: "Ligne {line} : écrivez-le sous la forme Nom : valeur.",
+    headerName: "Ligne {line} : {name} n'est pas un nom d'en-tête valide.",
+    headerManaged: "Ligne {line} : Downpipe définit {name} lui-même.",
   },
 };

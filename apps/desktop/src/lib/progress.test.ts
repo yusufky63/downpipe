@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { progressEyebrow, progressId, progressPhase, resumeText, sizeText, speedText, statusText, windowTitle } from "./progress";
+import { limitText, progressEyebrow, progressId, progressPhase, resumeText, sizeText, speedText, statusText, windowTitle } from "./progress";
 import { makeTask as task } from "./testing";
 
 const MIB = 1024 * 1024;
@@ -63,6 +63,15 @@ describe("progress window", () => {
     expect(windowTitle({ ...running, state: "paused" })).toBe("Paused · report.pdf - Downpipe");
     expect(windowTitle({ ...running, state: "completed" })).toBe("Done · report.pdf - Downpipe");
     expect(windowTitle(null)).toBe("Removed - Downpipe");
+  });
+
+  it("shows the download's own limit and when a pause ends", () => {
+    expect(limitText(running)).toBeNull();
+    expect(limitText({ ...running, speed_limit: 512 * 1024 })).toBe("512.0 KiB/s");
+    expect(limitText({ ...running, state: "completed", speed_limit: 512 * 1024 })).toBeNull();
+    const at = Math.floor(Date.now() / 1000) + 3600;
+    expect(statusText(task("b", { state: "paused", resume_at: at }))).toMatch(/^Paused until /);
+    expect(statusText(task("b", { state: "paused" }))).toBe("Paused");
   });
 });
 

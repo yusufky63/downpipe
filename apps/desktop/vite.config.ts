@@ -18,11 +18,13 @@ export default defineConfig({
     target: "es2022",
     sourcemap: false,
     rolldownOptions: {
-      // The main window, and the confirmation window that asks about
-      // downloads from the browser (src-tauri/src/confirm.rs).
+      // The main window, the confirmation window that asks about
+      // downloads from the browser (src-tauri/src/confirm.rs), and the
+      // remote control's page for phones (crates/remote serves it).
       input: {
         main: "index.html",
         confirm: "confirm.html",
+        remote: "remote.html",
       },
     },
   },

@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -69,6 +70,43 @@ impl RateLimiter {
     }
 }
 
+/// The buckets one download draws from: the engine's (the global limit),
+/// its own when it has a speed limit, and its site's when a site rule sets
+/// one. A download then runs at whichever limit is lowest.
+#[derive(Debug, Clone)]
+pub(crate) struct Limits {
+    global: Arc<RateLimiter>,
+    own: Option<Arc<RateLimiter>>,
+    site: Option<Arc<RateLimiter>>,
+}
+
+impl Limits {
+    pub(crate) fn new(global: Arc<RateLimiter>, own: Option<Arc<RateLimiter>>) -> Self {
+        Self {
+            global,
+            own,
+            site: None,
+        }
+    }
+
+    pub(crate) fn with_site(mut self, site: Option<Arc<RateLimiter>>) -> Self {
+        self.site = site;
+        self
+    }
+
+    pub(crate) async fn acquire(&self, bytes: usize) {
+        // Narrowest bucket first: while this download sleeps off its own
+        // debt the shared buckets refill for the others instead of being held.
+        if let Some(own) = &self.own {
+            own.acquire(bytes).await;
+        }
+        if let Some(site) = &self.site {
+            site.acquire(bytes).await;
+        }
+        self.global.acquire(bytes).await;
+    }
+}
+
 /// Parse `500K`, `2M`, `1.5MB`, `800kb`, `1048576` into bytes per second.
 pub fn parse_rate(input: &str) -> Option<u64> {
     let s = input.trim().to_ascii_lowercase();
@@ -119,6 +157,49 @@ mod tests {
         assert!(wait > Duration::from_millis(400) && wait <= Duration::from_millis(500));
         limiter.set_rate(0);
         assert_eq!(limiter.debit(1 << 30), None);
+    }
+
+    #[tokio::test]
+    async fn own_limit_applies_under_a_faster_global_one() {
+        let limits = Limits::new(
+            Arc::new(RateLimiter::new(10 * 1024 * 1024)),
+            Some(Arc::new(RateLimiter::new(100 * 1024))),
+        );
+        let start = Instant::now();
+        for _ in 0..10 {
+            limits.acquire(10 * 1024).await;
+        }
+        // 100 KiB at the download's own 100 KiB/s: about a second, although
+        // the global limit would allow it in a hundredth of that.
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(850), "{elapsed:?}");
+    }
+
+    #[tokio::test]
+    async fn global_limit_applies_under_a_faster_own_one() {
+        let limits = Limits::new(
+            Arc::new(RateLimiter::new(100 * 1024)),
+            Some(Arc::new(RateLimiter::new(10 * 1024 * 1024))),
+        );
+        let start = Instant::now();
+        for _ in 0..10 {
+            limits.acquire(10 * 1024).await;
+        }
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(850), "{elapsed:?}");
+    }
+
+    #[tokio::test]
+    async fn a_site_limit_applies_under_faster_other_ones() {
+        let fast = || Some(Arc::new(RateLimiter::new(10 * 1024 * 1024)));
+        let limits = Limits::new(Arc::new(RateLimiter::new(10 * 1024 * 1024)), fast())
+            .with_site(Some(Arc::new(RateLimiter::new(100 * 1024))));
+        let start = Instant::now();
+        for _ in 0..10 {
+            limits.acquire(10 * 1024).await;
+        }
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(850), "{elapsed:?}");
     }
 
     #[tokio::test]

@@ -19,12 +19,13 @@ use url::Url;
 use crate::checksum::{self, Checksum};
 use crate::config::{DownloadRequest, EngineConfig};
 use crate::error::status_error;
+use crate::hosts;
 use crate::http::{self, ResourceInfo, header_str};
 use crate::media::resolve::{self, Fetcher};
 use crate::media::{MediaKind, MediaOptions};
 use crate::meta::{self, META_VERSION, ResumeMeta};
 use crate::progress::{Phase, Progress, SpeedMeter, WaitReason};
-use crate::ratelimit::RateLimiter;
+use crate::ratelimit::{Limits, RateLimiter};
 use crate::segments::{Assignment, SegmentId, SegmentMap};
 use crate::worker::{self, Buffer, Shared, WorkerCtx, WorkerEnd};
 use crate::writer::PartFile;
@@ -56,8 +57,9 @@ pub(crate) struct Inner {
     pub(crate) limiter: Arc<RateLimiter>,
     /// Connections a host accepted when it refused more (`host:port` to
     /// count), so later downloads from it start there instead of tripping
-    /// the limit again. Lives as long as the engine: a session.
-    hosts: Mutex<HashMap<String, usize>>,
+    /// the limit again. Shared with the engines [`Engine::derive`] builds
+    /// and kept for the session.
+    hosts: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 impl Inner {
@@ -217,21 +219,54 @@ impl Engine {
         config: EngineConfig,
         limiter: Arc<RateLimiter>,
     ) -> Result<Self, DownloadError> {
+        Self::build(config, limiter, Arc::default())
+    }
+
+    fn build(
+        config: EngineConfig,
+        limiter: Arc<RateLimiter>,
+        hosts: Arc<Mutex<HashMap<String, usize>>>,
+    ) -> Result<Self, DownloadError> {
         let client = http::build_client(&config)?;
         Ok(Self {
             inner: Arc::new(Inner {
                 client,
                 config,
                 limiter,
-                hosts: Mutex::new(HashMap::new()),
+                hosts,
             }),
         })
+    }
+
+    /// An engine with another configuration (a proxy or user agent) that
+    /// shares this one's speed limiter and what it learned about hosts, so
+    /// a host that refused extra connections is not tried again through a
+    /// new connection pool.
+    pub fn derive(&self, config: EngineConfig) -> Result<Self, DownloadError> {
+        Self::build(config, self.inner.limiter.clone(), self.inner.hosts.clone())
     }
 
     /// Connections the host of `url` accepted when it refused more during
     /// this session; downloads from it never open more than this.
     pub fn connection_limit(&self, url: &str) -> Option<usize> {
         self.inner.host_limit(&http::parse_url(url).ok()?)
+    }
+
+    /// Every host that refused extra connections this session, as
+    /// `(host, port, connections)`, sorted by host.
+    pub fn connection_limits(&self) -> Vec<(String, u16, usize)> {
+        let mut out: Vec<(String, u16, usize)> = self
+            .inner
+            .hosts
+            .lock()
+            .iter()
+            .filter_map(|(key, &n)| {
+                let (host, port) = key.rsplit_once(':')?;
+                Some((host.to_string(), port.parse().ok()?, n))
+            })
+            .collect();
+        out.sort();
+        out
     }
 
     pub fn config(&self) -> &EngineConfig {
@@ -368,6 +403,9 @@ struct Job {
     max_connections: usize,
     /// Final path of the session in progress, for cleanup.
     current: Option<PathBuf>,
+    /// The link the resume data is filed under: the one the user gave, also
+    /// when a file host's share link is downloaded from another address.
+    key: String,
 }
 
 impl Job {
@@ -388,12 +426,27 @@ impl Job {
             tx,
             max_connections,
             current: None,
+            key: String::new(),
         }
     }
 
+    fn limits(&self) -> Limits {
+        Limits::new(self.inner.limiter.clone(), self.req.limiter.clone())
+            .with_site(self.req.site_limiter.clone())
+    }
+
     async fn run(mut self) -> Result<Outcome, DownloadError> {
-        let url = http::parse_url(&self.req.url)?;
+        let given = http::parse_url(&self.req.url)?;
         let headers = http::build_headers(&self.req.headers)?;
+        self.key = http::redact_url(&given);
+        // Asked on every start: a host's confirmation token expires.
+        // Stopped meanwhile: go on with the link as given, so the usual
+        // paths below see the stop and keep or delete the partial data.
+        let url = tokio::select! {
+            biased;
+            r = hosts::resolve(&self.inner.client, &given, &headers) => r?,
+            _ = self.control.stop.cancelled() => given.clone(),
+        };
         let dir = self.req.output_dir.clone();
         blocking(move || std::fs::create_dir_all(&dir)).await?;
 
@@ -416,7 +469,7 @@ impl Job {
 
     async fn attempt(&mut self, url: &Url, headers: &HeaderMap) -> Result<Outcome, DownloadError> {
         let mut session = None;
-        if let Some((final_path, meta)) = self.find_resume(url).await {
+        if let Some((final_path, meta)) = self.find_resume().await {
             match self.open_resume(url, headers, final_path, meta).await? {
                 Opened::Ready(s) => session = Some(s),
                 // A refreshed link must lead to the same file; starting over
@@ -476,8 +529,8 @@ impl Job {
 
     // ---------------------------------------------------------------- open
 
-    async fn find_resume(&self, url: &Url) -> Option<(PathBuf, ResumeMeta)> {
-        let key = http::redact_url(url);
+    async fn find_resume(&self) -> Option<(PathBuf, ResumeMeta)> {
+        let key = self.key.clone();
         let dir = self.req.output_dir.clone();
         let wanted = self.req.file_name.as_deref().map(filename::sanitize);
         let relink = self.req.relink;
@@ -588,7 +641,7 @@ impl Job {
                 let now = meta::unix_now();
                 let meta = ResumeMeta {
                     version: META_VERSION,
-                    url: http::redact_url(url),
+                    url: self.key.clone(),
                     final_url: info.final_url.clone(),
                     file_name: file_name_of(&final_path),
                     total_size: total,
@@ -759,7 +812,7 @@ impl Job {
         if self.req.relink {
             // Proven to be the same file: from now on the resume data belongs
             // to the new link, so later resumes need no special handling.
-            meta.url = http::redact_url(url);
+            meta.url = self.key.clone();
             meta.final_url = http::redact_url(&work_url);
             meta.touch();
             let path = meta::meta_path(&final_path);
@@ -794,7 +847,7 @@ impl Job {
         F: Fn() -> RequestBuilder,
     {
         let cfg = &self.inner.config;
-        let attempts = (cfg.max_retries + 1).min(MAX_INITIAL_ATTEMPTS);
+        let attempts = (self.req.retries(cfg) + 1).min(MAX_INITIAL_ATTEMPTS);
         let budget = retry::Budget::new(attempts - 1, cfg.offline_grace);
         let mut failures = 0;
         loop {
@@ -877,7 +930,7 @@ impl Job {
             headers: headers.clone(),
             total: session.total.unwrap_or(0),
             etag: session.etag.clone(),
-            limiter: self.inner.limiter.clone(),
+            limits: self.limits(),
             buffer_size: cfg.buffer_size,
             stall_timeout: cfg.stall_timeout,
             response_timeout: cfg.response_timeout,
@@ -897,7 +950,8 @@ impl Job {
         let mut workers = WorkerSet::new();
         let mut target = cfg.initial_connections.clamp(1, max);
         let mut ramp = Ramp::new(cfg.ramp_window, cfg.ramp_gain);
-        let mut budget = retry::Budget::new(cfg.max_retries, cfg.offline_grace);
+        let max_retries = self.req.retries(cfg);
+        let mut budget = retry::Budget::new(max_retries, cfg.offline_grace);
         // (due, segment, failed on the network): network retries are pulled
         // forward as soon as bytes flow again.
         let mut retries: Vec<(Instant, SegmentId, bool)> = Vec::new();
@@ -1000,7 +1054,7 @@ impl Job {
                     // that really expired runs out of retries and fails.
                     let lingering = limited && matches!(err, DownloadError::Forbidden);
                     let allowed = if lingering {
-                        failures <= cfg.max_retries
+                        failures <= max_retries
                     } else {
                         budget.allows(&err, failures, now)
                     };
@@ -1161,7 +1215,7 @@ impl Job {
                 }
             };
             match self.stream_body(session, resp).await {
-                Err(err) if err.is_retryable() && attempt < cfg.max_retries => {
+                Err(err) if err.is_retryable() && attempt < self.req.retries(cfg) => {
                     let delay = retry::backoff(attempt, cfg.retry_base_delay, cfg.retry_max_delay);
                     attempt += 1;
                     tracing::debug!(attempt, ?delay, "stream failed, restarting: {err}");
@@ -1188,6 +1242,7 @@ impl Job {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let no_data_after = no_data_after(cfg.stall_timeout);
         let mut last_bytes = (Instant::now(), 0u64);
+        let limits = self.limits();
         self.tx.send_modify(|p| {
             p.phase = Phase::Downloading;
             p.waiting = None;
@@ -1236,7 +1291,7 @@ impl Job {
                         }
                         Ok(Some(Ok(chunk))) => chunk,
                     };
-                    self.inner.limiter.acquire(chunk.len()).await;
+                    limits.acquire(chunk.len()).await;
                     // Never write past an announced size.
                     let take = total.map_or(chunk.len() as u64, |t| (t - received).min(chunk.len() as u64));
                     buf.push(received, &chunk[..take as usize]);

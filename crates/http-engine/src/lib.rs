@@ -25,6 +25,7 @@ mod config;
 mod engine;
 mod error;
 pub mod filename;
+pub mod hosts;
 mod http;
 pub mod media;
 pub mod meta;

@@ -27,9 +27,9 @@ export const list: Messages["list"] = {
     more: "Plus",
     clear: "Effacer la sélection",
   },
-  failure: {
-    expiredLink: "Le lien a expiré : le serveur a envoyé une page web au lieu du fichier. Utilisez un nouveau lien ; la partie téléchargée est conservée.",
-    loginRequired: "Le serveur demande de vous connecter. Connectez-vous dans le navigateur, puis utilisez un nouveau lien ; la partie téléchargée est conservée.",
+  /** "Pause until…": when a paused download goes on by itself. */
+  until: {
+    resumesAt: "Reprise : {time}",
   },
   menu: {
     label: "Actions du téléchargement",
@@ -58,6 +58,12 @@ export const list: Messages["list"] = {
       many: "Supprimer {count} téléchargements…",
       other: "Supprimer {count} téléchargements…",
     },
+    speedLimit: "Limite de vitesse…",
+    pauseUntil: "Suspendre jusqu'à",
+    until30m: "30 minutes",
+    until1h: "1 heure",
+    untilTonight: "Cette nuit à {time}",
+    untilCustom: "Choisir une heure…",
   },
 };
 

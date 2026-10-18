@@ -105,6 +105,8 @@ pub(crate) fn build_client(config: &EngineConfig) -> Result<Client, DownloadErro
         let proxy = reqwest::Proxy::all(proxy)
             .map_err(|_| DownloadError::InvalidUrl("proxy URL is not valid".into()))?;
         builder = builder.proxy(proxy);
+    } else if config.no_proxy {
+        builder = builder.no_proxy();
     }
     builder.build().map_err(|e| DownloadError::from_reqwest(&e))
 }

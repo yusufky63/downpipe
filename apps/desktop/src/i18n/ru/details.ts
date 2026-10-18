@@ -43,9 +43,12 @@ export const details: Messages["details"] = {
       other: "{done} из {count} фрагмента",
     },
     queue: "Очередь",
+    siteRule: "Правило сайта",
     checksum: "Контрольная сумма",
     added: "Добавлено",
     finished: "Завершено",
+    speedLimit: "Ограничение скорости",
+    resumes: "Продолжится",
   },
   relink: {
     button: "Указать новую ссылку…",
@@ -55,4 +58,12 @@ export const details: Messages["details"] = {
   },
   copy: "Копировать",
   copied: "Скопировано",
+  /** The download's own speed limit, set in place. */
+  speedLimit: {
+    none: "Только общее ограничение",
+    change: "Изменить",
+    set: "Установить",
+    remove: "Снять",
+    label: "Ограничение скорости этой загрузки",
+  },
 };

@@ -28,7 +28,7 @@ use crate::config::DownloadRequest;
 use crate::engine::{Control, Inner, Outcome};
 use crate::error::status_error;
 use crate::progress::{MediaProgress, Phase, Progress, SpeedMeter, WaitReason};
-use crate::ratelimit::RateLimiter;
+use crate::ratelimit::Limits;
 use crate::segments::SegmentView;
 use crate::{DownloadError, blocking, filename, http, retry};
 
@@ -164,7 +164,8 @@ impl MediaJob {
         let ctx = Arc::new(FragCtx {
             client: self.inner.client.clone(),
             headers,
-            limiter: self.inner.limiter.clone(),
+            limits: Limits::new(self.inner.limiter.clone(), self.req.limiter.clone())
+                .with_site(self.req.site_limiter.clone()),
             stall_timeout: self.inner.config.stall_timeout,
             response_timeout: self.inner.config.response_timeout,
             buffer_size: self.inner.config.buffer_size,
@@ -334,7 +335,7 @@ impl MediaJob {
         let mut failures = vec![0u32; total_count];
         let mut retries: Vec<(Instant, usize, bool)> = Vec::new();
         let mut hold_until: Option<Instant> = None;
-        let mut budget = retry::Budget::new(cfg.max_retries, cfg.offline_grace);
+        let mut budget = retry::Budget::new(self.req.retries(cfg), cfg.offline_grace);
         // The latest failure and when it happened: what a waiting download
         // shows, unless nothing failed since the bytes stopped.
         let mut last_failure = (Instant::now(), WaitReason::Network);
@@ -857,7 +858,7 @@ fn extension_of(path: &Path) -> String {
 struct FragCtx {
     client: Client,
     headers: HeaderMap,
-    limiter: Arc<RateLimiter>,
+    limits: Limits,
     stall_timeout: Duration,
     response_timeout: Duration,
     buffer_size: usize,
@@ -1041,7 +1042,7 @@ async fn stream_fragment(
             Ok(Some(Err(e))) => return Err(DownloadError::from_reqwest(&e)),
             Ok(Some(Ok(chunk))) => chunk,
         };
-        ctx.limiter.acquire(chunk.len()).await;
+        ctx.limits.acquire(chunk.len()).await;
         let mut bytes = &chunk[..];
         if skip > 0 {
             let n = skip.min(bytes.len() as u64) as usize;

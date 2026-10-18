@@ -41,9 +41,13 @@ export const details = {
     bestQuality: "Best quality",
     fragments: { one: "{done} of {count} fragments", other: "{done} of {count} fragments" },
     queue: "Queue",
+    /** The site rule a download got; its pattern follows. */
+    siteRule: "Site rule",
     checksum: "Checksum",
     added: "Added",
     finished: "Finished",
+    speedLimit: "Speed limit",
+    resumes: "Resumes",
   },
   /** Swapping an expired link for a fresh one. */
   relink: {
@@ -54,4 +58,12 @@ export const details = {
   },
   copy: "Copy",
   copied: "Copied",
+  /** The download's own speed limit, set in place. */
+  speedLimit: {
+    none: "Global limit only",
+    change: "Change",
+    set: "Set",
+    remove: "Remove",
+    label: "Speed limit for this download",
+  },
 };

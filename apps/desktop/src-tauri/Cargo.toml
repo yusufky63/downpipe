@@ -17,6 +17,7 @@ tauri-build = { version = "2.7.3", features = [] }
 # BitTorrent ships in the app (see crates/core, feature `torrent`).
 downpipe-core = { workspace = true, features = ["torrent"] }
 downpipe-native-host.workspace = true
+downpipe-remote.workspace = true
 parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -32,6 +33,7 @@ tauri-plugin-opener = "2.7.2"
 tauri-plugin-single-instance = "2.5.4"
 sys-locale = "0.3.2"
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
