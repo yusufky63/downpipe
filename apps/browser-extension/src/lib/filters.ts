@@ -3,6 +3,7 @@
 // functions, shared by the service worker (matching) and the options page
 // (parsing what the user typed).
 import { t } from "../i18n";
+import { formatDecimal } from "./format";
 import { baseName, webUrl } from "./url";
 
 export interface CaptureFilters {
@@ -203,21 +204,25 @@ export type SizeUnit = keyof typeof SIZE_UNITS;
 
 export type SizeParse = { ok: true; bytes: number } | { ok: false; error: string };
 
-/** The options page's minimum size: empty or 0 is off; decimals are fine. */
+/**
+ * The options page's minimum size: empty or 0 is off; decimals are fine,
+ * with a dot or a comma, as either is what someone's keyboard and habit give.
+ */
 export function parseMinSize(text: string, unit: SizeUnit): SizeParse {
   const value = text.trim();
   if (!value) return { ok: true, bytes: 0 };
-  if (!/^\d+(?:\.\d+)?$/.test(value)) return { ok: false, error: t("options.errors.sizeNotNumber") };
-  const bytes = Math.round(Number(value) * SIZE_UNITS[unit]);
+  if (!/^\d+(?:[.,]\d+)?$/.test(value)) return { ok: false, error: t("options.errors.sizeNotNumber") };
+  const bytes = Math.round(Number(value.replace(",", ".")) * SIZE_UNITS[unit]);
   if (bytes > MAX_MIN_SIZE_BYTES) return { ok: false, error: t("options.errors.sizeTooBig") };
   return { ok: true, bytes };
 }
 
-/** The stored size as the options page shows it. */
+/** The stored size as the options page shows it, with the language's decimal sign. */
 export function sizeFields(bytes: number): { value: string; unit: SizeUnit } {
   if (bytes <= 0) return { value: "0", unit: "MiB" };
   const unit: SizeUnit = bytes >= SIZE_UNITS.MiB ? "MiB" : "KiB";
-  return { value: String(Number((bytes / SIZE_UNITS[unit]).toFixed(2))), unit };
+  const sign = formatDecimal(1.5, 1).replace(/\d/g, "");
+  return { value: String(Number((bytes / SIZE_UNITS[unit]).toFixed(2))).replace(".", sign), unit };
 }
 
 /**

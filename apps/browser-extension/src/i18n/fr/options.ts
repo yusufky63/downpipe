@@ -30,6 +30,10 @@ export const options: Messages["options"] = {
     "Utilisé lorsque Médias sur cette page est activé dans la fenêtre de la barre d'outils. Les flux HLS et DASH sont toujours listés ; les sites exclus ci-dessus s'appliquent aussi ici.",
   overlay: "Afficher un bouton Télécharger sur les vidéos",
   overlayDetail: "Sur une vidéo en cours de lecture, pendant quelques secondes et tant que le pointeur la survole.",
+  overlayHover: "L'afficher seulement quand le pointeur est sur la vidéo",
+  overlayHoverDetail: "Sinon, il apparaît aussi quelques secondes au démarrage d'une vidéo.",
+  overlaySitesLabel: "Sites sans le bouton",
+  overlaySitesHelp: "Un site par ligne, comme pour les sites exclus. Masquer sur ce site, dans le menu du bouton, ajoute le site ici. Les médias lus sur ces sites restent listés dans la fenêtre de l'extension.",
   mediaTypesLabel: "Lister les fichiers multimédias de ces types",
   mediaTypesHelp:
     "Extensions séparées par des espaces ou des virgules. Un fichier sans extension est jugé d'après le type envoyé par le serveur. Une liste vide ne liste que les flux.",
@@ -57,7 +61,7 @@ export const options: Messages["options"] = {
       other: "Indiquez au plus {count} sites.",
     },
     // The field only accepts a dot as the decimal mark, so "1.5" stays as written.
-    sizeNotNumber: "Saisissez un nombre comme 2 ou 1.5, ou 0 pour désactiver cette option.",
+    sizeNotNumber: "Saisissez un nombre comme 2 ou 1,5, ou 0 pour désactiver cette option.",
     sizeTooBig: "Saisissez une taille inférieure à 1 TiB.",
     noTypes: "Ajoutez au moins un type de fichier, ou activez Capturer tous les types de fichiers.",
   },

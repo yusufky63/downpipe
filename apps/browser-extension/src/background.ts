@@ -3,9 +3,10 @@
 // worker for any of them.
 import { activateBrowserLanguage, t } from "./i18n";
 import { ext } from "./lib/browser";
-import { decideCapture, linkFields, type DownloadItemLike } from "./lib/capture";
+import { linkFields } from "./lib/capture";
 import { collectPageLinks } from "./lib/collect";
-import { hostOf, matchingSite, withSite } from "./lib/filters";
+import { hostOf, matchingSite, normalizeSitePattern, withSite } from "./lib/filters";
+import { captureHeld, captureStarted, claimIn, parseOffered, type HandoffDeps } from "./lib/handoff";
 import { callHost } from "./lib/host";
 import {
   MAX_PAGE_LINKS,
@@ -44,6 +45,7 @@ import {
 import {
   PAGE_ITEM_ID,
   addActivity,
+  isPlace,
   parseActivity,
   parseOverlayRequest,
   parsePopupRequest,
@@ -53,6 +55,7 @@ import {
   type LinkResult,
   type MediaReply,
   type OverlayItem,
+  type OverlayPrefs,
   type OverlayRequest,
   type PageItem,
   type PingReply,
@@ -64,7 +67,6 @@ import {
 import { notificationFor } from "./lib/notify";
 import {
   downloadMessage,
-  fileNameHint,
   mediaMessage,
   newMessageId,
   pageMessage,
@@ -78,7 +80,6 @@ import {
   bridgeDown,
   bridgeStatus,
   downloadOutcome,
-  keptMessage,
   pageOutcome,
   streamOutcome,
   type HandOver,
@@ -102,6 +103,12 @@ const WEB_PAGES = ["http://*/*", "https://*/*"];
 const LINK_TIMEOUT_MS = 10_000;
 /** A captured download waits for this answer, so it is kept short. */
 const CAPTURE_TIMEOUT_MS = 5_000;
+/**
+ * A later answer is still acted on: the host waits 10 seconds for the app,
+ * so an acceptance can arrive after the browser went on with its copy.
+ */
+const CAPTURE_LATE_MS = 15_000;
+const OFFERED_KEY = "offeredDownloads";
 const STATUS_TIMEOUT_MS = 5_000;
 const DOWNLOADS_PERMISSION: chrome.permissions.Permissions = { permissions: ["downloads"] };
 const ACTIVITY_KEY = "activity";
@@ -325,26 +332,34 @@ async function sendPageLink(url: string, pageUrl: string | undefined): Promise<L
 // On only while the optional `downloads` permission is granted; the popup's
 // toggle requests or removes it.
 
-/** True when Downpipe took the download and the browser should drop it. */
-async function handOff(item: DownloadItemLike): Promise<boolean> {
-  const decision = decideCapture(item, ext.runtime.id, await settings());
-  if (!decision.capture) return false;
-  const message = downloadMessage(decision.fields, newMessageId());
-  if (!message) return false;
-  const label = fileNameHint(item.filename) ?? linkLabel(item.url);
-  const result = await callHost(sendNative, message, CAPTURE_TIMEOUT_MS);
-  const { outcome, message: text, fileName, taskId, awaitingConfirmation } = downloadOutcome(result);
-  if (outcome === "failed") {
-    await report({ source: "capture", label, outcome: "kept", message: keptMessage(result) });
-    return false;
-  }
-  await report({ source: "capture", label: fileName ?? label, outcome, message: text, taskId, awaitingConfirmation });
-  return true;
+// Offered ids, chained like the settings so two events cannot both claim one.
+let offeredWrites: Promise<unknown> = Promise.resolve();
+
+function claimDownload(id: number): Promise<boolean> {
+  const next = offeredWrites.then(async () => {
+    const stored = await ext.storage.session.get(OFFERED_KEY);
+    const list = claimIn(parseOffered(stored[OFFERED_KEY]), id);
+    if (!list) return false;
+    await ext.storage.session.set({ [OFFERED_KEY]: list });
+    return true;
+  });
+  offeredWrites = next.catch(() => undefined);
+  return next;
 }
 
-async function removeFromBrowser(id: number): Promise<void> {
-  await ext.downloads.cancel(id).catch(() => undefined);
-  await ext.downloads.erase({ id }).catch(() => undefined);
+function handoffDeps(): HandoffDeps {
+  return {
+    downloads: ext.downloads,
+    extensionId: ext.runtime.id,
+    filters: settings,
+    // The race with the browser's patience is lib/handoff.ts's; this only
+    // bounds a bridge that never answers at all.
+    send: (message) => callHost(sendNative, message, CAPTURE_TIMEOUT_MS + CAPTURE_LATE_MS),
+    report: (entry) => report(entry),
+    claim: claimDownload,
+    answerMs: CAPTURE_TIMEOUT_MS,
+    lateMs: CAPTURE_LATE_MS,
+  };
 }
 
 // Chrome and Edge: the browser has the server's file name, MIME type and
@@ -354,31 +369,13 @@ function onDeterminingFilename(
   item: chrome.downloads.DownloadItem,
   suggest: (suggestion?: chrome.downloads.FilenameSuggestion) => void,
 ): boolean {
-  void handOff(item)
-    .catch(() => false)
-    .then(async (handed) => {
-      if (handed) await removeFromBrowser(item.id);
-    })
-    .finally(() => {
-      try {
-        suggest();
-      } catch {
-        // Already canceled.
-      }
-    });
+  void captureHeld(item, handoffDeps(), () => suggest());
   return true;
 }
 
 // Firefox has no onDeterminingFilename: pause, ask Downpipe, then cancel or resume.
 function onCreated(item: chrome.downloads.DownloadItem): void {
-  void (async () => {
-    // Filters first, so downloads they leave to the browser are never paused.
-    if (!decideCapture(item, ext.runtime.id, await settings()).capture) return;
-    await ext.downloads.pause(item.id).catch(() => undefined);
-    const handed = await handOff(item).catch(() => false);
-    if (handed) await removeFromBrowser(item.id);
-    else await ext.downloads.resume(item.id).catch(() => undefined);
-  })();
+  void captureStarted(item, handoffDeps());
 }
 
 function startCapture(): void {
@@ -573,7 +570,9 @@ async function syncOverlay(): Promise<void> {
   const registered = await ext.scripting
     .getRegisteredContentScripts({ ids: [OVERLAY_SCRIPT_ID] })
     .catch((): chrome.scripting.RegisteredContentScript[] => []);
-  const excludeMatches = excludeMatchesFor(prefs.excludedSites);
+  // The button's own list joins the excluded sites here only: detection and
+  // capture go on there.
+  const excludeMatches = excludeMatchesFor([...new Set([...prefs.excludedSites, ...prefs.overlaySites])]);
   const current = registered[0];
   if (!enabled || !prefs.mediaOverlay) {
     if (current) await ext.scripting.unregisterContentScripts({ ids: [OVERLAY_SCRIPT_ID] }).catch(() => undefined);
@@ -705,12 +704,72 @@ function pageOverlayItem(page: PageItem): OverlayItem {
   };
 }
 
+const OVERLAY_PLACES_KEY = "overlayPlaces";
+/** Sites whose dragged button position is remembered; the oldest go first. */
+const MAX_OVERLAY_PLACES = 100;
+
+type Places = Record<string, { x: number; y: number }>;
+
+async function overlayPlaces(): Promise<Places> {
+  const stored = await ext.storage.local.get(OVERLAY_PLACES_KEY).catch((): Record<string, unknown> => ({}));
+  const value: unknown = stored[OVERLAY_PLACES_KEY];
+  if (typeof value !== "object" || value === null) return {};
+  return Object.fromEntries(Object.entries(value).filter(([, place]) => isPlace(place))) as Places;
+}
+
+let placeWrites: Promise<unknown> = Promise.resolve();
+
+function rememberPlace(host: string, place: { x: number; y: number }): Promise<void> {
+  const next = placeWrites.then(async () => {
+    // Insertion order is age order: the newest is written last.
+    const kept = Object.entries(await overlayPlaces())
+      .filter(([site]) => site !== host)
+      .slice(-(MAX_OVERLAY_PLACES - 1));
+    await ext.storage.local.set({ [OVERLAY_PLACES_KEY]: Object.fromEntries([...kept, [host, place]]) });
+  });
+  placeWrites = next.catch(() => undefined);
+  return next;
+}
+
+/**
+ * The site the button belongs to: the tab's, so a player embedded from
+ * another site is hidden with the page it is on. The tab's address needs the
+ * host permission, which detection has; the frame's is the fallback.
+ */
+function overlaySite(tabUrl: string | undefined, frameUrl: string | undefined): string | null {
+  return hostOf(tabUrl) ?? hostOf(frameUrl);
+}
+
 async function overlayAnswer(
   request: OverlayRequest,
   tabId: number,
   frameUrl: string | undefined,
-): Promise<{ items: OverlayItem[] } | LinkResult> {
+  tabUrl?: string,
+): Promise<{ items: OverlayItem[] } | LinkResult | OverlayPrefs | { ok: boolean }> {
   switch (request.kind) {
+    case "overlay_prefs": {
+      const site = overlaySite(tabUrl, frameUrl);
+      const [prefs, places] = await Promise.all([cachedSettings(), overlayPlaces()]);
+      const place = site ? places[site] : undefined;
+      return {
+        hoverOnly: prefs.overlayHoverOnly,
+        hidden: site !== null && matchingSite([site], prefs.overlaySites) !== undefined,
+        ...(place ? { place } : {}),
+      };
+    }
+    case "overlay_hide_site": {
+      const site = overlaySite(tabUrl, frameUrl);
+      const pattern = site ? normalizeSitePattern(site) : null;
+      if (!pattern) return { ok: false };
+      await changeSettings((s) => ({ ...s, overlaySites: withSite(s.overlaySites, pattern, true) }));
+      return { ok: true };
+    }
+    case "overlay_place": {
+      const site = overlaySite(tabUrl, frameUrl);
+      if (!site) return { ok: false };
+      await rememberPlace(site, { x: request.x, y: request.y });
+      return { ok: true };
+    }
     case "overlay_list": {
       // The element's own source, when it is a plain http(s) file or playlist.
       const src = request.src;
@@ -959,7 +1018,7 @@ ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (isOwnContentScript(sender, ext.runtime.id)) {
     const request = parseOverlayRequest(message);
     if (!request) return false;
-    overlayAnswer(request, sender.tab.id, frameOf({ documentUrl: sender.url })).then(sendResponse, () =>
+    overlayAnswer(request, sender.tab.id, frameOf({ documentUrl: sender.url }), sender.tab.url).then(sendResponse, () =>
       sendResponse(null),
     );
     return true;

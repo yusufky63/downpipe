@@ -7,6 +7,7 @@ import {
   DEFAULT_CAPTURE_TYPES,
   filtersFromForm,
   parseMinSize,
+  parseSiteList,
   sizeFields,
   type FormErrors,
   type SizeUnit,
@@ -36,6 +37,11 @@ const els = {
   unit: byId<HTMLSelectElement>("unit"),
   sizeErrors: byId<HTMLUListElement>("size-errors"),
   mediaOverlay: byId<HTMLInputElement>("media-overlay"),
+  overlayHover: byId<HTMLInputElement>("overlay-hover"),
+  overlayHoverRow: byId("overlay-hover-row"),
+  overlaySites: byId<HTMLTextAreaElement>("overlay-sites"),
+  overlaySitesField: byId("overlay-sites-field"),
+  overlaySitesErrors: byId<HTMLUListElement>("overlay-sites-errors"),
   mediaTypes: byId<HTMLTextAreaElement>("media-types"),
   mediaTypesDefault: byId<HTMLButtonElement>("media-types-default"),
   mediaTypesErrors: byId<HTMLUListElement>("media-types-errors"),
@@ -77,18 +83,42 @@ function paintErrors(errors: FormErrors): void {
 
 const NO_ERRORS: FormErrors = { types: [], sites: [], size: [] };
 
-function paintMediaErrors(types: readonly string[], size: readonly string[]): void {
+function paintMediaErrors(types: readonly string[], size: readonly string[], sites: readonly string[] = []): void {
+  showErrors(els.overlaySitesErrors, els.overlaySites, sites);
   showErrors(els.mediaTypesErrors, els.mediaTypes, types);
   showErrors(els.mediaSizeErrors, els.mediaSize, size);
 }
 
 /** The media card as stored, or what to say under its fields. */
-function mediaFromForm(): { ok: true; media: MediaFilters } | { ok: false; types: string[]; size: string[] } {
+function mediaFromForm():
+  | { ok: true; media: MediaFilters }
+  | { ok: false; types: string[]; size: string[]; sites: string[] } {
   const types = parseMediaTypeList(els.mediaTypes.value);
   const size = parseMinSize(els.mediaSize.value, els.mediaUnit.value as SizeUnit);
+  const sites = parseSiteList(els.overlaySites.value);
   const sizeErrors = size.ok ? (size.bytes > MAX_MEDIA_MIN_BYTES ? [t("options.errors.sizeTooBig")] : []) : [size.error];
-  if (types.errors.length || !size.ok || sizeErrors.length) return { ok: false, types: types.errors, size: sizeErrors };
-  return { ok: true, media: { mediaOverlay: els.mediaOverlay.checked, mediaTypes: types.values, mediaMinBytes: size.bytes } };
+  if (types.errors.length || !size.ok || sizeErrors.length || sites.errors.length) {
+    return { ok: false, types: types.errors, size: sizeErrors, sites: sites.errors };
+  }
+  return {
+    ok: true,
+    media: {
+      mediaOverlay: els.mediaOverlay.checked,
+      overlayHoverOnly: els.overlayHover.checked,
+      overlaySites: sites.values,
+      mediaTypes: types.values,
+      mediaMinBytes: size.bytes,
+    },
+  };
+}
+
+/** The button's own settings mean nothing while the button is off. */
+function syncOverlay(): void {
+  const off = !els.mediaOverlay.checked;
+  els.overlayHover.disabled = off;
+  els.overlaySites.disabled = off;
+  els.overlayHoverRow.dataset.off = String(off);
+  els.overlaySitesField.dataset.off = String(off);
 }
 
 function syncTypes(): void {
@@ -106,6 +136,9 @@ function fill(s: Settings): void {
   els.size.value = size.value;
   els.unit.value = size.unit;
   els.mediaOverlay.checked = s.mediaOverlay;
+  els.overlayHover.checked = s.overlayHoverOnly;
+  els.overlaySites.value = s.overlaySites.join("\n");
+  syncOverlay();
   els.mediaTypes.value = s.mediaTypes.join(" ");
   const mediaSize = sizeFields(s.mediaMinBytes);
   els.mediaSize.value = mediaSize.value;
@@ -143,7 +176,12 @@ els.sites.addEventListener("input", () => showErrors(els.sitesErrors, els.sites,
 els.size.addEventListener("input", () => showErrors(els.sizeErrors, els.size, []));
 els.mediaTypes.addEventListener("input", () => showErrors(els.mediaTypesErrors, els.mediaTypes, []));
 els.mediaSize.addEventListener("input", () => showErrors(els.mediaSizeErrors, els.mediaSize, []));
-els.mediaOverlay.addEventListener("change", edited);
+els.mediaOverlay.addEventListener("change", () => {
+  syncOverlay();
+  edited();
+});
+els.overlayHover.addEventListener("change", edited);
+els.overlaySites.addEventListener("input", () => showErrors(els.overlaySitesErrors, els.overlaySites, []));
 
 els.mediaTypesDefault.addEventListener("click", () => {
   els.mediaTypes.value = DEFAULT_MEDIA_TYPES.join(" ");
@@ -168,14 +206,14 @@ els.form.addEventListener("submit", (event) => {
   });
   const media = mediaFromForm();
   paintErrors(result.ok ? NO_ERRORS : result.errors);
-  paintMediaErrors(media.ok ? [] : media.types, media.ok ? [] : media.size);
+  paintMediaErrors(media.ok ? [] : media.types, media.ok ? [] : media.size, media.ok ? [] : media.sites);
   if (!result.ok || !media.ok) {
     setState(t("options.notSavedFix"), "danger");
     if (!result.ok) {
       const { types, sites } = result.errors;
       (types.length ? els.types : sites.length ? els.sites : els.size).focus();
     } else if (!media.ok) {
-      (media.types.length ? els.mediaTypes : els.mediaSize).focus();
+      (media.types.length ? els.mediaTypes : media.size.length ? els.mediaSize : els.overlaySites).focus();
     }
     return;
   }

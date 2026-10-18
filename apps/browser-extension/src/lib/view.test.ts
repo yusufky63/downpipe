@@ -55,6 +55,12 @@ describe("itemView", () => {
       detail: "The server refused access",
     });
     expect(itemView(sent, task({ state: "failed" })).detail).toBe("The download failed");
+    // An app that sends the kind: worded here, its English kept for the tooltip.
+    const notFound = task({ state: "failed", error: "the file was not found on the server (HTTP 404)", errorKind: "not_found" });
+    expect(itemView(sent, notFound)).toMatchObject({
+      detail: "The file was not found on the server. Check the link or use a new one.",
+      technical: "The file was not found on the server (HTTP 404)",
+    });
     expect(itemView(sent, task({ state: "paused", downloaded: 512, total: 1024 }))).toMatchObject({
       badge: "Paused",
       detail: "50% · 512 B / 1.0 KiB",

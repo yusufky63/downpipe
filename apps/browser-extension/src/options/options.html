@@ -128,6 +128,27 @@
               </span>
               <input type="checkbox" role="switch" class="switch" id="media-overlay" />
             </label>
+            <label class="switch-row" for="overlay-hover" id="overlay-hover-row">
+              <span class="switch-text">
+                <span class="row-title" data-i18n="options.overlayHover"></span>
+                <span class="row-detail" data-i18n="options.overlayHoverDetail"></span>
+              </span>
+              <input type="checkbox" role="switch" class="switch" id="overlay-hover" />
+            </label>
+            <div class="field" id="overlay-sites-field">
+              <label class="field-label" for="overlay-sites" data-i18n="options.overlaySitesLabel"></label>
+              <textarea
+                class="input"
+                id="overlay-sites"
+                rows="3"
+                spellcheck="false"
+                autocomplete="off"
+                autocapitalize="off"
+                aria-describedby="overlay-sites-help overlay-sites-errors"
+              ></textarea>
+              <p class="help" id="overlay-sites-help" data-i18n="options.overlaySitesHelp"></p>
+              <ul class="errors" id="overlay-sites-errors" aria-live="polite"></ul>
+            </div>
             <div class="field">
               <label class="field-label" for="media-types" data-i18n="options.mediaTypesLabel"></label>
               <textarea
