@@ -651,19 +651,29 @@ fn main() {
             if manager.settings().register_browser_host {
                 tauri::async_runtime::spawn_blocking(register_browser_host);
             }
-            start_browser_bridge(manager.clone());
+            app.manage(manager.clone());
             app.manage(Background::default());
             app.manage(backup::PendingImports::default());
             app.manage(confirm::ConfirmWindow::default());
             background::spawn(app.handle().clone(), manager.clone());
             clipboard::spawn(app.handle().clone(), manager.clone());
+            // After the background loop listens, so a download the browser
+            // sends at once still gets its confirmation window.
+            start_browser_bridge(manager.clone());
             if let Err(err) = tray::create(app.handle()) {
                 tracing::warn!("no tray icon: {err}");
             }
             if let Err(err) = sync_autostart(app.handle(), manager.settings().start_with_system) {
                 tracing::warn!("could not update the login item: {err}");
             }
-            app.manage(manager);
+            // The main window is built here, after the bridge is up, rather
+            // than from the config before setup runs (`create: false`):
+            // creating a web view can take seconds, longer while a previous
+            // one is still closing, and the browser extension that just
+            // started Downpipe for a download must not wait for it.
+            if let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &config.clone())?.build()?;
+            }
             // The window starts hidden (tauri.conf.json) so a login start
             // stays in the tray without a flash; normal starts show it now.
             if !std::env::args().any(|a| a == HIDDEN_ARG) {

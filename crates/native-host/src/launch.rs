@@ -21,6 +21,10 @@ pub const LAUNCH_WAIT: Duration = Duration::from_secs(10);
 /// How often the host looks for the pipe while it waits.
 pub const POLL_INTERVAL: Duration = Duration::from_millis(150);
 
+/// How long one look may take. The app answers a ping at once; a look that
+/// takes longer met it halfway through starting and is simply repeated.
+pub const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// The app's executable as the installers name it (Tauri names it after the
 /// product) and as Cargo builds it (the package name), in that order.
 pub const APP_NAMES: &[&str] = if cfg!(windows) {

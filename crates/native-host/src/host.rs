@@ -27,6 +27,13 @@ pub trait AppLink {
     fn launch_wait(&self) -> Duration {
         launch::LAUNCH_WAIT
     }
+
+    /// Is the started app answering yet? A ping with a short timeout of its
+    /// own, so one that meets the app halfway through starting cannot use up
+    /// the whole wait.
+    fn probe(&self) -> Result<AppResponse, IpcError> {
+        self.call(&AppRequest::ping())
+    }
 }
 
 /// The real link: the local pipe or socket.
@@ -49,6 +56,10 @@ impl AppLink for PipeLink {
             Some(app) => launch::start(app).map(|()| true),
             None => Ok(false),
         }
+    }
+
+    fn probe(&self) -> Result<AppResponse, IpcError> {
+        ipc::call(&self.endpoint, &AppRequest::ping(), launch::PROBE_TIMEOUT)
     }
 }
 
@@ -190,10 +201,10 @@ fn deliver(
         std::thread::sleep(launch::POLL_INTERVAL.min(link.launch_wait()));
         // A ping, not the request: the pipe can exist before the app takes
         // calls, and a ping that fails costs nothing.
-        match link.call(&AppRequest::ping()) {
+        match link.probe() {
             Ok(_) => return link.call(request),
-            Err(IpcError::NotRunning) if Instant::now() < deadline => {}
-            Err(IpcError::NotRunning) => {
+            Err(IpcError::NotRunning | IpcError::Timeout(_)) if Instant::now() < deadline => {}
+            Err(IpcError::NotRunning | IpcError::Timeout(_)) => {
                 tracing::warn!("Downpipe did not open the bridge in time");
                 return Err(IpcError::NotRunning);
             }
@@ -584,6 +595,48 @@ mod tests {
         assert!(started.elapsed() >= Duration::from_millis(400));
         assert!(started.elapsed() < Duration::from_secs(3), "bounded wait");
         assert!(app.delivered.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_probe_that_meets_the_app_halfway_is_repeated() {
+        struct Starting {
+            probes: std::cell::Cell<usize>,
+            downloads: std::cell::Cell<usize>,
+        }
+        impl AppLink for Starting {
+            fn call(&self, request: &AppRequest) -> Result<AppResponse, IpcError> {
+                if self.probes.get() < 2 {
+                    return Err(IpcError::NotRunning);
+                }
+                assert!(matches!(request.action, ipc::AppAction::Download { .. }));
+                self.downloads.set(self.downloads.get() + 1);
+                Ok(AppResponse::Accepted {
+                    task_id: "late".into(),
+                    file_name: None,
+                    awaiting_confirmation: false,
+                })
+            }
+            fn start_app(&self) -> io::Result<bool> {
+                Ok(true)
+            }
+            fn probe(&self) -> Result<AppResponse, IpcError> {
+                self.probes.set(self.probes.get() + 1);
+                match self.probes.get() {
+                    1 => Err(IpcError::Timeout(launch::PROBE_TIMEOUT)),
+                    _ => Ok(AppResponse::Pong {
+                        app_version: "1".into(),
+                        features: Vec::new(),
+                    }),
+                }
+            }
+        }
+        let app = Starting {
+            probes: Default::default(),
+            downloads: Default::default(),
+        };
+        let r = respond(DOWNLOAD, &app, None);
+        assert!(matches!(r.body, ResponseBody::Accepted { .. }), "{r:?}");
+        assert_eq!((app.probes.get(), app.downloads.get()), (2, 1));
     }
 
     #[test]

@@ -11,12 +11,13 @@
 //!   without being kept.
 //! * **IDM's own list** on Windows: one numbered key per download under
 //!   `HKEY_CURRENT_USER\Software\DownloadManager`. Only these values are
-//!   read: `Url0` (the address), `LocalFileName` (where the file is or
-//!   goes), `LocalPath` and `FileName` (folder and name when there is no
-//!   `LocalFileName`), `FileSize` and `Downloaded` (64-bit little-endian
-//!   byte counts). The keys are opened for reading only, and values such
-//!   as `Cookie`, `User`, `EncPassword`, `CstmHdrs`, `Referer` or `UA` are
-//!   never queried.
+//!   read: `Url0` (the address), `FileName` (the name IDM shows),
+//!   `LocalPath` and `LocalFileName` (IDM's working folder and file, which
+//!   give a folder only when they are outside IDM's own `DwnlData` folder,
+//!   and a name with an extension when `FileName` lacks one), `FileSize`
+//!   and `Downloaded` (64-bit little-endian byte counts). The keys are
+//!   opened for reading only, and values such as `Cookie`, `User`,
+//!   `EncPassword`, `CstmHdrs`, `Referer` or `UA` are never queried.
 
 use std::path::{Path, PathBuf};
 
@@ -205,6 +206,24 @@ impl RegValue {
     }
 }
 
+/// IDM downloads into a working folder of its own
+/// (`...\IDM\DwnlData\<user>\...`) and moves the file to its save folder
+/// once it is complete; that save folder is not kept in a value it can be
+/// read from. A path in the working folder is never a download's folder.
+fn in_work_folder(path: &Path) -> bool {
+    path.to_string_lossy()
+        .to_ascii_lowercase()
+        .replace('/', "\\")
+        .contains(r"\idm\dwnldata\")
+}
+
+/// A file name as IDM recorded it, unless it is really the tail of a link
+/// (`model.bin%22%3B&Expires=...`), which a broken server header leaves.
+fn clean_name(text: &str) -> Option<String> {
+    let name = file_name(text)?;
+    (!name.contains(['%', '&', '=', '?']) && name.chars().count() <= 200).then_some(name)
+}
+
 /// The registry values of one IDM download that [`entry_from_values`] reads.
 pub const VALUE_NAMES: [&str; 6] = [
     "Url0",
@@ -220,25 +239,34 @@ pub const VALUE_NAMES: [&str; 6] = [
 pub fn entry_from_values(get: impl Fn(&str) -> Option<RegValue>) -> Option<IdmEntry> {
     let url = web_url(get("Url0")?.text()?)?;
     let mut entry = IdmEntry::new(url);
-    let local = get("LocalFileName")
-        .and_then(|v| v.text().map(str::to_string))
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute());
-    match local {
-        Some(path) => {
-            entry.dir = path.parent().map(Path::to_path_buf);
-            entry.file_name = path
-                .file_name()
-                .and_then(|n| file_name(&n.to_string_lossy()));
-        }
-        None => {
-            entry.dir = get("LocalPath")
-                .and_then(|v| v.text().map(str::to_string))
-                .map(PathBuf::from)
-                .filter(|p| p.is_absolute());
-            entry.file_name = get("FileName").and_then(|v| v.text().and_then(file_name));
-        }
-    }
+    let path = |name: &str| {
+        get(name)
+            .and_then(|v| v.text().map(str::to_string))
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+    };
+    let local = path("LocalFileName");
+    entry.dir = path("LocalPath")
+        .or_else(|| {
+            local
+                .as_deref()
+                .and_then(Path::parent)
+                .map(Path::to_path_buf)
+        })
+        .filter(|dir| !in_work_folder(dir));
+    // The name IDM shows, unless it is the tail of a link; the working
+    // file's name when that has an extension and the shown one does not.
+    let shown = get("FileName").and_then(|v| v.text().and_then(clean_name));
+    let working = local
+        .as_deref()
+        .and_then(Path::file_name)
+        .and_then(|n| clean_name(&n.to_string_lossy()));
+    let has_extension = |n: &String| crate::settings::extension_of(n).is_some();
+    entry.file_name = [shown.clone(), working]
+        .into_iter()
+        .flatten()
+        .find(has_extension)
+        .or(shown);
     entry.size = get("FileSize").and_then(|v| v.count());
     let downloaded = get("Downloaded").and_then(|v| v.count());
     entry.finished = matches!((entry.size, downloaded), (Some(size), Some(done)) if done >= size);
@@ -493,7 +521,7 @@ mod tests {
         assert_eq!(
             entry.file_name.as_deref(),
             Some("setup (1).exe"),
-            "the saved name wins"
+            "the tail of a link is not a name"
         );
         assert_eq!(entry.size, Some(1234));
         assert!(entry.finished);
@@ -513,6 +541,39 @@ mod tests {
         assert_eq!(entry.dir.as_deref(), Some(abs("isos").as_path()));
         assert_eq!(entry.file_name.as_deref(), Some("big.iso"));
         assert!(!entry.finished);
+
+        // IDM's working folder is not where the file belongs; the name it
+        // shows wins when it has an extension.
+        let work = abs("IDM").join("DwnlData").join("me").join("big_17");
+        let entry = entry_from_values(values(&[
+            ("Url0", RegValue::Text("http://example.org/get?id=4".into())),
+            (
+                "LocalPath",
+                RegValue::Text(work.to_string_lossy().into_owned()),
+            ),
+            (
+                "LocalFileName",
+                RegValue::Text(work.join("big.iso").to_string_lossy().into_owned()),
+            ),
+            ("FileName", RegValue::Text("Big Image.iso".into())),
+        ]))
+        .unwrap();
+        assert_eq!(entry.dir, None);
+        assert_eq!(entry.file_name.as_deref(), Some("Big Image.iso"));
+        // Without an extension in the shown name, the working file's name.
+        let entry = entry_from_values(values(&[
+            ("Url0", RegValue::Text("http://example.org/get?id=4".into())),
+            (
+                "LocalFileName",
+                RegValue::Text(work.join("big.iso").to_string_lossy().into_owned()),
+            ),
+            ("FileName", RegValue::Text("big".into())),
+        ]))
+        .unwrap();
+        assert_eq!(
+            (entry.dir, entry.file_name.as_deref()),
+            (None, Some("big.iso"))
+        );
 
         // Unknown size (-1) and relative paths are dropped.
         let entry = entry_from_values(values(&[

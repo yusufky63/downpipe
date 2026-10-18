@@ -49,10 +49,12 @@ IDM's data is only read. Downpipe never writes to IDM's files or registry keys, 
 | Value | Type | Used for |
 |---|---|---|
 | `Url0` | text | The link. Entries without an `http` or `https` link are skipped. |
-| `LocalFileName` | text | Where IDM saved (or saves) the file: its folder and name. |
-| `LocalPath`, `FileName` | text | Folder and name when there is no absolute `LocalFileName`. |
+| `FileName` | text | The name IDM shows, unless it is really the tail of a link (it contains `%`, `&`, `=` or `?`, as when a server sent a broken `Content-Disposition`). |
+| `LocalPath`, `LocalFileName` | text | IDM's working folder and file. IDM downloads into its own `...\IDM\DwnlData\<user>\` folder and moves the file to its save folder when it is complete, and that save folder is not kept in a readable value; so these give the download's folder only when they lie outside `DwnlData`, and a name when `FileName` has no extension and the working file has one. |
 | `FileSize` | 8 bytes, little-endian | The size, shown in the preview and kept as the download's size. `-1` (unknown) is ignored. |
 | `Downloaded` | 8 bytes, little-endian | Whether IDM finished it (`Downloaded` reached `FileSize`). |
+
+A download without a usable folder goes to the folder its category gives in Downpipe (**Folder by category** in the preview), and one without a usable name is named by the server when it starts, as any new download is.
 
 Other values, such as `Cookie`, `User`, `EncPassword`, `CstmHdrs`, `Referer` and `UA`, and IDM's other keys (`Passwords`, `Queue`, `Scheduler`, ...), are never queried.
 
@@ -61,4 +63,4 @@ Other values, such as `Cookie`, `User`, `EncPassword`, `CstmHdrs`, `Referer` and
 - **To text file:** one link per line; lines that are not `http` or `https` links are skipped.
 - **To IDM export file (`.ef2`):** one block per download, `<`, the link, header lines, `>`. The link and a `filename:` line are read; `referer:`, `User-Agent:`, `cookie:`, `postdata:` and every other line are skipped without being kept.
 
-The preview lists every download found with its name, link, folder (or **Folder by category** for exported lists, which carry none) and size, marked **Finished in IDM** or **In Downpipe** (already in the list; it cannot be ticked). Downloads IDM has not finished start ticked; **Select all** ticks every download Downpipe does not have yet. **Add N paused** adds the ticked ones paused, through the same checks as a backup's downloads, so nothing starts until you resume it. A finished file IDM left in its folder stays untouched: resuming saves next to it under a free name.
+The preview lists every download found with its name (or the link's last part), link, folder (or **Folder by category**) and size, marked **Finished in IDM** or **In Downpipe** (already in the list; it cannot be ticked). Downloads IDM has not finished start ticked; **Select all** ticks every download Downpipe does not have yet. **Add N paused** adds the ticked ones paused, through the same checks as a backup's downloads, so nothing starts until you resume it. A finished file IDM left in its folder stays untouched: resuming saves next to it under a free name.
