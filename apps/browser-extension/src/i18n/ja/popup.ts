@@ -19,6 +19,10 @@ export const popup: Messages["popup"] = {
   pauseSiteTitle: "{host} からのダウンロードや、そのページで開始したダウンロードはブラウザーで処理されます",
   resumeSiteTitle: "{host} からのダウンロードは再び Downpipe に送られます",
   pausedBy: "{site} によりこのサイトでは一時停止中",
+  pauseCapture: "10 分間一時停止",
+  pauseCaptureTitle: "10 分間、ブラウザーのダウンロードはすべてブラウザーに任せます。1 時間止めるにはツールバーのボタンを右クリックします。",
+  resumeCapture: "取り込みを再開",
+  pausedUntil: "{time} まで一時停止中: ダウンロードはブラウザーに任せます。",
   progress: "{label} の進行状況",
   downloadItem: "{label} を Downpipe でダウンロード",
   state: {

@@ -18,6 +18,8 @@ export const confirm: Messages["confirm"] = {
   stopAskingTitle:
     "Les téléchargements venant du navigateur démarrent alors aussitôt. Vous pouvez réactiver la question dans Paramètres, Application.",
   later: "Télécharger plus tard",
+  inBrowser: "Télécharger dans le navigateur",
+  inBrowserTitle: "Le retire de Downpipe et ouvre le lien dans le navigateur, qui le télécharge avec votre session. La capture ne touche pas à ce téléchargement.",
   start: "Démarrer le téléchargement",
   url: "URL",
   name: "Nom",

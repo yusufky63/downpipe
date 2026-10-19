@@ -13,6 +13,8 @@ export const confirm: Messages["confirm"] = {
   stopAsking: "Nicht mehr fragen",
   stopAskingTitle: "Downloads aus dem Browser starten dann sofort. Unter Einstellungen, App lässt sich die Nachfrage wieder einschalten.",
   later: "Später herunterladen",
+  inBrowser: "Im Browser herunterladen",
+  inBrowserTitle: "Entfernt den Download aus Downpipe und öffnet den Link im Browser, der ihn mit Ihrer Anmeldung herunterlädt. Das Abfangen lässt diesen Download in Ruhe.",
   start: "Download starten",
   url: "URL",
   name: "Name",

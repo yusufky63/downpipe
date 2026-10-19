@@ -9,4 +9,7 @@ export const menus: Messages["menus"] = {
   pageLinks: "Загрузить ссылки на этой странице с помощью Downpipe…",
   video: "Загрузить это видео с помощью Downpipe",
   selection: "Загрузить выбранные ссылки с помощью Downpipe…",
+  pauseShort: "Приостановить перехват на 10 минут",
+  pauseLong: "Приостановить перехват на 1 час",
+  resume: "Возобновить перехват",
 };

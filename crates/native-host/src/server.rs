@@ -290,6 +290,14 @@ fn add(manager: &Manager, request: DownloadRequest, origin: Option<&str>) -> App
             "download from the browser"
         );
     }
+    // Handed back from the confirmation dialog, which opened it in the
+    // browser: this is that browser download.
+    if manager.take_browser_return(&request.resource_url) {
+        return AppResponse::error(
+            code::IN_BROWSER,
+            "You chose to download this in the browser",
+        );
+    }
     let options = AddOptions {
         url: request.resource_url,
         file_name: request.file_name,

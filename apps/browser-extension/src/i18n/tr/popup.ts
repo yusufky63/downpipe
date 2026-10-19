@@ -19,6 +19,10 @@ export const popup: Messages["popup"] = {
   pauseSiteTitle: "{host} kaynaklı ya da sayfalarında başlatılan indirmeler tarayıcıda kalır",
   resumeSiteTitle: "{host} kaynaklı indirmeler yeniden Downpipe'a gider",
   pausedBy: "Burada {site} tarafından duraklatıldı",
+  pauseCapture: "10 dk duraklat",
+  pauseCaptureTitle: "Tarayıcının başlattığı her indirme 10 dakika boyunca tarayıcıda kalır. Bir saatlik duraklatma için araç çubuğu düğmesine sağ tıklayın.",
+  resumeCapture: "Yakalamayı sürdür",
+  pausedUntil: "{time} saatine kadar duraklatıldı: indirmeler tarayıcıda kalır.",
   progress: "{label} ilerlemesi",
   downloadItem: "{label} öğesini Downpipe ile indir",
   state: {

@@ -29,6 +29,7 @@ export const errors: Messages["errors"] = {
   pagesUnsupported: "Cette version de Downpipe ne peut pas télécharger les vidéos des pages web. Mettez à jour Downpipe.",
   keptClosed: "Downpipe n'était pas en cours d'exécution : le navigateur a donc téléchargé le fichier.",
   keptInstead: "{reason} Le navigateur l'a téléchargé à la place.",
+  keptByChoice: "Le navigateur l'a téléchargé, comme choisi dans Downpipe.",
   notVideoPage: "Downpipe ne télécharge pas les vidéos de cette page.",
   unknownVideoPage: "Cette page n'est pas une page vidéo connue de Downpipe.",
   mediaGone: "Ce média ne figure plus dans la liste. Relancez sa lecture.",

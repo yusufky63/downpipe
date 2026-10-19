@@ -70,7 +70,11 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 const ANSWER_MS = 5;
 const LATE_MS = 15;
 
-function setup(answers: (HostResult | Promise<HostResult>)[], downloads = new FakeDownloads([[7, "in_progress"]])) {
+function setup(
+  answers: (HostResult | Promise<HostResult>)[],
+  downloads = new FakeDownloads([[7, "in_progress"]]),
+  paused = false,
+) {
   const sent: unknown[] = [];
   const reports: Omit<Activity, "at">[] = [];
   const offered: number[] = [];
@@ -81,6 +85,7 @@ function setup(answers: (HostResult | Promise<HostResult>)[], downloads = new Fa
     downloads,
     extensionId: "ext",
     filters: () => Promise.resolve(CAPTURE_EVERYTHING),
+    paused: () => Promise.resolve(paused),
     send: (message) => {
       sent.push(message);
       return Promise.resolve(answers.shift() ?? CLOSED);
@@ -226,6 +231,27 @@ describe("Firefox (started downloads)", () => {
     answer.resolve(ACCEPTED);
     await done;
     expect(downloads.calls).toEqual(["pause 7", "resume 7", "cancel 7", "erase 7"]);
+  });
+});
+
+describe("while capture is paused", () => {
+  it("lets every download go on in the browser, untouched", async () => {
+    const { deps, downloads, sent, reports } = setup([ACCEPTED], undefined, true);
+    let released = 0;
+    await captureHeld(item(), deps, () => (released += 1));
+    await captureStarted(item(), deps);
+    expect(released).toBeGreaterThan(0);
+    expect(sent).toEqual([]);
+    expect(downloads.calls).toEqual([]);
+    expect(reports).toEqual([]);
+  });
+
+  it("does not use up the download's one offer", async () => {
+    const { deps, sent } = setup([ACCEPTED], undefined, true);
+    await offer(item(), deps);
+    deps.paused = () => Promise.resolve(false);
+    expect((await offer(item(), deps)).handed).toBe(true);
+    expect(sent).toHaveLength(1);
   });
 });
 

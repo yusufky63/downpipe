@@ -125,6 +125,17 @@ fn remove_download(manager: State<'_, Manager>, id: String, delete_files: bool) 
     Ok(manager.remove(&id, delete_files)?)
 }
 
+/// "Download in the browser" in the confirmation dialog: drops the held
+/// download and opens its link in the default browser, whose download of
+/// it the bridge then leaves alone (`Manager::return_to_browser`).
+#[tauri::command]
+fn download_in_browser(app: AppHandle, manager: State<'_, Manager>, id: String) -> CmdResult<()> {
+    let url = manager.return_to_browser(&id)?;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| CommandError::new("open_failed", e.to_string()))
+}
+
 #[tauri::command]
 fn pause_all(manager: State<'_, Manager>) {
     manager.pause_all();
@@ -975,6 +986,7 @@ fn main() {
             set_download_speed_limit,
             cancel_download,
             remove_download,
+            download_in_browser,
             pause_all,
             resume_all,
             clear_finished,

@@ -29,6 +29,7 @@ export const errors: Messages["errors"] = {
   pagesUnsupported: "Diese Version von Downpipe kann keine Videos von Webseiten herunterladen. Aktualisieren Sie Downpipe.",
   keptClosed: "Downpipe wurde nicht ausgeführt, daher hat der Browser die Datei heruntergeladen.",
   keptInstead: "{reason} Stattdessen hat der Browser die Datei heruntergeladen.",
+  keptByChoice: "Der Browser hat die Datei heruntergeladen, wie in Downpipe gewählt.",
   notVideoPage: "Downpipe lädt keine Videos von dieser Seite herunter.",
   unknownVideoPage: "Dies ist keine Videoseite, die Downpipe kennt.",
   mediaGone: "Dieses Medium ist nicht mehr aufgeführt. Spielen Sie es erneut ab.",

@@ -7,4 +7,8 @@ export const menus = {
   pageLinks: "Download links on this page with Downpipe…",
   video: "Download this video with Downpipe",
   selection: "Download selected links with Downpipe…",
+  /** On the toolbar button's own right-click menu. */
+  pauseShort: "Pause capture for 10 minutes",
+  pauseLong: "Pause capture for 1 hour",
+  resume: "Resume capture",
 };

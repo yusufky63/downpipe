@@ -17,6 +17,9 @@ export const confirm = {
   stopAsking: "Don't ask again",
   stopAskingTitle: "Downloads from the browser then start at once. Settings, App turns the question back on.",
   later: "Download later",
+  /** A link beside the URL, for files the site only gives the browser. */
+  inBrowser: "Download in the browser",
+  inBrowserTitle: "Removes it from Downpipe and opens the link in your browser, which downloads it with your sign-in. Capture leaves that download alone.",
   start: "Start download",
   url: "URL",
   name: "Name",

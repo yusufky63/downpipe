@@ -13,6 +13,8 @@ export const confirm: Messages["confirm"] = {
   stopAsking: "不再询问",
   stopAskingTitle: "之后来自浏览器的下载会立即开始。可在“设置”的“应用”中重新开启此询问。",
   later: "稍后下载",
+  inBrowser: "在浏览器中下载",
+  inBrowserTitle: "从 Downpipe 中移除，并在浏览器中打开链接，由浏览器以你的登录状态下载。捕获不会接管这次下载。",
   start: "开始下载",
   url: "URL",
   name: "名称",

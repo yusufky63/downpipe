@@ -31,6 +31,8 @@ export const errors = {
   /** A captured download the browser kept. */
   keptClosed: "Downpipe was not running, so the browser downloaded it.",
   keptInstead: "{reason} The browser downloaded it instead.",
+  /** "Download in the browser" was chosen in the app's confirmation dialog. */
+  keptByChoice: "The browser downloaded it, as you chose in Downpipe.",
   notVideoPage: "Downpipe does not download videos from this page.",
   unknownVideoPage: "This is not a video page Downpipe knows.",
   mediaGone: "This media is no longer listed. Play it again.",

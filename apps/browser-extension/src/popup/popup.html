@@ -69,12 +69,13 @@
         <label class="switch-row" for="capture">
           <span class="switch-text">
             <span class="row-title" data-i18n="popup.capture"></span>
-            <span class="row-detail" data-i18n="popup.captureDetail"></span>
+            <span class="row-detail" id="capture-detail" data-i18n="popup.captureDetail"></span>
           </span>
           <input type="checkbox" role="switch" class="switch" id="capture" />
         </label>
         <div class="capture-links">
           <button type="button" class="link" id="filters" data-i18n="common.filters"></button>
+          <button type="button" class="link" id="pause" hidden></button>
           <button type="button" class="link site-action" id="site-action" hidden></button>
           <span class="site-note" id="site-note" hidden></span>
         </div>

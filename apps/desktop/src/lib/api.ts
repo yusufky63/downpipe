@@ -842,6 +842,8 @@ export const api = {
   setSpeedLimit: (id: string, limit: number | null) => invoke<null>("set_download_speed_limit", { id, limit }),
   cancel: (id: string) => invoke<null>("cancel_download", { id }),
   remove: (id: string, deleteFiles: boolean) => invoke<null>("remove_download", { id, deleteFiles }),
+  /** Drops a download still waiting for its answer and lets the browser download its link instead. */
+  downloadInBrowser: (id: string) => invoke<null>("download_in_browser", { id }),
   pauseAll: () => invoke<null>("pause_all"),
   resumeAll: () => invoke<null>("resume_all"),
   clearFinished: () => invoke<null>("clear_finished"),

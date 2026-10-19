@@ -20,6 +20,10 @@ export const popup: Messages["popup"] = {
   pauseSiteTitle: "Downloads de {host}, ou iniciados nas páginas dele, ficam no navegador",
   resumeSiteTitle: "Downloads de {host} voltam a ir para o Downpipe",
   pausedBy: "Pausado aqui por {site}",
+  pauseCapture: "Pausar 10 min",
+  pauseCaptureTitle: "Cada download do navegador fica no navegador por 10 minutos. Clique com o botão direito no botão da barra de ferramentas para pausar por uma hora.",
+  resumeCapture: "Retomar captura",
+  pausedUntil: "Pausado até {time}: os downloads ficam no navegador.",
   progress: "Progresso de {label}",
   downloadItem: "Baixar {label} com o Downpipe",
   state: {

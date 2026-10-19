@@ -9,4 +9,7 @@ export const menus: Messages["menus"] = {
   pageLinks: "Baixar links desta página com o Downpipe…",
   video: "Baixar este vídeo com o Downpipe",
   selection: "Baixar links selecionados com o Downpipe…",
+  pauseShort: "Pausar captura por 10 minutos",
+  pauseLong: "Pausar captura por 1 hora",
+  resume: "Retomar captura",
 };

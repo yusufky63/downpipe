@@ -32,6 +32,8 @@ export interface HandoffDeps {
   downloads: DownloadsLike;
   extensionId: string;
   filters(): Promise<CaptureFilters>;
+  /** Capture is paused for a while (lib/pause.ts): every download stays in the browser. */
+  paused(): Promise<boolean>;
   /**
    * Sends a message to the native host and resolves with its answer however
    * long that takes; the host gives up on the app after 10 seconds itself.
@@ -95,6 +97,7 @@ export async function offer(
   deps: HandoffDeps,
 ): Promise<{ handed: boolean; late: Promise<void> }> {
   const none = { handed: false, late: Promise.resolve() };
+  if (await deps.paused().catch(() => false)) return none;
   const decision = decideCapture(item, deps.extensionId, await deps.filters());
   if (!decision.capture) return none;
   if (!(await deps.claim(item.id).catch(() => true))) return none;
@@ -155,6 +158,7 @@ export async function captureHeld(item: DownloadItemLike, deps: HandoffDeps, sug
  * is left alone: offering it would download it a second time.
  */
 export async function captureStarted(item: DownloadItemLike, deps: HandoffDeps): Promise<void> {
+  if (await deps.paused().catch(() => false)) return;
   if (!decideCapture(item, deps.extensionId, await deps.filters()).capture) return;
   await deps.downloads.pause(item.id).catch(() => undefined);
   const [now] = await deps.downloads.search({ id: item.id }).catch((): { state?: string }[] => []);

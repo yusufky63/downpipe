@@ -90,6 +90,9 @@ pub mod code {
     pub const APP_UNAVAILABLE: &str = "app_unavailable";
     pub const VERSION_MISMATCH: &str = "version_mismatch";
     pub const DUPLICATE: &str = "duplicate";
+    /// The user chose "Download in the browser" for this link in the app a
+    /// moment ago: the browser keeps its download.
+    pub const IN_BROWSER: &str = "in_browser";
     /// A `page` message for a site Downpipe has no provider for.
     pub const UNSUPPORTED_PAGE: &str = "unsupported_page";
     pub const INTERNAL: &str = "internal";

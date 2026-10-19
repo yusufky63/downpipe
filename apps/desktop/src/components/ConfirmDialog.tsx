@@ -69,6 +69,8 @@ interface ConfirmDialogProps {
   onDiscard: () => void;
   /** "Don't ask again", offered for downloads from the browser. */
   onStopAsking?: () => void;
+  /** "Download in the browser": drop it here and let the browser download the link. */
+  onDownloadInBrowser?: () => void;
   /** Settings, Media: where yt-dlp and FFmpeg are set up. */
   onOpenSettings: () => void;
 }
@@ -83,6 +85,7 @@ function FileConfirmDialog({
   onConfirm,
   onDiscard,
   onStopAsking,
+  onDownloadInBrowser,
   onOpenSettings,
 }: ConfirmDialogProps) {
   // Added in Downpipe (the Add dialog and the like), not sent by the browser.
@@ -223,6 +226,10 @@ function FileConfirmDialog({
   const from = fromApp ? (what ?? t("confirm.newDownload")) : what ? t("confirm.fromBrowserWhat", { what }) : t("confirm.fromBrowser");
   // The setting is about the browser; a video added here always needs its quality chosen.
   const offerStop = !fromApp && onStopAsking !== undefined;
+  // A file the browser sent, for a site that only serves it to the browser
+  // (a sign-in, a one-time link). Streams and video pages have no download
+  // the browser could make of their link.
+  const offerBrowser = !fromApp && !stream && onDownloadInBrowser !== undefined;
   const options = choices?.options;
   const size = knownSize(task.total, video?.estimated_size);
   const subtitles = site && choices ? subtitleGroups(subtitleOptions) : null;
@@ -276,9 +283,23 @@ function FileConfirmDialog({
         {/* IDM's "Download File Info": one line per value, labels on the left. */}
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2">
           <span className="label">{t("confirm.url")}</span>
-          <span className="truncate font-mono text-[12px] text-ink-secondary select-text" title={task.url}>
-            {task.url}
-          </span>
+          <div className="flex min-w-0 items-baseline gap-3">
+            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-secondary select-text" title={task.url}>
+              {task.url}
+            </span>
+            {offerBrowser && (
+              <button
+                type="button"
+                className={`${linkClass} shrink-0 text-[12px]`}
+                title={t("confirm.inBrowserTitle")}
+                data-no-autofocus
+                disabled={busy}
+                onClick={onDownloadInBrowser}
+              >
+                {t("confirm.inBrowser")}
+              </button>
+            )}
+          </div>
 
           <label htmlFor={`${ids}-name`} className="label">
             {t("confirm.name")}

@@ -2,6 +2,13 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
+## Unreleased
+
+### New
+
+- **Pause capture for a while.** **Pause 10 min** under the capture switch in the extension's popup, and **Pause capture for 10 minutes** or **for 1 hour** on the toolbar button's right-click menu, leave every browser download to the browser until the time is up, without turning capture off (which takes the `downloads` permission away and asks for it again later). The popup says until when and has **Resume capture**; a browser restart also ends the pause.
+- **Download in the browser** in the confirmation window. For a file a site only gives the browser (a sign-in, a one-time link), the link beside the address removes the download from Downpipe and opens it in your browser, which downloads it with your sign-in; capture leaves that download alone, and the popup lists it as **In browser**. New bridge answer `in_browser`.
+
 ## 0.5.2 — 2026-10-18
 
 ### Changed

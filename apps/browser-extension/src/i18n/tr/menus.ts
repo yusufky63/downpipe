@@ -9,4 +9,7 @@ export const menus: Messages["menus"] = {
   pageLinks: "Bu sayfadaki bağlantıları Downpipe ile indir…",
   video: "Bu videoyu Downpipe ile indir",
   selection: "Seçili bağlantıları Downpipe ile indir…",
+  pauseShort: "Yakalamayı 10 dakika duraklat",
+  pauseLong: "Yakalamayı 1 saat duraklat",
+  resume: "Yakalamayı sürdür",
 };

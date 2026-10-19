@@ -135,6 +135,8 @@ Downpipe never receives browser cookies. Downloads that only work while you are 
 
 The filters are stored with the other extension settings in `storage.local`. Settings saved by an earlier version get the defaults for the new fields.
 
+**Pause 10 min** appears under the capture switch while capture is on: for the next ten minutes every browser download stays in the browser, whatever the filters say, and the switch's line says until when, with **Resume capture** to end it early. Right-clicking the extension's toolbar button offers **Pause capture for 10 minutes**, **Pause capture for 1 hour** and, while paused, **Resume capture**. A pause keeps the `downloads` permission (the capture switch removes it, and turning capture back on asks the browser again), lives in `storage.session`, so a browser restart also ends it, and leaves media detection, the context menus and Alt+click as they are. The pause is checked before the filters, in `offer` and, on Firefox, before a download is paused for the hand-over (`lib/handoff.ts`), so a download started during a pause is never touched and is not counted as offered.
+
 **Pause capture on this site** appears under the capture switch while capture is on and the current tab is an http or https page. It adds the tab's host to the excluded sites; **Resume capture on this site** removes that entry again. A wildcard entry that already covers the site is shown instead of the button, since removing it would affect other sites; edit it under Filters. The popup reads the tab's address through `activeTab`, which the browser grants when the popup is opened.
 
 **Links on a page** is IDM's "download all links": right-click an empty part of a page and choose **Download links on this page with Downpipe…**, or press **Links on this page…** in the popup's Downloads header. With text selected, the menu offers **Download selected links with Downpipe…**, which lists only the links inside the selection.
@@ -176,6 +178,8 @@ The filters are stored with the other extension settings in `storage.local`. Set
 - With an app or bridge from before lists, `pong` has no `list` feature and the row says **Update Downpipe to download playlists**.
 
 While **Ask before downloads from the browser start** is on in the app (Settings → App, on by default), the app still answers `accepted` at once, so the browser never waits for a person. The download is created paused and a small confirmation window comes up over the browser, like IDM's Download File Info, asking for its file name, folder and queue (the main window stays as it was, in the tray or not): **Start download** queues it, **Download later** keeps it paused, and **Cancel** removes it. Nothing is requested from the server before the answer. The `accepted` answer says so with `awaiting_confirmation: true`, so the extension's notification reads "Waiting for your answer in Downpipe" instead of "Downloading in Downpipe". Until the dialog is answered the popup lists the download as **Waiting in Downpipe** (not Paused) and keeps asking the app every second, so the row turns into Downloading, or Paused after **Download later**, while the popup is open. After **Cancel** the app no longer knows the download, and the row falls back to what was recorded when it was sent.
+
+**Download in the browser**, next to the link in that window, is for a file the site only gives the browser: one that needs your sign-in, or a link that works once. It is offered for files, not for streams, video pages or torrents. The app removes the download and opens its link in the default browser (`download_in_browser`, `Manager::return_to_browser`), which downloads it with its own cookies. For the next two minutes the app answers the first `download` message for that exact link with `in_browser` instead of adding it, so capture leaves the browser's download alone, and the popup lists it as **In browser** with "The browser downloaded it, as you chose in Downpipe." A link that downloads only from its page (a form, a script) or that the browser shows instead of saving (a PDF or video served without `Content-Disposition: attachment`) still needs the page: use Alt+click or **Pause 10 min** there.
 
 Every hand-over from the link menu or capture is confirmed in three places:
 
@@ -336,6 +340,7 @@ Answers may gain optional fields within version 1; the extension ignores fields 
 | `version_mismatch` | The host and the app speak different pipe versions; run `install` from the same build as the app. |
 | `duplicate` | An unfinished download with this URL already exists; `task_id` names it. |
 | `unsupported_page` | A `page` message for a site Downpipe has no provider for. |
+| `in_browser` | The user chose **Download in the browser** for this link in the app's confirmation window a moment ago; the browser keeps its download. |
 
 Other codes come from the download queue (for example `invalid_header`) and carry a readable `message`. The extension words the bridge's codes above and the engine's failure kinds itself, in the browser's language, and shows the `message` only for codes it does not know.
 

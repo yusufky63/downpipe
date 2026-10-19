@@ -767,6 +767,43 @@ async fn browser_downloads_wait_for_confirmation() {
 }
 
 #[tokio::test]
+async fn a_held_download_can_be_handed_back_to_the_browser() {
+    let server = TestServer::start().await.unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let manager = open_into(data.path(), out.path()).await;
+    let url = server.url("/file/3000?name=signed.zip");
+
+    let held = manager
+        .add(AddOptions {
+            url: url.clone(),
+            confirm: true,
+            ..AddOptions::default()
+        })
+        .unwrap();
+    assert!(
+        !manager.take_browser_return(&url),
+        "nothing handed back yet"
+    );
+    assert_eq!(manager.return_to_browser(&held.record.id).unwrap(), url);
+    assert!(manager.get(&held.record.id).is_none(), "gone from the list");
+    // The browser's own download of it is left alone, once.
+    assert!(manager.take_browser_return(&url));
+    assert!(!manager.take_browser_return(&url));
+
+    // Only a question still waiting for its answer can be handed back.
+    let started = add(&manager, server.url("/file/1000?started"), out.path());
+    assert!(matches!(
+        manager.return_to_browser(&started.record.id),
+        Err(CoreError::InvalidState { .. })
+    ));
+    assert!(matches!(
+        manager.return_to_browser("missing"),
+        Err(CoreError::NotFound(_))
+    ));
+}
+
+#[tokio::test]
 async fn finished_downloads_can_be_downloaded_again() {
     let server = TestServer::start().await.unwrap();
     let data = tempfile::tempdir().unwrap();

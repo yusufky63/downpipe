@@ -321,6 +321,33 @@ async fn browser_downloads_wait_for_the_user() {
     assert!(host.finish().success());
 }
 
+/// "Download in the browser" in the dialog: the app opens the link in the
+/// browser, and the browser's download of it is not taken a second time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_download_handed_back_stays_in_the_browser() {
+    let web = TestServer::start().await.unwrap();
+    let app = App::start_with(true).await;
+    let mut host = Host::spawn(&app.endpoint);
+    let download = json!({
+        "protocol_version": 1,
+        "type": "download",
+        "resource_url": web.url("/file/1000?name=signed.zip"),
+    });
+    let accepted = host.ask(&download);
+    assert_eq!(accepted["awaiting_confirmation"], true, "{accepted}");
+    let id = accepted["task_id"].as_str().unwrap().to_string();
+    app.manager.return_to_browser(&id).unwrap();
+
+    let kept = host.ask(&download);
+    assert_eq!(kept["type"], "error", "{kept}");
+    assert_eq!(kept["code"], "in_browser", "{kept}");
+    assert!(app.manager.list().is_empty(), "nothing added for it");
+    // Only that once: the link is Downpipe's again afterwards.
+    let again = host.ask(&download);
+    assert_eq!(again["type"], "accepted", "{again}");
+    assert!(host.finish().success());
+}
+
 /// What the popup does: ask for the downloads it sent until they finish.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn progress_of_sent_downloads_is_reported() {

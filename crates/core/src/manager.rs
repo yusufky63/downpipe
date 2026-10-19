@@ -139,7 +139,14 @@ struct Inner {
     /// One limiter per site rule with a speed limit, by rule id, shared by
     /// every download the rule applies to.
     site_limiters: Mutex<HashMap<String, Arc<RateLimiter>>>,
+    /// Links handed back to the browser from the confirmation dialog, and
+    /// when: see [`Manager::return_to_browser`]. Memory only.
+    browser_returns: Mutex<Vec<(String, Instant)>>,
 }
+
+/// How long a link handed back to the browser is left to it: long enough
+/// for the browser to open the link and start its download.
+const BROWSER_RETURN_TTL: Duration = Duration::from_secs(120);
 
 #[derive(Debug)]
 struct State {
@@ -269,6 +276,7 @@ impl Manager {
                 torrents,
                 proxied: Mutex::default(),
                 site_limiters: Mutex::default(),
+                browser_returns: Mutex::default(),
             }),
         };
         manager.inner.schedule();
@@ -684,6 +692,52 @@ impl Manager {
         });
         self.inner.schedule();
         Ok(())
+    }
+
+    /// "Download in the browser" in the confirmation dialog: drops a file
+    /// download that is still waiting for its answer and returns its link,
+    /// which the app opens in the browser. Until the browser bridge asks
+    /// about that link once ([`Manager::take_browser_return`]), or for
+    /// [`BROWSER_RETURN_TTL`], the browser's download of it is not taken.
+    /// Streams, video pages and torrents have no download the browser could
+    /// make of their link, so they are refused.
+    pub fn return_to_browser(&self, id: &str) -> Result<String, CoreError> {
+        let url = {
+            let st = self.inner.state.lock();
+            let entry = st
+                .tasks
+                .iter()
+                .find(|e| e.record.id == id)
+                .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
+            let file = entry.record.media.is_none()
+                && entry.record.site.is_none()
+                && entry.record.torrent.is_none();
+            if !entry.live.awaiting_confirmation || !file {
+                return Err(invalid("hand back to the browser", entry.record.state));
+            }
+            entry.url.clone()
+        };
+        self.remove(id, true)?;
+        let now = Instant::now();
+        let mut returns = self.inner.browser_returns.lock();
+        returns.retain(|(_, at)| now.duration_since(*at) < BROWSER_RETURN_TTL);
+        returns.push((url.clone(), now));
+        Ok(url)
+    }
+
+    /// True once for a link handed back to the browser a moment ago: the
+    /// browser bridge then leaves the browser's download of it alone.
+    pub fn take_browser_return(&self, url: &str) -> bool {
+        let now = Instant::now();
+        let mut returns = self.inner.browser_returns.lock();
+        returns.retain(|(_, at)| now.duration_since(*at) < BROWSER_RETURN_TTL);
+        match returns.iter().position(|(u, _)| u == url) {
+            Some(i) => {
+                returns.remove(i);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Forget a download; with `delete_files`, also delete what it wrote.

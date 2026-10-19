@@ -15,6 +15,8 @@ export const confirm: Messages["confirm"] = {
   stopAsking: "Bir daha sorma",
   stopAskingTitle: "Tarayıcıdan gelen indirmeler bundan sonra hemen başlar. Soruyu Ayarlar'ın Uygulama sekmesinden yeniden açabilirsiniz.",
   later: "Sonra indir",
+  inBrowser: "Tarayıcıda indir",
+  inBrowserTitle: "Downpipe'tan kaldırır ve bağlantıyı tarayıcınızda açar; tarayıcı dosyayı oturumunuzla indirir. Yakalama bu indirmeye dokunmaz.",
   start: "İndirmeyi başlat",
   url: "URL",
   name: "Ad",

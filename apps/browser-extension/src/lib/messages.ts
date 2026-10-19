@@ -11,6 +11,7 @@ import {
   type MediaCandidate,
   type MediaFilters,
 } from "./media";
+import { isPauseMinutes, type PauseMinutes } from "./pause";
 import type { TaskStatus } from "./protocol";
 import type { BridgeStatus, Outcome } from "./status";
 import { webUrl } from "./url";
@@ -28,6 +29,9 @@ export type PopupRequest =
   | { kind: "save_media"; media: MediaFilters }
   /** Adds or removes one exact entry of the excluded sites. */
   | { kind: "set_site_paused"; site: string; paused: boolean }
+  /** Every browser download stays in the browser for this long (lib/pause.ts). */
+  | { kind: "pause_capture"; minutes: PauseMinutes }
+  | { kind: "resume_capture" }
   /** Collect the links of this tab and open the links page; needs `activeTab` for it. */
   | { kind: "collect_links"; tabId: number }
   /** One link from the links page, sent as if it had been clicked on `pageUrl`. */
@@ -93,7 +97,7 @@ export function isPlace(value: unknown): value is { x: number; y: number } {
 /** The overlay menu's entry for the page itself, next to detected media ids. */
 export const PAGE_ITEM_ID = "page";
 
-const SIMPLE_KINDS = ["status", "tasks", "ping", "get_settings"] as const;
+const SIMPLE_KINDS = ["status", "tasks", "ping", "get_settings", "resume_capture"] as const;
 
 function hasKeys(v: Record<string, unknown>, ...keys: string[]): boolean {
   const own = Object.keys(v);
@@ -127,6 +131,8 @@ export function parsePopupRequest(value: unknown): PopupRequest | null {
       const filters = hasKeys(v, "kind", "filters") ? validFilters(v.filters) : null;
       return filters ? { kind: "save_filters", filters } : null;
     }
+    case "pause_capture":
+      return hasKeys(v, "kind", "minutes") && isPauseMinutes(v.minutes) ? { kind: "pause_capture", minutes: v.minutes } : null;
     case "set_bypass_key":
       return hasKeys(v, "kind", "key") && isBypassKey(v.key) ? { kind: "set_bypass_key", key: v.key } : null;
     case "save_media": {
@@ -370,9 +376,22 @@ export interface StatusReply {
   startApp: boolean;
   /** For the popup's "Pause capture on this site". */
   excludedSites: string[];
+  /** Capture is paused until then (ms since the epoch); null when it is not. */
+  pausedUntil: number | null;
   activity: Activity[];
   /** Live state of the downloads in `activity`, when the app could be asked. */
   tasks: TaskStatus[];
+}
+
+/** The answer to `pause_capture` and `resume_capture`. */
+export interface PauseReply {
+  pausedUntil: number | null;
+}
+
+export function isPauseReply(value: unknown): value is PauseReply {
+  if (typeof value !== "object" || value === null) return false;
+  const until = (value as Record<string, unknown>).pausedUntil;
+  return until === null || (typeof until === "number" && Number.isFinite(until));
 }
 
 export interface TasksReply {

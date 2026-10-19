@@ -27,6 +27,7 @@ export const errors: Messages["errors"] = {
   pagesUnsupported: "此版本的 Downpipe 无法下载页面中的视频。请更新 Downpipe。",
   keptClosed: "Downpipe 未运行，因此已由浏览器下载。",
   keptInstead: "{reason} 已改由浏览器下载。",
+  keptByChoice: "已按你在 Downpipe 中的选择由浏览器下载。",
   notVideoPage: "Downpipe 不支持下载此页面中的视频。",
   unknownVideoPage: "这不是 Downpipe 能识别的视频页面。",
   mediaGone: "此媒体已不在列表中。请重新播放。",

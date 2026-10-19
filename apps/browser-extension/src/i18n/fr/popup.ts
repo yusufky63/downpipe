@@ -19,6 +19,10 @@ export const popup: Messages["popup"] = {
   pauseSiteTitle: "Les téléchargements provenant de {host}, ou lancés sur ses pages, restent dans le navigateur",
   resumeSiteTitle: "Les téléchargements provenant de {host} vont de nouveau à Downpipe",
   pausedBy: "Capture suspendue ici par {site}",
+  pauseCapture: "Suspendre 10 min",
+  pauseCaptureTitle: "Chaque téléchargement du navigateur reste dans le navigateur pendant 10 minutes. Clic droit sur le bouton de la barre d'outils pour suspendre une heure.",
+  resumeCapture: "Reprendre la capture",
+  pausedUntil: "Suspendue jusqu'à {time} : les téléchargements restent dans le navigateur.",
   progress: "Progression de {label}",
   downloadItem: "Télécharger {label} avec Downpipe",
   // The same states as the desktop app's list, worded as it words them.

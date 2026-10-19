@@ -1,9 +1,10 @@
-import { t } from "../i18n";
+import { currentLocale, t } from "../i18n";
 import { ext } from "../lib/browser";
 import { hostOf, matchingSite } from "../lib/filters";
 import { WEB_ORIGINS, mediaLabels, type MediaCandidate } from "../lib/media";
 import {
   isMediaReply,
+  isPauseReply,
   isSettings,
   overlayResultText,
   relativeTime,
@@ -39,7 +40,9 @@ const els = {
   connected: byId("connected"),
   actions: byId("status-actions"),
   capture: byId<HTMLInputElement>("capture"),
+  captureDetail: byId("capture-detail"),
   filters: byId<HTMLButtonElement>("filters"),
+  pause: byId<HTMLButtonElement>("pause"),
   siteAction: byId<HTMLButtonElement>("site-action"),
   siteNote: byId("site-note"),
   notify: byId<HTMLInputElement>("notify"),
@@ -63,6 +66,9 @@ let pollTimer: ReturnType<typeof setTimeout> | undefined;
 /** The tab the popup was opened over, when it is an http(s) page. */
 let page: { tabId: number; host: string } | null = null;
 let excludedSites: string[] = [];
+/** Capture is paused until then; null when it is not. */
+let pausedUntil: number | null = null;
+let pauseTimer: ReturnType<typeof setTimeout> | undefined;
 /** The connected Downpipe takes streams; assumed until the status says otherwise. */
 let streams = true;
 /** The connected Downpipe takes video pages (YouTube); assumed likewise. */
@@ -91,6 +97,7 @@ function isStatusReply(value: unknown): value is StatusReply {
     typeof v.startApp === "boolean" &&
     Array.isArray(v.excludedSites) &&
     v.excludedSites.every((s) => typeof s === "string") &&
+    isPauseReply(v) &&
     Array.isArray(v.activity) &&
     Array.isArray(v.tasks)
   );
@@ -133,6 +140,28 @@ function renderSite(): void {
   els.siteAction.dataset.paused = String(paused);
   els.siteNote.textContent = by ? t("popup.pausedBy", { site: by }) : "";
   els.siteNote.title = els.siteNote.textContent;
+}
+
+/**
+ * "Pause 10 min" while capture is on; while it is paused, the switch's
+ * detail says until when and the button resumes it. The popup redraws
+ * itself when the pause runs out while it is open.
+ */
+function renderPause(): void {
+  clearTimeout(pauseTimer);
+  const on = els.capture.checked;
+  const paused = on && pausedUntil !== null && pausedUntil > Date.now();
+  els.pause.hidden = !on;
+  els.pause.textContent = t(paused ? "popup.resumeCapture" : "popup.pauseCapture");
+  els.pause.title = paused ? "" : t("popup.pauseCaptureTitle");
+  els.pause.dataset.paused = String(paused);
+  els.captureDetail.textContent =
+    paused && pausedUntil !== null
+      ? t("popup.pausedUntil", {
+          time: new Intl.DateTimeFormat(currentLocale(), { hour: "2-digit", minute: "2-digit" }).format(pausedUntil),
+        })
+      : t("popup.captureDetail");
+  if (paused && pausedUntil !== null) pauseTimer = setTimeout(renderPause, pausedUntil - Date.now() + 100);
 }
 
 function activityItem(entry: Activity, now: number): HTMLLIElement {
@@ -309,6 +338,7 @@ async function refresh(): Promise<void> {
         notify: true,
         startApp: false,
         excludedSites: [],
+        pausedUntil: null,
         activity: [],
         tasks: [],
       },
@@ -317,7 +347,9 @@ async function refresh(): Promise<void> {
       els.capture.checked = status.capture;
       els.notify.checked = status.notify;
       excludedSites = status.excludedSites;
+      pausedUntil = status.pausedUntil;
       renderSite();
+      renderPause();
       listed = status.activity;
       applyTasks(status.tasks);
     }
@@ -363,6 +395,7 @@ els.capture.addEventListener("change", () => {
     .then((granted) => {
       els.capture.checked = granted;
       renderSite();
+      renderPause();
     })
     .finally(() => {
       els.capture.disabled = false;
@@ -392,6 +425,21 @@ els.siteAction.addEventListener("click", () => {
     })
     .finally(() => {
       els.siteAction.disabled = false;
+    });
+});
+
+els.pause.addEventListener("click", () => {
+  const resume = els.pause.dataset.paused === "true";
+  els.pause.disabled = true;
+  void ext.runtime
+    .sendMessage(resume ? { kind: "resume_capture" } : { kind: "pause_capture", minutes: 10 })
+    .catch(() => null)
+    .then((reply: unknown) => {
+      if (isPauseReply(reply)) pausedUntil = reply.pausedUntil;
+      renderPause();
+    })
+    .finally(() => {
+      els.pause.disabled = false;
     });
 });
 

@@ -20,6 +20,10 @@ export const popup: Messages["popup"] = {
   pauseSiteTitle: "Загрузки с {host} или начатые на его страницах остаются в браузере",
   resumeSiteTitle: "Загрузки с {host} снова передаются в Downpipe",
   pausedBy: "Здесь приостановлено правилом {site}",
+  pauseCapture: "Пауза на 10 мин",
+  pauseCaptureTitle: "Все загрузки браузера 10 минут остаются в браузере. Щелкните правой кнопкой по кнопке на панели инструментов, чтобы приостановить на час.",
+  resumeCapture: "Возобновить перехват",
+  pausedUntil: "Приостановлено до {time}: загрузки остаются в браузере.",
   progress: "Прогресс: {label}",
   downloadItem: "Загрузить {label} с помощью Downpipe",
   // The same words as the desktop app's states.

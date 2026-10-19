@@ -8,4 +8,7 @@ export const menus: Messages["menus"] = {
   pageLinks: "使用 Downpipe 下载此页面上的链接…",
   video: "使用 Downpipe 下载此视频",
   selection: "使用 Downpipe 下载选中的链接…",
+  pauseShort: "暂停捕获 10 分钟",
+  pauseLong: "暂停捕获 1 小时",
+  resume: "恢复捕获",
 };

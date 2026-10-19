@@ -204,10 +204,11 @@ export function Dialog({
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     // A field still disabled (a quality list waiting for yt-dlp) cannot take
-    // the focus, which would then stay behind the dialog.
+    // the focus, which would then stay behind the dialog. `data-no-autofocus`
+    // marks a button that comes before the fields but is no place to start.
     const first = focusFirstField
       ? panel.current?.querySelector<HTMLElement>(
-          "input:not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not([data-close]):not(:disabled)",
+          "input:not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not([data-close]):not([data-no-autofocus]):not(:disabled)",
         )
       : null;
     (first ?? panel.current)?.focus();

@@ -19,6 +19,10 @@ export const popup: Messages["popup"] = {
   pauseSiteTitle: "来自 {host} 或在其页面上开始的下载将留在浏览器中",
   resumeSiteTitle: "来自 {host} 的下载将重新交给 Downpipe",
   pausedBy: "已被 {site} 暂停",
+  pauseCapture: "暂停 10 分钟",
+  pauseCaptureTitle: "10 分钟内，浏览器的每个下载都留在浏览器中。右键单击工具栏按钮可暂停一小时。",
+  resumeCapture: "恢复捕获",
+  pausedUntil: "已暂停至 {time}：下载留在浏览器中。",
   progress: "{label} 进度",
   downloadItem: "使用 Downpipe 下载 {label}",
   state: {

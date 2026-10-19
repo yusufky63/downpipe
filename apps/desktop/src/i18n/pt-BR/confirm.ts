@@ -18,6 +18,8 @@ export const confirm: Messages["confirm"] = {
   stopAskingTitle:
     "Os downloads do navegador passam a começar na hora. Em Configurações, Aplicativo, você ativa a pergunta de novo.",
   later: "Baixar depois",
+  inBrowser: "Baixar no navegador",
+  inBrowserTitle: "Remove do Downpipe e abre o link no navegador, que baixa com a sua sessão. A captura não mexe nesse download.",
   start: "Iniciar download",
   url: "URL",
   name: "Nome",

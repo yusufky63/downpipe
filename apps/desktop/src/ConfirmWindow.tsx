@@ -153,6 +153,7 @@ export function ConfirmWindow() {
             if (options.start) api.watchDownload(asking.id).catch(() => undefined);
           }}
           onDiscard={() => run(() => api.remove(asking.id, true))}
+          onDownloadInBrowser={() => run(() => api.downloadInBrowser(asking.id))}
           onStopAsking={() =>
             run(async () => {
               setSettings(await api.updateSettings({ ...settings, confirm_browser_downloads: false }));

@@ -55,6 +55,15 @@ describe("new requests", () => {
     expect(parsePopupRequest({ kind: "save_filters" })).toBeNull();
   });
 
+  it("pauses all of capture only for the lengths it offers", () => {
+    expect(parsePopupRequest({ kind: "pause_capture", minutes: 10 })).toEqual({ kind: "pause_capture", minutes: 10 });
+    expect(parsePopupRequest({ kind: "pause_capture", minutes: 60 })).toEqual({ kind: "pause_capture", minutes: 60 });
+    expect(parsePopupRequest({ kind: "pause_capture", minutes: 1e9 })).toBeNull();
+    expect(parsePopupRequest({ kind: "pause_capture" })).toBeNull();
+    expect(parsePopupRequest({ kind: "resume_capture" })).toEqual({ kind: "resume_capture" });
+    expect(parsePopupRequest({ kind: "resume_capture", minutes: 10 })).toBeNull();
+  });
+
   it("pauses one site given in stored form", () => {
     expect(parsePopupRequest({ kind: "set_site_paused", site: "www.example.com", paused: true })).toEqual({
       kind: "set_site_paused",

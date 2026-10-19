@@ -29,6 +29,7 @@ export const errors: Messages["errors"] = {
   pagesUnsupported: "Downpipe'ın bu sürümü sayfalardaki videoları indiremez. Downpipe'ı güncelleyin.",
   keptClosed: "Downpipe çalışmadığı için dosyayı tarayıcı indirdi.",
   keptInstead: "{reason} Bunun yerine dosyayı tarayıcı indirdi.",
+  keptByChoice: "Downpipe'ta seçtiğiniz gibi dosyayı tarayıcı indirdi.",
   notVideoPage: "Downpipe bu sayfadan video indirmez.",
   unknownVideoPage: "Bu, Downpipe'ın tanıdığı bir video sayfası değil.",
   mediaGone: "Bu medya artık listede yok. Yeniden oynatın.",

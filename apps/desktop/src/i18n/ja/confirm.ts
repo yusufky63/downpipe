@@ -13,6 +13,8 @@ export const confirm: Messages["confirm"] = {
   stopAsking: "今後確認しない",
   stopAskingTitle: "ブラウザーからのダウンロードがすぐに開始されるようになります。確認は「設定」の「アプリ」で再びオンにできます。",
   later: "後でダウンロード",
+  inBrowser: "ブラウザーでダウンロード",
+  inBrowserTitle: "Downpipe から外し、リンクをブラウザーで開きます。ブラウザーがログイン状態のままダウンロードし、取り込みはそのダウンロードに手を出しません。",
   start: "ダウンロードを開始",
   url: "URL",
   name: "名前",

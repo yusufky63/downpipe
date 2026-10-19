@@ -129,6 +129,10 @@ describe("keptMessage", () => {
       "Downpipe was not running, so the browser downloaded it.",
     );
     expect(keptMessage(fail("timeout"))).toBe("Downpipe did not answer in time. The browser downloaded it instead.");
+    // Handed back from the app's confirmation dialog.
+    expect(keptMessage(ok({ type: "error", code: "in_browser", message: "x" }))).toBe(
+      "The browser downloaded it, as you chose in Downpipe.",
+    );
   });
 });
 

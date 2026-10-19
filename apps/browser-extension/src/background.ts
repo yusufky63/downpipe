@@ -59,6 +59,7 @@ import {
   type OverlayPrefs,
   type OverlayRequest,
   type PageItem,
+  type PauseReply,
   type PingReply,
   type PopupRequest,
   type Settings,
@@ -66,6 +67,7 @@ import {
   type TasksReply,
 } from "./lib/messages";
 import { notificationFor } from "./lib/notify";
+import { pauseEnd, pausedUntil, type PauseMinutes } from "./lib/pause";
 import {
   downloadMessage,
   mediaMessage,
@@ -96,6 +98,9 @@ const SELECTION_MENU_ID = "downpipe-selected-links";
 const VIDEO_MENU_ID = "downpipe-video-page";
 const TORRENT_MENU_ID = "downpipe-magnet-link";
 const LIST_MENU_ID = "downpipe-list-page";
+/** On the toolbar button's own menu. */
+const PAUSE_MENU_IDS: Record<string, PauseMinutes> = { "downpipe-pause-10": 10, "downpipe-pause-60": 60 };
+const RESUME_MENU_ID = "downpipe-resume-capture";
 /** Pages `lib/sites.ts` recognizes, as match patterns for the page menu. */
 const VIDEO_PAGES = [
   "*://*.youtube.com/watch*",
@@ -128,6 +133,8 @@ const START_APP_MS = 12_000;
  */
 const CAPTURE_LATE_MS = 15_000;
 const OFFERED_KEY = "offeredDownloads";
+/** When a pause of capture ends; session storage, so a browser restart ends it too. */
+const PAUSE_KEY = "capturePausedUntil";
 const STATUS_TIMEOUT_MS = 5_000;
 const DOWNLOADS_PERMISSION: chrome.permissions.Permissions = { permissions: ["downloads"] };
 const ACTIVITY_KEY = "activity";
@@ -212,6 +219,13 @@ function createMenu(): void {
       contexts: ["selection"],
       documentUrlPatterns: WEB_PAGES,
     });
+    // Right-clicking the toolbar button: the quickest way to let the
+    // browser download something itself for a while.
+    for (const [id, minutes] of Object.entries(PAUSE_MENU_IDS)) {
+      ext.contextMenus.create({ id, title: t(minutes === 10 ? "menus.pauseShort" : "menus.pauseLong"), contexts: ["action"] });
+    }
+    ext.contextMenus.create({ id: RESUME_MENU_ID, title: t("menus.resume"), contexts: ["action"], visible: false });
+    void syncPauseMenu();
   });
 }
 
@@ -219,6 +233,11 @@ ext.runtime.onInstalled.addListener(createMenu);
 ext.runtime.onStartup.addListener(createMenu);
 
 ext.contextMenus.onClicked.addListener((info, tab) => {
+  const pause = PAUSE_MENU_IDS[String(info.menuItemId)];
+  if (pause !== undefined || info.menuItemId === RESUME_MENU_ID) {
+    void setPause(pause ?? null);
+    return;
+  }
   if (info.menuItemId === MENU_ID || info.menuItemId === TORRENT_MENU_ID) {
     void sendLink(info);
     return;
@@ -413,11 +432,45 @@ function claimDownload(id: number): Promise<boolean> {
   return next;
 }
 
+// ---------- Pausing capture ----------
+
+async function capturePausedUntil(): Promise<number | undefined> {
+  const stored = await ext.storage.session.get(PAUSE_KEY).catch((): Record<string, unknown> => ({}));
+  return pausedUntil(stored[PAUSE_KEY], Date.now());
+}
+
+/** Pauses capture for `minutes`, or resumes it with null. */
+async function setPause(minutes: PauseMinutes | null): Promise<PauseReply> {
+  const until = minutes === null ? null : pauseEnd(Date.now(), minutes);
+  await (until === null ? ext.storage.session.remove(PAUSE_KEY) : ext.storage.session.set({ [PAUSE_KEY]: until })).catch(
+    () => undefined,
+  );
+  await syncPauseMenu();
+  return { pausedUntil: (await capturePausedUntil()) ?? null };
+}
+
+/**
+ * The toolbar menu offers Resume while capture is paused and the pauses
+ * otherwise. A pause that ran out while the service worker slept leaves
+ * Resume up until it wakes; choosing it then changes nothing.
+ */
+async function syncPauseMenu(): Promise<void> {
+  const paused = (await capturePausedUntil()) !== undefined;
+  const show = (id: string, visible: boolean) => ext.contextMenus.update(id, { visible }).catch(() => undefined);
+  await Promise.all([
+    ...Object.keys(PAUSE_MENU_IDS).map((id) => show(id, !paused)),
+    show(RESUME_MENU_ID, paused),
+  ]);
+}
+
+void syncPauseMenu();
+
 function handoffDeps(): HandoffDeps {
   return {
     downloads: ext.downloads,
     extensionId: ext.runtime.id,
     filters: settings,
+    paused: async () => (await capturePausedUntil()) !== undefined,
     // The race with the browser's patience is lib/handoff.ts's; this only
     // bounds a bridge that never answers at all.
     send: (message) => addToApp(message, CAPTURE_TIMEOUT_MS + CAPTURE_LATE_MS),
@@ -1052,11 +1105,12 @@ async function liveTasks(activity: readonly Activity[]): Promise<TaskStatus[] | 
 async function status(): Promise<StatusReply> {
   const activity = await storedActivity();
   // The ping and the progress query each start a host process; run them side by side.
-  const [result, capture, prefs, tasks] = await Promise.all([
+  const [result, capture, prefs, tasks, until] = await Promise.all([
     callHost(sendNative, pingMessage(newMessageId()), STATUS_TIMEOUT_MS),
     ext.permissions.contains(DOWNLOADS_PERMISSION),
     settings(),
     liveTasks(activity),
+    capturePausedUntil(),
   ]);
   return {
     bridge: bridgeStatus(result),
@@ -1064,6 +1118,7 @@ async function status(): Promise<StatusReply> {
     notify: prefs.notify,
     startApp: prefs.startApp,
     excludedSites: prefs.excludedSites,
+    pausedUntil: until ?? null,
     activity,
     tasks: tasks ?? [],
   };
@@ -1076,7 +1131,15 @@ async function collectFromPopup(tabId: number): Promise<{ opened: boolean }> {
   return { opened: true };
 }
 
-type Reply = StatusReply | TasksReply | PingReply | Settings | LinkResult | MediaReply | { opened: boolean };
+type Reply =
+  | StatusReply
+  | TasksReply
+  | PingReply
+  | PauseReply
+  | Settings
+  | LinkResult
+  | MediaReply
+  | { opened: boolean };
 
 async function answer(request: PopupRequest): Promise<Reply> {
   switch (request.kind) {
@@ -1096,6 +1159,10 @@ async function answer(request: PopupRequest): Promise<Reply> {
       return changeSettings((s) => ({ ...s, ...request.filters }));
     case "set_site_paused":
       return changeSettings((s) => ({ ...s, excludedSites: withSite(s.excludedSites, request.site, request.paused) }));
+    case "pause_capture":
+      return setPause(request.minutes);
+    case "resume_capture":
+      return setPause(null);
     case "collect_links":
       return collectFromPopup(request.tabId);
     case "send_link":

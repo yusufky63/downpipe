@@ -22,6 +22,12 @@ export const popup = {
   resumeSiteTitle: "Downloads from {host} go to Downpipe again",
   /** {site} is the excluded-site pattern that covers this site, e.g. *.example.com. */
   pausedBy: "Paused here by {site}",
+  /** Pauses all of capture, not one site; short so it fits beside Filters. */
+  pauseCapture: "Pause 10 min",
+  pauseCaptureTitle: "Every browser download stays in the browser for 10 minutes. Right-click the toolbar button to pause for an hour.",
+  resumeCapture: "Resume capture",
+  /** Replaces `captureDetail` while capture is paused; {time} is like 14:32. */
+  pausedUntil: "Paused until {time}: downloads stay in the browser.",
   progress: "{label} progress",
   downloadItem: "Download {label} with Downpipe",
   /** Badges for a download's live state in the app. */

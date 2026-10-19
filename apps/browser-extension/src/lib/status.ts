@@ -182,7 +182,9 @@ export function bridgeDown(result: HostResult): boolean {
 
 /** For a captured download the browser kept because Downpipe could not take it. */
 export function keptMessage(result: HostResult): string {
-  const closed = result.ok && result.response.type === "error" && result.response.code === "app_not_running";
-  if (closed) return t("errors.keptClosed");
+  const code = result.ok && result.response.type === "error" ? result.response.code : undefined;
+  if (code === "app_not_running") return t("errors.keptClosed");
+  // Handed back from the app's confirmation dialog: no reason to report.
+  if (code === "in_browser") return t("errors.keptByChoice");
   return t("errors.keptInstead", { reason: downloadOutcome(result).message });
 }
