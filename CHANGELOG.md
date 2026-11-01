@@ -2,6 +2,12 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
+## Unreleased
+
+### New
+
+- **Send to Downpipe from downpipe.xyz.** The website cannot download YouTube (YouTube refuses servers in data centres), so a YouTube link pasted there shows the video with **Send to Downpipe**, which hands it to the app through the extension; the app then asks for the quality as for any YouTube page, or lists a playlist's videos. Chrome and Edge only: the extension's manifest lets that one site (and no other) ask whether it is installed and send it a YouTube video, playlist or channel address, at most once every 3 seconds. Firefox gives web pages no way to reach an extension, so there the website offers the app and the link to copy.
+
 ## 0.5.3 — 2026-11-01
 
 ### New

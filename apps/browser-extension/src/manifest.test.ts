@@ -3,6 +3,7 @@ import rustManifest from "../../../crates/native-host/src/manifest.rs?raw";
 import chrome from "../manifests/chrome.json";
 import firefox from "../manifests/firefox.json";
 import { HOST_NAME } from "./lib/protocol";
+import { WEBSITE_ORIGINS } from "./lib/website";
 import linksHtml from "./links/links.html?raw";
 import optionsHtml from "./options/options.html?raw";
 import popupHtml from "./popup/popup.html?raw";
@@ -29,11 +30,18 @@ describe("manifests", () => {
       expect(m.optional_host_permissions).toEqual(["http://*/*", "https://*/*"]);
       // The overlay button is registered at run time, and only while detection is on.
       expect(m.content_scripts).toBeUndefined();
-      expect(m.externally_connectable).toBeUndefined();
       // The links page is opened by the extension itself; web pages cannot load it.
       expect(m.web_accessible_resources).toBeUndefined();
       expect(JSON.stringify(m)).not.toContain("<all_urls>");
     }
+  });
+
+  it("let only the project's website message the extension, and only in Chrome", () => {
+    // lib/website.ts checks the same origins again; Firefox has no such key.
+    expect(chrome.externally_connectable).toEqual({
+      matches: WEBSITE_ORIGINS.map((origin) => `${origin}/*`),
+    });
+    expect((firefox as Record<string, unknown>).externally_connectable).toBeUndefined();
   });
 
   it("keep permissions minimal and downloads optional", () => {

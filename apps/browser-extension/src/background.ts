@@ -91,6 +91,14 @@ import {
 } from "./lib/status";
 import { linkLabel, referrerFor } from "./lib/url";
 import { pageRowView } from "./lib/view";
+import {
+  WEBSITE_SEND_GAP_MS,
+  isWebsiteSender,
+  parseWebsiteRequest,
+  sendGate,
+  type WebsiteReply,
+  type WebsiteRequest,
+} from "./lib/website";
 
 const MENU_ID = "downpipe-download-link";
 const PAGE_MENU_ID = "downpipe-page-links";
@@ -1196,9 +1204,9 @@ async function answer(request: PopupRequest): Promise<Reply> {
 
 ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // This extension's own pages (popup, options, links page) may ask
-  // anything above. It does not listen to other extensions (no
-  // onMessageExternal), and the injected link collector only returns a
-  // value and never sends messages.
+  // anything above. Other extensions get no answer (onMessageExternal below
+  // takes only downpipe.xyz's two requests), and the injected link
+  // collector only returns a value and never sends messages.
   if (isTrustedSender(sender, ext.runtime.id, ext.runtime.getURL(""))) {
     const request = parsePopupRequest(message);
     if (!request) return false;
@@ -1222,4 +1230,28 @@ ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   return false;
+});
+
+// ---------- downpipe.xyz ----------
+// The website asks whether the extension is here and sends a YouTube page
+// the web cannot download. Only downpipe.xyz can reach this listener (the
+// Chrome manifest's `externally_connectable`); see lib/website.ts.
+
+const websiteMaySend = sendGate(WEBSITE_SEND_GAP_MS);
+
+async function websiteAnswer(request: WebsiteRequest): Promise<WebsiteReply> {
+  if (request.kind === "hello") return { kind: "hello", version: ext.runtime.getManifest().version };
+  if (!websiteMaySend()) return { kind: "sent", outcome: "failed", reason: "too_fast" };
+  // Quiet: the website shows the result next to the button.
+  const result = await sendVideoPage(request.url, request.title, "link", { quiet: true });
+  if (result.outcome !== "failed") return { kind: "sent", outcome: result.outcome };
+  return { kind: "sent", outcome: "failed", reason: result.stop ? "app_unreachable" : "refused" };
+}
+
+ext.runtime.onMessageExternal?.addListener((message, sender, sendResponse) => {
+  if (!isWebsiteSender(sender)) return false;
+  const request = parseWebsiteRequest(message);
+  if (!request) return false;
+  websiteAnswer(request).then(sendResponse, () => sendResponse(null));
+  return true;
 });

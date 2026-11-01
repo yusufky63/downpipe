@@ -24,9 +24,10 @@ export function isTrustedSender(sender: SenderLike, extensionId: string, extensi
 
 /**
  * This extension's content script (the overlay button) in an http(s) page
- * of a tab. Web pages cannot message the extension at all (there is no
- * `externally_connectable`), so the id identifies the script; its requests
- * are still checked as untrusted, since the page around it is.
+ * of a tab. Web pages cannot reach this listener (the one site allowed by
+ * `externally_connectable`, downpipe.xyz, arrives on `onMessageExternal`
+ * without an id), so the id identifies the script; its requests are still
+ * checked as untrusted, since the page around it is.
  */
 export function isOwnContentScript<S extends SenderLike & { tab?: { id?: number } }>(
   sender: S,
