@@ -4,7 +4,13 @@
 //! yt-dlp configuration file on the machine cannot make Downpipe send a
 //! browser's session data, change where files go or download a whole
 //! playlist. The page URL always comes last, after `--`, so it can never be
-//! read as an option.
+//! read as an option; a download that reuses the page's `-J` answer
+//! (`--load-info-json`) passes no URL at all.
+//!
+//! Videos added from a playlist or channel are paced (see [`pacing`]):
+//! yt-dlp waits between the requests it makes and before each download, so
+//! a long list does not reach YouTube as a burst. A single video starts at
+//! once. Listing a playlist or channel waits between its pages too.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -19,6 +25,17 @@ use crate::tools::Tools;
 pub const START: &str = "DOWNPIPE:START";
 pub const PROGRESS: &str = "DOWNPIPE:PROGRESS";
 pub const DONE: &str = "DOWNPIPE:DONE";
+
+/// Seconds yt-dlp waits between the requests it makes to read a page or a
+/// list. This and the waits below are the values of yt-dlp's own `sleep`
+/// preset (`-t sleep`), passed one by one so older versions take them.
+const SLEEP_REQUESTS: &str = "0.75";
+/// yt-dlp waits a random time between these two (seconds) before each
+/// download of a paced video.
+const SLEEP_INTERVAL: &str = "10";
+const MAX_SLEEP_INTERVAL: &str = "20";
+/// Seconds before each subtitle of a paced video.
+const SLEEP_SUBTITLES: &str = "5";
 
 /// Fields of the chosen formats printed before the download starts.
 const FORMAT_FIELDS: &str = "format_id,ext,height,fps,vcodec,acodec,filesize,filesize_approx";
@@ -119,9 +136,29 @@ fn base(tools: &Tools, proxy: Option<&str>) -> Vec<OsString> {
     args
 }
 
-/// `yt-dlp -J` for one page.
-pub fn inspect(url: &str, tools: &Tools, proxy: Option<&str>) -> Vec<OsString> {
+/// The waits of a paced run: between requests, and with `download` also
+/// before the download and each subtitle.
+fn pacing(download: bool) -> Vec<OsString> {
+    let mut args = vec!["--sleep-requests", SLEEP_REQUESTS];
+    if download {
+        args.extend([
+            "--sleep-interval",
+            SLEEP_INTERVAL,
+            "--max-sleep-interval",
+            MAX_SLEEP_INTERVAL,
+            "--sleep-subtitles",
+            SLEEP_SUBTITLES,
+        ]);
+    }
+    args.into_iter().map(OsString::from).collect()
+}
+
+/// `yt-dlp -J` for one page; `paced` for a video of a playlist or channel.
+pub fn inspect(url: &str, tools: &Tools, proxy: Option<&str>, paced: bool) -> Vec<OsString> {
     let mut args = common(tools, proxy);
+    if paced {
+        args.extend(pacing(false));
+    }
     args.push("-J".into());
     args.push("--".into());
     args.push(url.into());
@@ -135,6 +172,7 @@ pub const MAX_LIST_ENTRIES: usize = 5000;
 /// and titles from the list pages alone, without opening each video.
 pub fn list(url: &str, tools: &Tools, proxy: Option<&str>) -> Vec<OsString> {
     let mut args = base(tools, proxy);
+    args.extend(pacing(false));
     args.extend(
         [
             "--yes-playlist",
@@ -164,6 +202,12 @@ pub struct DownloadArgs<'a> {
     pub proxy: Option<&'a str>,
     /// Bytes per second, 0 for no limit.
     pub rate_limit: u64,
+    /// A video of a playlist or channel: wait between requests and before
+    /// the download (see [`pacing`]).
+    pub paced: bool,
+    /// The page's recent `-J` answer, saved to a file, so the page is not
+    /// read a second time.
+    pub info_json: Option<&'a Path>,
 }
 
 /// `yt-dlp` downloading one page into `dir/stem.<ext>`, printing the lines
@@ -211,6 +255,9 @@ pub fn download(d: &DownloadArgs<'_>, tools: &Tools) -> Vec<OsString> {
         args.push("--limit-rate".into());
         args.push(d.rate_limit.to_string().into());
     }
+    if d.paced {
+        args.extend(pacing(true));
+    }
     args.push("-P".into());
     args.push(d.dir.into());
     args.push("-o".into());
@@ -225,8 +272,19 @@ pub fn download(d: &DownloadArgs<'_>, tools: &Tools) -> Vec<OsString> {
     );
     args.push("--print".into());
     args.push(format!("after_move:{DONE} %(filepath)j").into());
-    args.push("--".into());
-    args.push(d.url.into());
+    match d.info_json {
+        // yt-dlp ignores a URL next to `--load-info-json` (with a warning).
+        // When the saved answer no longer works (its links expired), it
+        // reads the page again from the `webpage_url` inside it.
+        Some(path) => {
+            args.push("--load-info-json".into());
+            args.push(path.into());
+        }
+        None => {
+            args.push("--".into());
+            args.push(d.url.into());
+        }
+    }
     args
 }
 
@@ -406,6 +464,8 @@ mod tests {
                 subtitles: &[],
                 proxy: Some("socks5://127.0.0.1:9050"),
                 rate_limit: 1_000_000,
+                paced: false,
+                info_json: None,
             },
             &tools,
         ));
@@ -421,11 +481,12 @@ mod tests {
         assert_eq!(at("--ffmpeg-location"), Some("C:/ffmpeg/ffmpeg.exe"));
         assert_eq!(at("--proxy"), Some("socks5://127.0.0.1:9050"));
         assert_eq!(at("--limit-rate"), Some("1000000"));
-        let direct = text(&inspect("https://youtu.be/x", &tools, Some("")));
+        let direct = text(&inspect("https://youtu.be/x", &tools, Some(""), false));
         let i = direct.iter().position(|a| a == "--proxy").unwrap();
         assert_eq!(direct[i + 1], "", "an empty proxy connects directly");
         assert!(
-            !text(&inspect("https://youtu.be/x", &tools, None)).contains(&"--proxy".to_string())
+            !text(&inspect("https://youtu.be/x", &tools, None, false))
+                .contains(&"--proxy".to_string())
         );
         assert_eq!(at("-P"), Some("D:/Video"));
         assert_eq!(at("-o"), Some("100%% zoo.%(ext)s"));
@@ -490,6 +551,8 @@ mod tests {
                     subtitles: &subs,
                     proxy: None,
                     rate_limit: 0,
+                    paced: false,
+                    info_json: None,
                 },
                 tools,
             ))
@@ -537,13 +600,82 @@ mod tests {
         assert!(args.contains(&"--no-cookies".to_string()));
         assert!(!args.contains(&"--no-playlist".to_string()));
         assert!(args.contains(&"--flat-playlist".to_string()));
+        // The list's pages are read one after another, with a pause.
+        let i = args.iter().position(|a| a == "--sleep-requests").unwrap();
+        assert_eq!(args[i + 1], "0.75");
         assert_eq!(
             &args[args.len() - 3..],
             ["-J", "--", "https://www.youtube.com/playlist?list=PLx"]
         );
         // A video still never takes its playlist along.
-        let args = text(&inspect("https://www.youtube.com/watch?v=x", &tools, None));
+        let args = text(&inspect(
+            "https://www.youtube.com/watch?v=x",
+            &tools,
+            None,
+            false,
+        ));
         assert!(args.contains(&"--no-playlist".to_string()));
+    }
+
+    #[test]
+    fn pacing_and_saved_info() {
+        let tools = Tools {
+            yt_dlp: Some(PathBuf::from("yt-dlp")),
+            js: None,
+            ffmpeg: Some(PathBuf::from("ffmpeg")),
+        };
+        let url = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
+        let run = |paced: bool, info_json: Option<&Path>| {
+            text(&download(
+                &DownloadArgs {
+                    url,
+                    dir: Path::new("D:/Video"),
+                    stem: "Clip",
+                    selection: None,
+                    preset: Some(Preset::P720),
+                    subtitles: &[],
+                    proxy: None,
+                    rate_limit: 0,
+                    paced,
+                    info_json,
+                },
+                &tools,
+            ))
+        };
+        let at = |args: &[String], flag: &str| {
+            args.iter()
+                .position(|a| a == flag)
+                .map(|i| args[i + 1].clone())
+        };
+        // A single video starts at once.
+        let single = run(false, None);
+        assert!(!single.iter().any(|a| a.starts_with("--sleep")));
+        assert!(
+            !text(&inspect(url, &tools, None, false))
+                .iter()
+                .any(|a| a.starts_with("--sleep"))
+        );
+        assert_eq!(&single[single.len() - 2..], ["--", url]);
+        // A playlist's video waits between requests and before downloading.
+        let paced = run(true, None);
+        assert_eq!(at(&paced, "--sleep-requests").as_deref(), Some("0.75"));
+        assert_eq!(at(&paced, "--sleep-interval").as_deref(), Some("10"));
+        assert_eq!(at(&paced, "--max-sleep-interval").as_deref(), Some("20"));
+        assert_eq!(at(&paced, "--sleep-subtitles").as_deref(), Some("5"));
+        let read = text(&inspect(url, &tools, None, true));
+        assert_eq!(at(&read, "--sleep-requests").as_deref(), Some("0.75"));
+        // -J downloads nothing, so there is no wait before a download.
+        assert!(!read.contains(&"--sleep-interval".to_string()));
+        assert_eq!(&read[read.len() - 2..], ["--", url]);
+
+        // A saved answer replaces the URL.
+        let saved = run(false, Some(Path::new("C:/Temp/page.info.json")));
+        assert_eq!(
+            &saved[saved.len() - 2..],
+            ["--load-info-json", "C:/Temp/page.info.json"]
+        );
+        assert!(!saved.contains(&url.to_string()));
+        assert!(!saved.contains(&"--".to_string()));
     }
 
     #[test]

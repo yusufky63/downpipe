@@ -55,6 +55,7 @@ fn main() {
         ("readable_errors_for_common_failures", || {
             Box::pin(readable_errors_for_common_failures())
         }),
+        ("reads_each_page_once", || Box::pin(reads_each_page_once())),
         ("missing_tools_fail_before_starting", || {
             Box::pin(missing_tools_fail_before_starting())
         }),
@@ -182,6 +183,7 @@ fn request(s: &Setup, file_name: Option<&str>, selection: Option<MediaSelection>
         tools: s.tools.clone(),
         proxy: None,
         rate_limit: 0,
+        paced: false,
     }
 }
 
@@ -561,6 +563,11 @@ async fn readable_errors_for_common_failures() {
             ),
             "site_po_token",
         ),
+        (
+            "[youtube] jNQXAC9IVRw: Unable to download API page: HTTP Error 429: Too Many Requests",
+            None,
+            "site_rate_limited",
+        ),
     ];
     for (error, warning, kind) in cases {
         let s = setup(&Scenario {
@@ -571,6 +578,86 @@ async fn readable_errors_for_common_failures() {
         let err = info::inspect(&s.tools, URL, None).await.unwrap_err();
         assert_eq!(err.kind(), *kind, "{error}");
     }
+}
+
+/// The value after `flag` in one run's arguments.
+fn value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+    let at = args.iter().position(|a| a == flag)?;
+    args.get(at + 1).map(String::as_str)
+}
+
+async fn reads_each_page_once() {
+    let s = setup(&Scenario {
+        info: info_fixture(),
+        parts: two_parts(),
+        merged_ext: "mp4".into(),
+        step: 100_000,
+        ..Scenario::default()
+    });
+    // The quality dialog reads the page; the download takes that answer.
+    info::inspect(&s.tools, URL, None).await.unwrap();
+    let (outcome, _) = finish(job::start(request(&s, Some("Zoo.mp4"), None))).await;
+    assert!(
+        matches!(outcome, Ok(Outcome::Completed { .. })),
+        "{outcome:?}"
+    );
+    let runs = calls(&s.yt_dlp);
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    let saved = value(&runs[1], "--load-info-json").expect("the saved answer");
+    assert!(!runs[1].contains(&URL.to_string()), "no second read");
+    assert!(!Path::new(saved).exists(), "the file is deleted afterwards");
+    // A single video does not wait.
+    assert!(!runs[1].iter().any(|a| a.starts_with("--sleep")));
+
+    // Under another proxy the answer is not used: YouTube's links are tied
+    // to the address that asked.
+    let mut req = request(&s, Some("Proxied.mp4"), None);
+    req.proxy = Some("http://127.0.0.1:3128".into());
+    let (outcome, _) = finish(job::start(req)).await;
+    assert!(matches!(outcome, Ok(Outcome::Completed { .. })));
+    let args = calls(&s.yt_dlp).last().unwrap().clone();
+    assert!(value(&args, "--load-info-json").is_none());
+    assert_eq!(&args[args.len() - 2..], ["--", URL]);
+
+    // A playlist's video without a name: the read that names it is paced,
+    // and the download that follows takes its answer and waits first.
+    let mut req = request(&s, None, None);
+    req.preset = Some(Preset::P720);
+    req.index = Some((1, 2));
+    req.paced = true;
+    let before = calls(&s.yt_dlp).len();
+    let (outcome, _) = finish(job::start(req)).await;
+    assert!(matches!(outcome, Ok(Outcome::Completed { .. })));
+    let runs = calls(&s.yt_dlp);
+    assert_eq!(runs.len(), before + 2);
+    let (read, download) = (&runs[before], &runs[before + 1]);
+    assert!(read.contains(&"-J".to_string()));
+    assert_eq!(value(read, "--sleep-requests"), Some("0.75"));
+    assert!(value(download, "--load-info-json").is_some());
+    assert_eq!(value(download, "--sleep-interval"), Some("10"));
+    assert_eq!(value(download, "--max-sleep-interval"), Some("20"));
+
+    // After a failure the next try reads the page afresh.
+    fake_tools::set_scenario(
+        &s.yt_dlp,
+        &Scenario {
+            info: info_fixture(),
+            parts: two_parts(),
+            merged_ext: "mp4".into(),
+            step: 100_000,
+            error_after: Some(100_000),
+            ..Scenario::default()
+        },
+    );
+    info::inspect(&s.tools, URL, None).await.unwrap();
+    let (outcome, _) = finish(job::start(request(&s, Some("Retry.mp4"), None))).await;
+    assert!(outcome.is_err());
+    assert!(value(calls(&s.yt_dlp).last().unwrap(), "--load-info-json").is_some());
+    let (outcome, _) = finish(job::start(request(&s, Some("Retry.mp4"), None))).await;
+    assert!(outcome.is_err());
+    let args = calls(&s.yt_dlp).last().unwrap().clone();
+    assert!(value(&args, "--load-info-json").is_none(), "{args:?}");
+    assert_eq!(&args[args.len() - 2..], ["--", URL]);
 }
 
 async fn failures_are_classified() {

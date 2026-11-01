@@ -17,8 +17,9 @@ export const media = {
     ageRestricted: "YouTube shows this video only to signed-in adults. Downpipe does not use accounts or browser cookies, so it cannot download it.",
     unavailable: "This video is unavailable: it is private, removed, members-only or blocked in your region.",
     jsRuntime: "yt-dlp could not answer YouTube's JavaScript challenges. Download Deno in Settings, Media, then try again.",
-    poToken: "YouTube asked for a proof-of-origin (PO) token for this video. Update yt-dlp in Settings, Media, or choose another quality.",
+    poToken: "YouTube wants a proof-of-origin (PO) token for this quality, which Downpipe does not provide. Choose another quality or try again later.",
     outdated: "yt-dlp no longer understands this page; YouTube probably changed it. Update yt-dlp in Settings, Media, then try again.",
+    rateLimited: "YouTube is getting too many requests from this network and asked to slow down. Wait a while before trying again; a download that hits this tries again later by itself.",
   },
   /** A quality with sound and no picture; also what the engine calls it. */
   audioOnly: "Audio only",

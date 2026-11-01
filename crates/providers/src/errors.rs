@@ -7,6 +7,10 @@ use downpipe_http::DownloadError;
 /// Characters of yt-dlp's message kept for the user.
 const MAX_MESSAGE: usize = 300;
 
+/// The kind of "too many requests" (HTTP 429), which the core retries later
+/// instead of failing for good.
+pub const RATE_LIMITED: &str = "site_rate_limited";
+
 pub(crate) fn no_yt_dlp() -> DownloadError {
     DownloadError::ToolMissing(
         "yt-dlp is not set up. Settings, Media can download it, or set the path to yt-dlp there."
@@ -91,6 +95,14 @@ pub(crate) fn classify(lines: &[String], code: Option<i32>, ffmpeg: bool) -> Dow
     if has(&["ffmpeg"]) && has(&["not found", "not installed", "could not find"]) {
         return no_ffmpeg();
     }
+    // Before the network check: yt-dlp words it "Unable to download ...:
+    // HTTP Error 429: Too Many Requests".
+    if has(&["http error 429", "too many requests"]) {
+        return site(
+            RATE_LIMITED,
+            "YouTube is getting too many requests from this network and asked to slow down (HTTP 429). Wait a while before trying again; a download that hits this tries again later by itself.",
+        );
+    }
     let js_runtime = [
         "javascript runtime",
         "js runtime",
@@ -109,7 +121,7 @@ pub(crate) fn classify(lines: &[String], code: Option<i32>, ffmpeg: bool) -> Dow
     if has(&po_token) || (has(&["http error 403"]) && warned(&po_token)) {
         return site(
             "site_po_token",
-            "YouTube asked for a proof-of-origin (PO) token for this video. Update yt-dlp in Settings, Media, or choose another quality.",
+            "YouTube wants a proof-of-origin (PO) token for this quality, which Downpipe does not provide. Choose another quality or try again later.",
         );
     }
     if has(&[
@@ -302,6 +314,16 @@ mod tests {
             ),
             "site_po_token"
         );
+        // Updating yt-dlp does not remove the token requirement, so the
+        // text does not suggest it.
+        let po = classify(
+            &lines("ERROR: [youtube] x: This format requires a GVS PO Token"),
+            Some(1),
+            true,
+        )
+        .to_string();
+        assert!(po.contains("another quality"), "{po}");
+        assert!(!po.contains("Update yt-dlp"), "{po}");
         assert_eq!(
             kind(
                 "ERROR: [youtube] x: Unable to extract yt initial data; please report this issue",
@@ -350,6 +372,36 @@ mod tests {
             "network"
         );
         assert_eq!(kind("ERROR: something new", true), "extractor");
+    }
+
+    #[test]
+    fn too_many_requests() {
+        let kind = |text: &str| classify(&lines(text), Some(1), true).kind();
+        for text in [
+            "ERROR: [youtube] jNQXAC9IVRw: Unable to download API page: HTTP Error 429: Too Many Requests",
+            "ERROR: unable to download video data: HTTP Error 429: Too Many Requests",
+            "ERROR: [youtube:tab] PLx: Unable to download webpage: HTTP Error 429: Too Many Requests (caused by <HTTPError 429: Too Many Requests>)",
+            "ERROR: [youtube] x: Too many requests",
+        ] {
+            assert_eq!(kind(text), RATE_LIMITED, "{text}");
+        }
+        let err = classify(
+            &lines("ERROR: unable to download video data: HTTP Error 429: Too Many Requests"),
+            Some(1),
+            true,
+        );
+        assert!(downpipe_http::SITE_KINDS.contains(&err.kind()));
+        let text = err.to_string();
+        assert!(text.contains("Wait a while"), "{text}");
+        assert!(
+            text.contains("HTTP Error 429"),
+            "yt-dlp's words are kept: {text}"
+        );
+        // Other server errors stay network errors, retried as before.
+        assert_eq!(
+            kind("ERROR: unable to download video data: HTTP Error 503: Service Unavailable"),
+            "network"
+        );
         assert_eq!(
             classify(&[], Some(2), true).to_string(),
             "yt-dlp stopped with exit code 2"

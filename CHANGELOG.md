@@ -7,7 +7,13 @@ All notable changes to Downpipe. Dates are YYYY-MM-DD.
 ### New
 
 - **Pause capture for a while.** **Pause 10 min** under the capture switch in the extension's popup, and **Pause capture for 10 minutes** or **for 1 hour** on the toolbar button's right-click menu, leave every browser download to the browser until the time is up, without turning capture off (which takes the `downloads` permission away and asks for it again later). The popup says until when and has **Resume capture**; a browser restart also ends the pause.
+- **Gentler on YouTube.** YouTube videos download one at a time (other downloads are not affected), and the videos of a playlist or channel wait 10 to 20 seconds before each download and a moment between YouTube requests, as yt-dlp's own `sleep` preset does; a single video still starts at once. A video whose qualities were just shown is not read from YouTube a second time for its download.
+- **"Too many requests" from YouTube** (HTTP 429) has its own explanation in your language. Such a download tries again by itself after 5 minutes, then 10, 20, 40 and 60, and no other YouTube download starts in the meantime; **Resume** tries at once.
 - **Download in the browser** in the confirmation window. For a file a site only gives the browser (a sign-in, a one-time link), the link beside the address removes the download from Downpipe and opens it in your browser, which downloads it with your sign-in; capture leaves that download alone, and the popup lists it as **In browser**. New bridge answer `in_browser`.
+
+### Changed
+
+- **PO token explanation.** When YouTube wants a proof-of-origin (PO) token for a quality, Downpipe now says that it does not provide one and to choose another quality or try later, instead of suggesting a yt-dlp update, which does not help.
 
 ## 0.5.2 — 2026-10-18
 

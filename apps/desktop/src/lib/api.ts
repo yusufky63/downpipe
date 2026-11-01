@@ -258,6 +258,8 @@ export interface SiteInfo {
   /** Position in the playlist it was added from, and that playlist's size. */
   index?: number;
   count?: number;
+  /** "Too many requests" answers in a row; each waits longer before the retry. */
+  rate_limited?: number;
 }
 
 /** A quality for every video of a playlist. */

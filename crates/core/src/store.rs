@@ -415,6 +415,8 @@ mod tests {
             title: Some("Me at the zoo".into()),
             index: Some(3),
             count: Some(12),
+            // Waiting after "too many requests" for the second time.
+            rate_limited: 2,
         });
         store.upsert(&r).unwrap();
         assert_eq!(store.all().unwrap(), vec![r]);

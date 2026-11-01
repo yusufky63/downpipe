@@ -26,6 +26,13 @@ pub struct Page {
 
 pub const YOUTUBE: &str = "YouTube";
 
+/// How many downloads of a site may run at once, whatever the queues
+/// allow: one for YouTube, so a playlist's videos are fetched one after
+/// another rather than side by side. `None`: no limit of its own.
+pub fn running_limit(site: &str) -> Option<usize> {
+    (site == YOUTUBE).then_some(1)
+}
+
 /// The page behind a link, if a provider takes it.
 pub fn recognize(url: &Url) -> Option<Page> {
     if !matches!(url.scheme(), "http" | "https") {

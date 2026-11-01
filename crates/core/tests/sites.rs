@@ -15,6 +15,7 @@ use downpipe_core::{
     AddListOptions, AddOptions, ConfirmOptions, CoreError, ListPick, Manager, ManagerEvent,
     Settings, TaskSnapshot, TaskState,
 };
+use downpipe_test_server::TestServer;
 use downpipe_test_server::fake_tools::{self, FakePart, Scenario, calls, part_content};
 
 type Case = fn() -> Pin<Box<dyn Future<Output = ()>>>;
@@ -45,6 +46,12 @@ fn main() {
         }),
         ("site_failures_keep_their_kind", || {
             Box::pin(site_failures_keep_their_kind())
+        }),
+        ("youtube_runs_one_at_a_time", || {
+            Box::pin(youtube_runs_one_at_a_time())
+        }),
+        ("too_many_requests_waits_then_retries", || {
+            Box::pin(too_many_requests_waits_then_retries())
         }),
     ];
     let filter: Vec<String> = std::env::args()
@@ -285,10 +292,13 @@ async fn confirm_with_a_quality_then_download() {
     assert_eq!(std::fs::read(e.out.join("Zoo.mp4")).unwrap(), expected);
 
     let runs = calls(&e.yt_dlp);
-    // -J for the dialog, then the download.
+    // -J for the dialog, then the download, from the dialog's answer: the
+    // page is read once.
     assert_eq!(runs.len(), 2);
     let args = &runs[1];
     let at = |flag: &str| args[args.iter().position(|a| a == flag).unwrap() + 1].clone();
+    assert!(!at("--load-info-json").is_empty());
+    assert!(!args.iter().any(|a| a.contains("watch?v=")), "{args:?}");
     assert_eq!(at("-f"), "134+140/bv*[height<=240]+ba/b[height<=240]/b");
     assert!(at("--js-runtimes").starts_with("deno:"));
     assert!(args.contains(&"--ffmpeg-location".to_string()));
@@ -645,4 +655,170 @@ async fn site_failures_keep_their_kind() {
     assert_eq!(inspect.code(), "site_sign_in");
     let list = e.manager.inspect_list(LIST).await.unwrap_err();
     assert_eq!(list.code(), "site_sign_in");
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+const FIRST: &str = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
+const SECOND: &str = "https://www.youtube.com/watch?v=aqz-KE-bpKQ";
+
+async fn youtube_runs_one_at_a_time() {
+    let e = env(&Scenario {
+        info: info_fixture(),
+        parts: parts(),
+        merged_ext: "mp4".into(),
+        step: 10_000,
+        delay_ms: 40,
+        ..Scenario::default()
+    })
+    .await;
+    e.manager
+        .update_settings(Settings {
+            max_concurrent_downloads: 4,
+            ..e.manager.settings()
+        })
+        .unwrap();
+    let server = TestServer::start().await.unwrap();
+    let first = add(&e.manager, FIRST, false);
+    let second = add(&e.manager, SECOND, false);
+    // Another download is not held back by YouTube's limit.
+    let plain = add(&e.manager, &server.url("/file/65536"), false);
+    let plain = wait_for(&e.manager, &plain.record.id, |t| {
+        t.record.state.is_finished() || t.record.state == TaskState::Failed
+    })
+    .await;
+    assert_eq!(plain.record.state, TaskState::Completed);
+    assert_eq!(
+        e.manager.get(&second.record.id).unwrap().record.state,
+        TaskState::Queued,
+        "the second video waits for the first"
+    );
+    // While the first runs, the second stays queued, though the queue
+    // has room.
+    loop {
+        let one = e.manager.get(&first.record.id).unwrap().record.state;
+        let two = e.manager.get(&second.record.id).unwrap().record.state;
+        if one.is_finished() || one == TaskState::Failed {
+            break;
+        }
+        assert_eq!(two, TaskState::Queued, "first is {one:?}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    for task in [&first, &second] {
+        let done = wait_for(&e.manager, &task.record.id, |t| {
+            t.record.state.is_finished() || t.record.state == TaskState::Failed
+        })
+        .await;
+        assert_eq!(
+            done.record.state,
+            TaskState::Completed,
+            "{:?}",
+            done.record.error
+        );
+    }
+}
+
+async fn too_many_requests_waits_then_retries() {
+    let refused = Scenario {
+        info: info_fixture(),
+        error: Some(
+            "[youtube] jNQXAC9IVRw: Unable to download API page: HTTP Error 429: Too Many Requests"
+                .into(),
+        ),
+        ..Scenario::default()
+    };
+    let e = env(&refused).await;
+    let before = unix_now();
+    let task = add(&e.manager, FIRST, false);
+    let failed = wait_for(&e.manager, &task.record.id, |t| {
+        t.record.state == TaskState::Failed
+    })
+    .await;
+    assert_eq!(
+        failed.record.error_kind.as_deref(),
+        Some("site_rate_limited")
+    );
+    assert_eq!(failed.record.site.as_ref().unwrap().rate_limited, 1);
+    // It tries again by itself in five minutes, not at once.
+    let at = failed.record.resume_at.expect("a time to try again");
+    assert!(
+        (before + 300..=unix_now() + 300).contains(&at),
+        "{at} vs {before}"
+    );
+
+    // Meanwhile no other YouTube download starts.
+    let other = add(&e.manager, SECOND, false);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        e.manager.get(&other.record.id).unwrap().record.state,
+        TaskState::Queued
+    );
+    let runs = calls(&e.yt_dlp).len();
+
+    // At its time it tries again; refused again, it waits twice as long.
+    e.manager.resume_due(at);
+    let again = wait_for(&e.manager, &task.record.id, |t| {
+        t.record.state == TaskState::Failed && t.record.resume_at.is_some_and(|a| a > at)
+    })
+    .await;
+    assert_eq!(again.record.site.as_ref().unwrap().rate_limited, 2);
+    let wait = again.record.resume_at.unwrap() - unix_now();
+    assert!((595..=600).contains(&wait), "{wait}");
+    assert_eq!(calls(&e.yt_dlp).len(), runs + 1, "one try, not a loop");
+    assert_eq!(
+        e.manager.get(&other.record.id).unwrap().record.state,
+        TaskState::Queued
+    );
+
+    // Once YouTube answers again, both finish, one after the other.
+    fake_tools::set_scenario(
+        &e.yt_dlp,
+        &Scenario {
+            info: info_fixture(),
+            parts: parts(),
+            merged_ext: "mp4".into(),
+            step: 50_000,
+            ..Scenario::default()
+        },
+    );
+    e.manager.resume_due(again.record.resume_at.unwrap());
+    for id in [&task.record.id, &other.record.id] {
+        let done = wait_for(&e.manager, id, |t| t.record.state.is_finished()).await;
+        assert_eq!(done.record.state, TaskState::Completed);
+        assert_eq!(done.record.site.as_ref().unwrap().rate_limited, 0);
+        assert_eq!(done.record.resume_at, None);
+    }
+
+    // Retrying by hand does not wait for the site's time.
+    fake_tools::set_scenario(&e.yt_dlp, &refused);
+    let third = add(
+        &e.manager,
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        false,
+    );
+    wait_for(&e.manager, &third.record.id, |t| {
+        t.record.state == TaskState::Failed
+    })
+    .await;
+    fake_tools::set_scenario(
+        &e.yt_dlp,
+        &Scenario {
+            info: info_fixture(),
+            parts: parts(),
+            merged_ext: "mp4".into(),
+            step: 50_000,
+            ..Scenario::default()
+        },
+    );
+    e.manager.resume(&third.record.id).unwrap();
+    let done = wait_for(&e.manager, &third.record.id, |t| {
+        t.record.state.is_finished()
+    })
+    .await;
+    assert_eq!(done.record.state, TaskState::Completed);
 }

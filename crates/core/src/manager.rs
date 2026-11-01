@@ -14,7 +14,9 @@ use downpipe_http::{
 };
 use downpipe_providers::install::{self, Tool};
 use downpipe_providers::naming::{self, NameFields};
-use downpipe_providers::{SiteRequest, ToolConfig, Tools, ToolsStatus, files as site_files, pages};
+use downpipe_providers::{
+    RATE_LIMITED, SiteRequest, ToolConfig, Tools, ToolsStatus, files as site_files, pages,
+};
 use parking_lot::Mutex;
 use serde::Serialize;
 use tokio::sync::broadcast;
@@ -46,6 +48,11 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 /// with the wall clock, so a computer that slept through one still resumes
 /// the download when it wakes.
 const RESUME_CHECK_EVERY: Duration = Duration::from_secs(5);
+/// How long (seconds) a video page download that the site answered "too
+/// many requests" waits before it tries again by itself, by the number of
+/// such answers in a row. After the last it stays failed until it is
+/// resumed by hand. No other download of that site starts meanwhile.
+const RATE_LIMIT_WAITS: [i64; 5] = [5 * 60, 10 * 60, 20 * 60, 40 * 60, 60 * 60];
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
@@ -154,6 +161,10 @@ struct State {
     settings: Settings,
     tasks: Vec<Entry>,
     shutting_down: bool,
+    /// Sites ("YouTube") that answered "too many requests", with the time
+    /// (Unix seconds) until which none of their downloads starts. Memory
+    /// only: the downloads keep their own `resume_at`.
+    site_waits: HashMap<String, i64>,
 }
 
 #[derive(Debug)]
@@ -270,6 +281,7 @@ impl Manager {
                     settings,
                     tasks,
                     shutting_down: false,
+                    site_waits: HashMap::new(),
                 }),
                 events,
                 tools_dir: data_dir.join(TOOLS_DIR),
@@ -542,12 +554,18 @@ impl Manager {
         })
     }
 
-    /// Queue the downloads paused until `now` or earlier. The manager calls
-    /// this itself every few seconds with the current time.
+    /// Queue the downloads paused until `now` or earlier, and let a site
+    /// that asked to slow down start downloads again once its time is up.
+    /// The manager calls this itself every few seconds with the current
+    /// time.
     pub fn resume_due(&self, now: i64) {
-        let due: Vec<TaskId> = {
-            let st = self.inner.state.lock();
-            st.tasks
+        let (due, freed): (Vec<TaskId>, bool) = {
+            let mut st = self.inner.state.lock();
+            let waiting = st.site_waits.len();
+            st.site_waits.retain(|_, until| *until > now);
+            let freed = st.site_waits.len() < waiting;
+            let due = st
+                .tasks
                 .iter()
                 .filter(|e| {
                     e.record.resume_at.is_some_and(|at| at <= now)
@@ -556,12 +574,16 @@ impl Manager {
                         && !e.live.awaiting_confirmation
                 })
                 .map(|e| e.record.id.clone())
-                .collect()
+                .collect();
+            (due, freed)
         };
         for id in due {
             if let Err(e) = self.resume(&id) {
                 tracing::warn!(task = id, "could not resume at its time: {e}");
             }
+        }
+        if freed {
+            self.inner.schedule();
         }
     }
 
@@ -598,6 +620,13 @@ impl Manager {
             match entry.record.state {
                 TaskState::Queued => Ok(None),
                 s if s.can_resume() => {
+                    // Retrying a download the site asked to wait for is the
+                    // user's call: the site's other downloads may start too.
+                    if entry.record.error_kind.as_deref() == Some(RATE_LIMITED)
+                        && let Some(site) = &entry.record.site
+                    {
+                        st.site_waits.remove(&site.site);
+                    }
                     // Resuming one held for confirmation by hand accepts it
                     // as it is.
                     entry.live.awaiting_confirmation = false;
@@ -1787,13 +1816,21 @@ impl Inner {
                 store,
                 tasks,
                 settings,
+                site_waits,
                 ..
             } = &mut *st;
             let entry = tasks
                 .iter_mut()
                 .find(|e| e.record.id == id)
                 .ok_or_else(|| CoreError::NotFound(id.to_string()))?;
-            f(&mut StateParts { store, settings }, entry)?
+            f(
+                &mut StateParts {
+                    store,
+                    settings,
+                    site_waits,
+                },
+                entry,
+            )?
         };
         if let Some(task) = snapshot {
             self.emit(ManagerEvent::Updated {
@@ -1821,13 +1858,19 @@ impl Inner {
                 store,
                 tasks,
                 settings,
+                site_waits,
                 ..
             } = &mut *st;
-            // Each queue runs up to its own limit, in its own order.
-            let mut running: std::collections::HashMap<String, usize> =
-                std::collections::HashMap::new();
+            // Each queue runs up to its own limit, in its own order, and a
+            // site with a limit of its own (YouTube) up to that, whatever
+            // queues its downloads are in.
+            let mut running: HashMap<String, usize> = HashMap::new();
+            let mut on_site: HashMap<String, usize> = HashMap::new();
             for e in tasks.iter().filter(|e| e.control.is_some()) {
                 *running.entry(e.record.queue.clone()).or_default() += 1;
+                if let Some(site) = &e.record.site {
+                    *on_site.entry(site.site.clone()).or_default() += 1;
+                }
             }
             let mut order: Vec<usize> = (0..tasks.len()).collect();
             order.sort_by_key(|&i| tasks[i].record.position);
@@ -1839,6 +1882,16 @@ impl Inner {
                 let busy = running.entry(entry.record.queue.clone()).or_default();
                 if *busy >= settings.queue_limit(&entry.record.queue) {
                     continue;
+                }
+                if let Some(site) = &entry.record.site {
+                    if site_waits.contains_key(&site.site) {
+                        continue;
+                    }
+                    let n = on_site.entry(site.site.clone()).or_default();
+                    if pages::running_limit(&site.site).is_some_and(|limit| *n >= limit) {
+                        continue;
+                    }
+                    *n += 1;
                 }
                 *busy += 1;
                 // Looked up at every start, so a rule changed while the
@@ -2076,6 +2129,7 @@ impl Inner {
                 store,
                 tasks,
                 settings,
+                site_waits,
                 ..
             } = &mut *st;
             let idx = tasks.iter().position(|e| e.record.id == id)?;
@@ -2127,6 +2181,9 @@ impl Inner {
                     r.error_kind = None;
                     r.resume_at = None;
                     r.post = None;
+                    if let Some(site) = r.site.as_mut() {
+                        site.rate_limited = 0;
+                    }
                     entry.live.segments.clear();
                     entry.set_state(TaskState::Completed);
                     // A download removed while it finished gets no steps.
@@ -2157,6 +2214,24 @@ impl Inner {
                     tracing::info!(task = id, kind = err.kind(), "download failed: {err}");
                     r.error = Some(err.to_string());
                     r.error_kind = Some(err.kind().to_string());
+                    if err.kind() == RATE_LIMITED
+                        && let Some(site) = r.site.as_mut()
+                    {
+                        // Later, and later each time; never at once, which
+                        // would only ask again while the site is refusing.
+                        site.rate_limited = site.rate_limited.saturating_add(1);
+                        let tries = site.rate_limited as usize;
+                        let wait = RATE_LIMIT_WAITS
+                            .get(tries - 1)
+                            .copied()
+                            .unwrap_or(RATE_LIMIT_WAITS[RATE_LIMIT_WAITS.len() - 1]);
+                        let until = unix_now() + wait;
+                        if tries <= RATE_LIMIT_WAITS.len() {
+                            r.resume_at = Some(until);
+                        }
+                        let held = site_waits.entry(site.site.clone()).or_default();
+                        *held = (*held).max(until);
+                    }
                     entry.set_state(TaskState::Failed);
                 }
             }
@@ -2176,6 +2251,7 @@ impl Inner {
 struct StateParts<'a> {
     store: &'a mut Store,
     settings: &'a Settings,
+    site_waits: &'a mut HashMap<String, i64>,
 }
 
 impl Entry {
@@ -2266,6 +2342,8 @@ impl Entry {
             tools,
             proxy: site_proxy(settings, rule),
             rate_limit,
+            // Added from a playlist or channel.
+            paced: self.record.site.as_ref().is_some_and(|s| s.index.is_some()),
         }
     }
 }

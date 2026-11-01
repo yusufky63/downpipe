@@ -13,9 +13,12 @@ use crate::progress::WaitReason;
 /// * `site_age_restricted`: only signed-in adults may watch it.
 /// * `site_js_runtime`: yt-dlp could not answer the site's JavaScript
 ///   challenges, because no JavaScript runtime (Deno) is set up.
-/// * `site_po_token`: the site wants a proof-of-origin token yt-dlp could
-///   not make for this video.
+/// * `site_po_token`: the site wants a proof-of-origin token for this
+///   quality, which Downpipe does not provide; another quality or a later
+///   try is what helps.
 /// * `site_outdated`: yt-dlp no longer understands the site's pages.
+/// * `site_rate_limited`: the site answered "too many requests" (HTTP 429);
+///   only waiting helps, and the core retries such a download later.
 pub const SITE_KINDS: &[&str] = &[
     "site_forbidden",
     "site_sign_in",
@@ -23,6 +26,7 @@ pub const SITE_KINDS: &[&str] = &[
     "site_js_runtime",
     "site_po_token",
     "site_outdated",
+    "site_rate_limited",
 ];
 
 /// Everything that can stop a download, grouped so callers can tell the user

@@ -4,9 +4,14 @@
 //! with `--continue`, which picks up its `.part` files and skips formats it
 //! already has. Cancelling also deletes those files. The stem of the file
 //! name is fixed before the first start (see [`crate::files`]).
+//!
+//! When the page was read a few minutes ago (the quality dialog, or the
+//! read that names the file), yt-dlp downloads from that answer instead of
+//! reading the page again (see [`info::REUSE_FOR`]).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use downpipe_http::media::MediaSelection;
 use downpipe_http::{
@@ -53,6 +58,10 @@ pub struct SiteRequest {
     pub proxy: Option<String>,
     /// Bytes per second, 0 for no limit.
     pub rate_limit: u64,
+    /// Added from a playlist or channel: yt-dlp waits between requests and
+    /// before downloading, so a list's videos do not reach the site as a
+    /// burst. A single video starts at once.
+    pub paced: bool,
 }
 
 /// Start (or resume) a site download on the current Tokio runtime.
@@ -73,7 +82,7 @@ async fn run(req: SiteRequest, ctx: JobContext) -> Result<Outcome, DownloadError
             // title names it. Reading the page first also refuses live and
             // protected videos before anything is written.
             let info = tokio::select! {
-                info = info::inspect(&req.tools, &req.url, req.proxy.as_deref()) => info?,
+                info = info::read(&req.tools, &req.url, req.proxy.as_deref(), req.paced) => info?,
                 () = ctx.stopped() => return Ok(stopped(&ctx, None, &Tracker::default())),
             };
             naming::stem(
@@ -103,6 +112,10 @@ async fn run(req: SiteRequest, ctx: JobContext) -> Result<Outcome, DownloadError
         "mp4"
     };
     let file_name = format!("{stem}.{guess}");
+    let saved = match info::recent(&yt_dlp, &req.url, req.proxy.as_deref()) {
+        Some(json) => SavedInfo::write(&json).await,
+        None => None,
+    };
 
     let mut progress = Progress::starting();
     progress.file_name = Some(file_name);
@@ -121,6 +134,8 @@ async fn run(req: SiteRequest, ctx: JobContext) -> Result<Outcome, DownloadError
                 subtitles: &req.subtitles,
                 proxy: req.proxy.as_deref(),
                 rate_limit: req.rate_limit,
+                paced: req.paced,
+                info_json: saved.as_ref().map(SavedInfo::path),
             },
             &req.tools,
         ))
@@ -204,6 +219,10 @@ async fn run(req: SiteRequest, ctx: JobContext) -> Result<Outcome, DownloadError
     // 101: `--max-downloads` was reached, which is the normal end of one
     // video for some yt-dlp versions.
     let ok = status.success() || status.code() == Some(101);
+    if !ok || tracker.done.is_none() {
+        // A try after a failure reads the page afresh.
+        info::forget(&yt_dlp, &req.url, req.proxy.as_deref());
+    }
     match tracker.done.clone() {
         Some(path) if ok => {
             let bytes = tokio::fs::metadata(&path).await?.len();
@@ -231,6 +250,40 @@ async fn run(req: SiteRequest, ctx: JobContext) -> Result<Outcome, DownloadError
 enum Line {
     Out(String),
     Err(String),
+}
+
+/// A page's `-J` answer in a file of its own for `--load-info-json`,
+/// deleted when the run is over.
+struct SavedInfo(PathBuf);
+
+impl SavedInfo {
+    /// `None` when the file cannot be written: the page is then read again.
+    async fn write(json: &[u8]) -> Option<Self> {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "downpipe-{}-{}.info.json",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        match tokio::fs::write(&path, json).await {
+            Ok(()) => Some(Self(path)),
+            Err(e) => {
+                tracing::debug!("could not save the page's answer for yt-dlp: {e}");
+                let _ = std::fs::remove_file(&path);
+                None
+            }
+        }
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for SavedInfo {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 fn publish(ctx: &JobContext, progress: &mut Progress, tracker: &Tracker) {

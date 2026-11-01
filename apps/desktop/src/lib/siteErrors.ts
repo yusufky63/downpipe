@@ -11,15 +11,19 @@ export const SITE_FAILURE_TEXTS: Partial<Record<string, MessageKey>> = {
   site_js_runtime: "media.siteErrors.jsRuntime",
   site_po_token: "media.siteErrors.poToken",
   site_outdated: "media.siteErrors.outdated",
+  site_rate_limited: "media.siteErrors.rateLimited",
   unavailable: "media.siteErrors.unavailable",
 };
 
-/** Failures Settings, Media can fix: a missing tool, or a yt-dlp to update. */
+/**
+ * Failures Settings, Media can fix: a missing tool, or a yt-dlp to update.
+ * Not a PO token (no update provides one) or too many requests (only
+ * waiting helps).
+ */
 export const SITE_SETUP_KINDS: ReadonlySet<string> = new Set([
   "tool_missing",
   "site_forbidden",
   "site_js_runtime",
-  "site_po_token",
   "site_outdated",
 ]);
 

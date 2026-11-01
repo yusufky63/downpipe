@@ -565,11 +565,15 @@ static EN_FAILURES: &[(&str, &str)] = &[
     ),
     (
         "site_po_token",
-        "YouTube asked for a proof-of-origin (PO) token for this video. Update yt-dlp in Settings, Media, or choose another quality.",
+        "YouTube wants a proof-of-origin (PO) token for this quality, which Downpipe does not provide. Choose another quality or try again later.",
     ),
     (
         "site_outdated",
         "yt-dlp no longer understands this page; YouTube probably changed it. Update yt-dlp in Settings, Media, then try again.",
+    ),
+    (
+        "site_rate_limited",
+        "YouTube is getting too many requests from this network and asked to slow down. Wait a while before trying again; a download that hits this tries again later by itself.",
     ),
 ];
 
@@ -676,11 +680,15 @@ static TR_FAILURES: &[(&str, &str)] = &[
     ),
     (
         "site_po_token",
-        "YouTube bu video için bir kaynak kanıtı (PO) belirteci istedi. Ayarlar'ın Medya sekmesinden yt-dlp'yi güncelleyin ya da başka bir kalite seçin.",
+        "YouTube bu kalite için bir kaynak kanıtı (PO) belirteci istiyor; Downpipe bu belirteci sağlamaz. Başka bir kalite seçin ya da daha sonra yeniden deneyin.",
     ),
     (
         "site_outdated",
         "yt-dlp bu sayfayı artık anlamıyor; YouTube muhtemelen sayfayı değiştirdi. Ayarlar'ın Medya sekmesinden yt-dlp'yi güncelleyip yeniden deneyin.",
+    ),
+    (
+        "site_rate_limited",
+        "YouTube bu ağdan çok fazla istek aldığı için yavaşlamayı istedi. Yeniden denemeden önce bir süre bekleyin; buna takılan bir indirme daha sonra kendiliğinden yeniden dener.",
     ),
 ];
 
@@ -796,11 +804,15 @@ static ES_FAILURES: &[(&str, &str)] = &[
     ),
     (
         "site_po_token",
-        "YouTube pidió un token de prueba de origen (PO) para este video. Actualiza yt-dlp en Configuración, Multimedia o elige otra calidad.",
+        "YouTube pide un token de prueba de origen (PO) para esta calidad, y Downpipe no lo proporciona. Elige otra calidad o vuelve a intentarlo más tarde.",
     ),
     (
         "site_outdated",
         "yt-dlp ya no entiende esta página; probablemente YouTube la cambió. Actualiza yt-dlp en Configuración, Multimedia y vuelve a intentarlo.",
+    ),
+    (
+        "site_rate_limited",
+        "YouTube está recibiendo demasiadas solicitudes desde esta red y pidió ir más despacio. Espera un rato antes de volver a intentarlo; una descarga afectada lo vuelve a intentar más tarde por sí sola.",
     ),
 ];
 
@@ -916,11 +928,15 @@ static DE_FAILURES: &[(&str, &str)] = &[
     ),
     (
         "site_po_token",
-        "YouTube hat für dieses Video ein Herkunftsnachweis-Token (PO-Token) verlangt. Aktualisieren Sie yt-dlp unter Einstellungen, Medien, oder wählen Sie eine andere Qualität.",
+        "YouTube verlangt für diese Qualität ein Herkunftsnachweis-Token (PO-Token), das Downpipe nicht bereitstellt. Wählen Sie eine andere Qualität, oder versuchen Sie es später erneut.",
     ),
     (
         "site_outdated",
         "yt-dlp versteht diese Seite nicht mehr; YouTube hat sie wahrscheinlich geändert. Aktualisieren Sie yt-dlp unter Einstellungen, Medien, und versuchen Sie es erneut.",
+    ),
+    (
+        "site_rate_limited",
+        "YouTube erhält zu viele Anfragen aus diesem Netzwerk und hat darum gebeten, langsamer zu machen. Warten Sie eine Weile, bevor Sie es erneut versuchen; ein betroffener Download versucht es später von selbst erneut.",
     ),
 ];
 
@@ -1036,11 +1052,15 @@ static FR_FAILURES: &[(&str, &str)] = &[
     ),
     (
         "site_po_token",
-        "YouTube a demandé un jeton de preuve d'origine (PO) pour cette vidéo. Mettez à jour yt-dlp dans Paramètres, Médias, ou choisissez une autre qualité.",
+        "YouTube demande un jeton de preuve d'origine (PO) pour cette qualité, que Downpipe ne fournit pas. Choisissez une autre qualité ou réessayez plus tard.",
     ),
     (
         "site_outdated",
         "yt-dlp ne comprend plus cette page ; YouTube l'a probablement modifiée. Mettez à jour yt-dlp dans Paramètres, Médias, puis réessayez.",
+    ),
+    (
+        "site_rate_limited",
+        "YouTube reçoit trop de requêtes depuis ce réseau et a demandé de ralentir. Attendez un moment avant de réessayer ; un téléchargement concerné réessaie plus tard de lui-même.",
     ),
 ];
 
@@ -1159,11 +1179,15 @@ static IT_FAILURES: &[(&str, &str)] = &[
     ),
     (
         "site_po_token",
-        "YouTube ha chiesto un token di prova di origine (PO) per questo video. Aggiorna yt-dlp in Impostazioni, Media, o scegli un'altra qualità.",
+        "YouTube chiede un token di prova di origine (PO) per questa qualità, che Downpipe non fornisce. Scegli un'altra qualità o riprova più tardi.",
     ),
     (
         "site_outdated",
         "yt-dlp non capisce più questa pagina; probabilmente YouTube l'ha cambiata. Aggiorna yt-dlp in Impostazioni, Media, poi riprova.",
+    ),
+    (
+        "site_rate_limited",
+        "YouTube sta ricevendo troppe richieste da questa rete e ha chiesto di rallentare. Attendi un po' prima di riprovare; un download interessato riprova più tardi da solo.",
     ),
 ];
 
@@ -1282,11 +1306,15 @@ static PT_BR_FAILURES: &[(&str, &str)] = &[
     ),
     (
         "site_po_token",
-        "O YouTube pediu um token de prova de origem (PO) para este vídeo. Atualize o yt-dlp em Configurações, Mídia ou escolha outra qualidade.",
+        "O YouTube pede um token de prova de origem (PO) para esta qualidade, que o Downpipe não fornece. Escolha outra qualidade ou tente de novo mais tarde.",
     ),
     (
         "site_outdated",
         "O yt-dlp não entende mais esta página; provavelmente o YouTube a mudou. Atualize o yt-dlp em Configurações, Mídia e tente de novo.",
+    ),
+    (
+        "site_rate_limited",
+        "O YouTube está recebendo solicitações demais desta rede e pediu para diminuir o ritmo. Aguarde um pouco antes de tentar de novo; um download afetado tenta de novo mais tarde sozinho.",
     ),
 ];
 
@@ -1396,11 +1424,15 @@ static RU_FAILURES: &[(&str, &str)] = &[
     ),
     (
         "site_po_token",
-        "YouTube запросил для этого видео токен подтверждения происхождения (PO). Обновите yt-dlp в настройках, в разделе «Медиа», или выберите другое качество.",
+        "Для этого качества YouTube требует токен подтверждения происхождения (PO), который Downpipe не предоставляет. Выберите другое качество или попробуйте позже.",
     ),
     (
         "site_outdated",
         "yt-dlp больше не понимает эту страницу; вероятно, YouTube ее изменил. Обновите yt-dlp в настройках, в разделе «Медиа», и попробуйте снова.",
+    ),
+    (
+        "site_rate_limited",
+        "YouTube получает слишком много запросов из этой сети и попросил снизить темп. Подождите немного, прежде чем пробовать снова; такая загрузка сама повторит попытку позже.",
     ),
 ];
 
@@ -1486,11 +1518,15 @@ static ZH_CN_FAILURES: &[(&str, &str)] = &[
     ),
     (
         "site_po_token",
-        "YouTube 要求为此视频提供来源证明（PO）令牌。请在“设置”的“媒体”中更新 yt-dlp，或选择其他画质。",
+        "YouTube 要求为此画质提供来源证明（PO）令牌，而 Downpipe 不提供此令牌。请选择其他画质或稍后重试。",
     ),
     (
         "site_outdated",
         "yt-dlp 已无法解析此页面，YouTube 可能更改了页面。请在“设置”的“媒体”中更新 yt-dlp，然后重试。",
+    ),
+    (
+        "site_rate_limited",
+        "YouTube 收到来自此网络的请求过多，要求放慢速度。请稍等一段时间再重试；遇到这种情况的下载会在稍后自动重试。",
     ),
 ];
 
@@ -1609,11 +1645,15 @@ static JA_FAILURES: &[(&str, &str)] = &[
     ),
     (
         "site_po_token",
-        "YouTube がこの動画に発信元証明（PO）トークンを求めました。「設定」の「メディア」で yt-dlp を更新するか、別の画質を選んでください。",
+        "この画質には発信元証明（PO）トークンが必要ですが、Downpipe はこのトークンを提供しません。別の画質を選ぶか、後でもう一度お試しください。",
     ),
     (
         "site_outdated",
         "yt-dlp がこのページを読み取れなくなりました。YouTube がページを変更した可能性があります。「設定」の「メディア」で yt-dlp を更新してから、もう一度お試しください。",
+    ),
+    (
+        "site_rate_limited",
+        "このネットワークからのリクエストが多すぎるため、YouTube が速度を落とすよう求めました。しばらく待ってから再試行してください。この状態になったダウンロードは、後で自動的に再試行します。",
     ),
 ];
 
@@ -1668,6 +1708,7 @@ mod tests {
         "site_js_runtime",
         "site_po_token",
         "site_outdated",
+        "site_rate_limited",
     ];
 
     const ALL: [Lang; 10] = [

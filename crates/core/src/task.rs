@@ -204,6 +204,14 @@ pub struct SiteInfo {
     /// That playlist's number of videos, for `{index}`'s zero padding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub count: Option<u32>,
+    /// "Too many requests" answers in a row; each makes the download wait
+    /// longer before it tries again by itself. Back to 0 once it completes.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rate_limited: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 impl SiteInfo {
@@ -217,6 +225,7 @@ impl SiteInfo {
             title: None,
             index: None,
             count: None,
+            rate_limited: 0,
         }
     }
 }

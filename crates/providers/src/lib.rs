@@ -38,6 +38,7 @@ pub use args::{
     MAX_LIST_ENTRIES, Preset, SubtitleRef, format_selector, needs_merge, valid_format_id,
     valid_sub_lang,
 };
+pub use errors::RATE_LIMITED;
 pub use info::{PageInfo, SubtitleOption};
 pub use job::SiteRequest;
 pub use pages::{ListKind, ListPage, Page};

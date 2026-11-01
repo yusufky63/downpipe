@@ -8,7 +8,8 @@
 //!
 //! The fake yt-dlp understands what Downpipe passes: `--version`, `-J`
 //! (`--flat-playlist -J` prints the scenario's playlist), and a download
-//! with `-P`, `-o` and the `DOWNPIPE:` print templates, writing the asked
+//! with `-P`, `-o` and the `DOWNPIPE:` print templates (from a page's saved
+//! `--load-info-json` answer too, which must be readable JSON), writing the asked
 //! subtitles next to the file unless they are to be embedded. It writes
 //! `.part` files in steps, resumes them, "merges" parts by concatenating
 //! them, and logs each invocation's arguments as a JSON line in
@@ -174,6 +175,15 @@ fn yt_dlp(args: &[String], s: &Scenario) -> i32 {
             println!("{}", s.info);
         }
         return 0;
+    }
+    if let Some(saved) = value_after(args, "--load-info-json") {
+        let readable = std::fs::read(saved)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .is_some();
+        if !readable {
+            return fail(&format!("Unable to read the info file {saved}"));
+        }
     }
     let (Some(dir), Some(template)) = (value_after(args, "-P"), value_after(args, "-o")) else {
         return fail("the fake yt-dlp needs -P and -o");

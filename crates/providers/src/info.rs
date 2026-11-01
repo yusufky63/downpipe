@@ -6,9 +6,15 @@
 //! in a `-f` format selector. The formats are condensed into the same
 //! quality list the stream chooser shows: one entry per resolution and
 //! frame rate, the separate audio tracks, and "Audio only".
+//!
+//! The answer is also kept for a few minutes ([`REUSE_FOR`]), so the
+//! download that follows the quality dialog hands it back to yt-dlp
+//! (`--load-info-json`) instead of reading the page from YouTube again.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use downpipe_http::DownloadError;
 use downpipe_http::media::{AudioOption, VideoOption};
@@ -130,6 +136,67 @@ struct RawFormat {
     has_drm: Option<serde_json::Value>,
 }
 
+/// How long a page's `-J` answer is reused for its download. Its media
+/// links last for hours; the formats and the page's state (a video made
+/// private, a premiere that started) are what should not be old.
+pub const REUSE_FOR: Duration = Duration::from_secs(5 * 60);
+
+/// Answers kept at once: a quality dialog or two, and the videos of a
+/// playlist that start one at a time.
+const MAX_KEPT: usize = 8;
+
+/// A page's `-J` answer, as yt-dlp printed it.
+struct Kept {
+    /// The yt-dlp that read it, the page and the proxy: links YouTube gives
+    /// are tied to the address that asked for them.
+    key: (PathBuf, String, Option<String>),
+    at: Instant,
+    json: Arc<Vec<u8>>,
+}
+
+static KEPT: Mutex<Vec<Kept>> = Mutex::new(Vec::new());
+
+fn kept() -> std::sync::MutexGuard<'static, Vec<Kept>> {
+    KEPT.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn key(yt_dlp: &Path, url: &str, proxy: Option<&str>) -> (PathBuf, String, Option<String>) {
+    (
+        yt_dlp.to_path_buf(),
+        url.to_string(),
+        proxy.map(str::to_string),
+    )
+}
+
+fn keep(yt_dlp: &Path, url: &str, proxy: Option<&str>, json: Vec<u8>) {
+    let key = key(yt_dlp, url, proxy);
+    let mut kept = kept();
+    kept.retain(|k| k.key != key && k.at.elapsed() < REUSE_FOR);
+    if kept.len() >= MAX_KEPT {
+        kept.remove(0);
+    }
+    kept.push(Kept {
+        key,
+        at: Instant::now(),
+        json: Arc::new(json),
+    });
+}
+
+/// The page's `-J` answer if yt-dlp gave it less than [`REUSE_FOR`] ago.
+pub(crate) fn recent(yt_dlp: &Path, url: &str, proxy: Option<&str>) -> Option<Arc<Vec<u8>>> {
+    let key = key(yt_dlp, url, proxy);
+    let mut kept = kept();
+    kept.retain(|k| k.at.elapsed() < REUSE_FOR);
+    kept.iter().find(|k| k.key == key).map(|k| k.json.clone())
+}
+
+/// Drop the page's kept answer, so the next try reads the page afresh.
+pub(crate) fn forget(yt_dlp: &Path, url: &str, proxy: Option<&str>) {
+    let key = key(yt_dlp, url, proxy);
+    kept().retain(|k| k.key != key);
+}
+
 /// Ask yt-dlp about a page. Downloads nothing but the page and its player
 /// data.
 pub async fn inspect(
@@ -137,10 +204,21 @@ pub async fn inspect(
     url: &str,
     proxy: Option<&str>,
 ) -> Result<PageInfo, DownloadError> {
+    read(tools, url, proxy, false).await
+}
+
+/// [`inspect`], waiting between requests when `paced` (a video of a
+/// playlist or channel).
+pub(crate) async fn read(
+    tools: &Tools,
+    url: &str,
+    proxy: Option<&str>,
+    paced: bool,
+) -> Result<PageInfo, DownloadError> {
     let yt_dlp = tools.yt_dlp.as_ref().ok_or_else(errors::no_yt_dlp)?;
     let mut command = process::command(yt_dlp);
     command
-        .args(args::inspect(url, tools, proxy))
+        .args(args::inspect(url, tools, proxy, paced))
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     let child = command
@@ -156,7 +234,9 @@ pub async fn inspect(
             tools.ffmpeg.is_some(),
         ));
     }
-    parse(&output.stdout)
+    let info = parse(&output.stdout)?;
+    keep(yt_dlp, url, proxy, output.stdout);
+    Ok(info)
 }
 
 /// Turn `-J` output into a [`PageInfo`], refusing live streams, playlists
@@ -511,6 +591,28 @@ mod tests {
 
     fn read(name: &str) -> Vec<u8> {
         std::fs::read(fixture_dir().join(name)).unwrap()
+    }
+
+    #[test]
+    fn keeps_answers_for_a_while() {
+        let yt_dlp = Path::new("kept-test/yt-dlp");
+        let url = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
+        keep(yt_dlp, url, None, b"{}".to_vec());
+        assert_eq!(recent(yt_dlp, url, None).as_deref(), Some(&b"{}".to_vec()));
+        // Another proxy or yt-dlp gets links of its own.
+        assert!(recent(yt_dlp, url, Some("")).is_none());
+        assert!(recent(Path::new("kept-test/other"), url, None).is_none());
+        forget(yt_dlp, url, None);
+        assert!(recent(yt_dlp, url, None).is_none());
+        // An old answer is not used.
+        kept().push(Kept {
+            key: key(yt_dlp, url, None),
+            at: Instant::now()
+                .checked_sub(REUSE_FOR + Duration::from_secs(1))
+                .unwrap(),
+            json: Arc::new(b"{}".to_vec()),
+        });
+        assert!(recent(yt_dlp, url, None).is_none());
     }
 
     #[test]
