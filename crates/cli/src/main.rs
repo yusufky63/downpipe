@@ -76,9 +76,10 @@ struct Tuning {
     /// Maximum parallel connections (1-32).
     #[arg(short = 'c', long, default_value_t = 8, value_parser = clap::value_parser!(u16).range(1..=32))]
     connections: u16,
-    /// Connections to start with before measuring whether more help.
-    #[arg(long, default_value_t = 2)]
-    initial_connections: u16,
+    /// Connections to start with before measuring whether more help
+    /// [default: 2, or 4 when 64 MiB or more are left to download].
+    #[arg(long)]
+    initial_connections: Option<u16>,
     /// Speed limit, e.g. `500K`, `2M`, `1.5MB`.
     #[arg(long, value_name = "RATE")]
     limit: Option<String>,
@@ -193,12 +194,17 @@ async fn download(mut req: DownloadRequest, tuning: &Tuning) -> Result<ExitCode>
         }
         None => 0,
     };
-    let config = EngineConfig {
+    let mut config = EngineConfig {
         max_connections: usize::from(tuning.connections),
-        initial_connections: usize::from(tuning.initial_connections.clamp(1, tuning.connections)),
         proxy: tuning.proxy.clone(),
         ..EngineConfig::default()
     };
+    // A count given by hand applies to every file size.
+    if let Some(n) = tuning.initial_connections {
+        let n = usize::from(n.clamp(1, tuning.connections));
+        config.initial_connections = n;
+        config.large_file_connections = n;
+    }
     req.max_connections = Some(config.max_connections);
     let engine = Engine::with_limiter(config, Arc::new(RateLimiter::new(limit)))?;
 

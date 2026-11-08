@@ -11,7 +11,7 @@ It is built as a Rust engine with a desktop app (Tauri), a command-line tool and
 | Area | Details |
 |---|---|
 | Multi-connection HTTP | Byte-range requests over several HTTP/1.1 connections, each with its own TCP congestion window. |
-| Adaptive connections | Starts with 2 connections and doubles only while measured throughput improves by at least 10 %, up to 8 per download by default (configurable, max 32). |
+| Adaptive connections | Starts with 2 connections (4 for files of 64 MiB or more) and doubles every second or so while measured throughput improves by at least 10 %, up to 8 per download by default (configurable, max 32). A doubling that did not help is tried again a little later, in case it was measured on a slow part of the file. |
 | Dynamic segmentation | A connection that finishes takes over half of the largest remaining segment, so a slow segment never holds up the end of a download. |
 | Resume | Progress is checkpointed next to the file (`name.part.meta`). Resumes are validated with `If-Range` plus ETag and size checks; if the remote file changed, the download restarts cleanly instead of mixing two versions. |
 | Crash safety | Data is synced to disk before the checkpoint that claims it is written. The final file appears only after an atomic rename. |

@@ -8,10 +8,12 @@ How `downpipe-http` turns a URL into a complete, verified file. Default values b
 |---|---|---|
 | `max_connections` | 8 | Upper bound of connections per download (1 to 32). |
 | `initial_connections` | 2 | Connections before the first measurement. |
+| `large_file_size` / `large_file_connections` | 64 MiB / 4 | A download with at least this much left starts with this many connections instead (never fewer than `initial_connections`). |
 | `min_split_size` | 1 MiB | A segment is only split if both halves would be at least this big. |
 | `buffer_size` | 256 KiB | Bytes buffered per connection before a positional write. |
-| `ramp_window` | 2 s | Saturated-transfer time measured before deciding to add connections. |
+| `ramp_window` | 1 s | Saturated-transfer time measured before deciding to add connections. |
 | `ramp_gain` | 1.10 | A doubling must raise throughput by 10 % to be kept. |
+| `ramp_retry_after` | 5 s | Rest after a doubling that did not help, before trying again; doubles after each miss, up to 60 s. |
 | `checkpoint_interval` | 5 s | How often data is synced and the meta file updated. |
 | `stall_timeout` | 30 s | A connection that delivers nothing for this long is restarted. |
 | `response_timeout` | 60 s | How long a request may wait for the response headers before it is sent again. |
@@ -64,13 +66,15 @@ Every follow-up `206` must report the same total size and, if the server sends o
 
 All connections run HTTP/1.1. Under HTTP/2 every segment would share one TCP connection and one congestion window, which removes the benefit.
 
-1. Start with `initial_connections`.
-2. Once every allowed connection is busy, measure throughput for `ramp_window`.
+1. Start with `initial_connections`, or `large_file_connections` when `large_file_size` or more is left to download: on a large file the seconds spent ramping up from 2 cost more than two extra connections ask of the host.
+2. Once every allowed connection is busy, give the new ones a moment (one 250 ms tick) to finish their handshakes, then measure throughput for `ramp_window`.
 3. Double the connection count, measure again.
-4. If the new rate is less than `ramp_gain` times the previous one, go back to the previous count and stop probing.
-5. A `429` or `503` reduces the count to the connections still running and stops probing for this download.
+4. If the new rate is less than `ramp_gain` times the previous one, go back to the previous count and rest for `ramp_retry_after`. Then measure the current count again and try the doubling once more; every miss doubles the rest, up to 60 s. One verdict is not final because it can be wrong: when the new connections land on a part of the file the server sends slowly, a doubling that would help looks useless, and the end of the download would crawl on too few connections. On a link that is simply full, the retries cost a one-second probe now and then.
+5. A `429` or `503` reduces the count to the connections still running and stops probing for this download, for good.
 
-Many hosts cap connections per client and refuse one too many with `403`, `429` or `503` while the others are served. A refusal of that kind, while other connections of the same download are running, is not a failure: the count drops to the connections that work, the segment goes to the next free one, and probing stops. The engine remembers the working count per host (`host:port`) for as long as it runs, so later downloads from that host start within it instead of tripping the limit again (`Engine::connection_limit`, and `Engine::connection_limits` for all of them). Engines made with `Engine::derive` (another proxy or user agent) share that memory. A `403` with no other connection left is retried like a server failure once the host has shown such a limit (it may still count a connection that just closed); a link that really expired runs out of retries and fails with `forbidden`.
+Many hosts cap connections per client and refuse one too many with `403`, `429` or `503` while the others are served. A refusal of that kind, while other connections of the same download are running, is not a failure: the count drops to the connections that work, the segment goes to the next free one, and probing stops. The engine remembers the working count per host (`host:port`) for as long as it runs, so later downloads from that host start within it instead of tripping the limit again (`Engine::connection_limit`, and `Engine::connection_limits` for all of them). Engines made with `Engine::derive` (another proxy or user agent) share that memory.
+
+When a segment ends, the next connection goes out at once, while the host may still count the one that just closed and refuse the new one. Such a refusal does not lower the count when the host has already served that many connections at once in this download and a connection of it closed within the last second: the segment waits 500 ms and is sent again. Without this, every segment boundary could cost a connection (4 became 3, then 2). A host that really lowered its limit keeps refusing after that second, and the count drops then. A `403` with no other connection left is retried like a server failure once the host has shown such a limit (it may still count a connection that just closed); a link that really expired runs out of retries and fails with `forbidden`.
 
 ## Retries, silence and network outages
 
@@ -159,7 +163,7 @@ Besides `max_connections`, `limiter` and `site_limiter`, a request can set `max_
 
 ## Measuring
 
-`tools/test-server` can cap the rate per connection (`rate=`), slow down part of a file (`slow_from=`, `slow_rate=`), drop connections (`drop_after=`, `drop_times=`), fail requests (`fail=`, `fail_times=`, `fail_from=`, `retry_after=`), refuse more than N bodies at once (`max_conns=`, `limit_status=`), go silent mid-body (`stall_at=`, `stall_times=`) or before the headers (`hang_times=`), answer with a "link expired" page (`html=1`, `html_after=`) or redirect to a sign-in page (`/redirect?to=/login`), and send a `Content-Disposition` exactly as given (`cd=`). `TestServer::stop` and `restart` take it off the network and back, killing open connections too, as a Wi-Fi switch would. The tests in `crates/http-engine/tests/robustness.rs` use these. Example, with a per-connection cap of 8 MiB/s, where the engine ramps 2 -> 4 -> 8 connections:
+`tools/test-server` can cap the rate per connection (`rate=`), slow down part of a file (`slow_from=`, `slow_rate=`), drop connections (`drop_after=`, `drop_times=`), fail requests (`fail=`, `fail_times=`, `fail_from=`, `retry_after=`), refuse more than N bodies at once (`max_conns=`, `limit_status=`) and keep counting a finished one for a while (`linger_ms=`), go silent mid-body (`stall_at=`, `stall_times=`) or before the headers (`hang_times=`), answer with a "link expired" page (`html=1`, `html_after=`) or redirect to a sign-in page (`/redirect?to=/login`), and send a `Content-Disposition` exactly as given (`cd=`). `TestServer::stop` and `restart` take it off the network and back, killing open connections too, as a Wi-Fi switch would. The tests in `crates/http-engine/tests/robustness.rs` use these. Example, with a per-connection cap of 8 MiB/s, where the engine starts with 4 connections (the file is larger than 64 MiB) and ramps to 8:
 
 ```powershell
 cargo run --release -p downpipe-test-server

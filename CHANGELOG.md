@@ -2,6 +2,16 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
+## Unreleased
+
+### Changed
+
+- **Faster start on servers that limit each connection.** Downloads of 64 MiB or more start with 4 connections instead of 2, and the engine decides whether to add more after one second of measuring instead of two, so it reaches 8 or 16 connections in half the time. A doubling that did not help is tried again after 5 seconds (then 10, 20, up to a minute), because it may have been measured on a part of the file the server sent slowly; before, the first miss stopped it for the rest of the download. On a test server that sends 2 MiB/s per connection, a 100 MiB file now takes 7.3 s instead of 9.4 s with 8 connections and 5.4 s instead of 8.4 s with 16; a file whose last 15 MiB come slowly takes 8.4 s instead of 13.5 s with 16. Hosts that refuse extra connections or rate-limit still stop the ramp for good. The CLI's `--initial-connections`, when given, applies to every file size.
+
+### Fixed
+
+- **A host's connection limit no longer drops by itself.** When a segment ended, the next connection went out while the host could still be counting the one that had just closed; its refusal was taken as a lower limit, so a host that allows 4 connections could end up with 3 or 2 for the rest of the download and later downloads from it. Such a refusal now waits half a second and is sent again when the host has already served that many connections at once and one closed within the last second. A host that really lowers its limit is still followed. On a test server that allows 4 connections at 2 MiB/s each, a 100 MiB file takes 13.0 s every time (the ideal is 12.5 s) instead of 14 to 18.5 s.
+
 ## 0.5.4 — 2026-11-01
 
 ### New

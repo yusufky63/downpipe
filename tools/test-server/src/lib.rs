@@ -21,6 +21,7 @@
 //! | `auth=user:pass`             | require HTTP Basic auth                                |
 //! | `max_conns=N`                | refuse bodies beyond N at once (403, see `limit_status`)|
 //! | `limit_status=S`             | status for `max_conns` refusals (429, 503, ...)        |
+//! | `linger_ms=N`                | a finished body still counts for `max_conns` N ms      |
 //! | `stall_at=O&stall_times=K`   | the first K responses covering offset O go silent there|
 //! | `hang_times=K`               | the first K requests never get an answer               |
 //! | `html=1`                     | a "link expired" page (`200 text/html`) instead        |
@@ -424,6 +425,7 @@ struct FileQuery {
     auth: Option<String>,
     max_conns: Option<u64>,
     limit_status: Option<u16>,
+    linger_ms: Option<u64>,
     stall_at: Option<u64>,
     stall_times: Option<u64>,
     hang_times: Option<u64>,
@@ -658,7 +660,8 @@ fn build_file_response(
 
     // Before anything else is counted, so a refused request leaves no trace
     // in the statistics but the refusal itself.
-    let Some(guard) = ActiveGuard::try_new(state.clone(), q.max_conns) else {
+    let linger = q.linger_ms.map(Duration::from_millis);
+    let Some(guard) = ActiveGuard::try_new(state.clone(), q.max_conns, linger) else {
         state.refused.fetch_add(1, Ordering::SeqCst);
         return StatusCode::from_u16(q.limit_status.unwrap_or(403))
             .unwrap_or(StatusCode::FORBIDDEN)
@@ -791,11 +794,16 @@ struct BodyPlan {
     stall_at: Option<u64>,
 }
 
-struct ActiveGuard(Arc<ServerState>);
+/// The state, and how long the slot stays taken after the body ends.
+struct ActiveGuard(Arc<ServerState>, Option<Duration>);
 
 impl ActiveGuard {
     /// One more body in flight, unless `limit` are running already.
-    fn try_new(state: Arc<ServerState>, limit: Option<u64>) -> Option<Self> {
+    fn try_new(
+        state: Arc<ServerState>,
+        limit: Option<u64>,
+        linger: Option<Duration>,
+    ) -> Option<Self> {
         let mut current = state.active.load(Ordering::SeqCst);
         loop {
             if limit.is_some_and(|n| current >= n) {
@@ -812,13 +820,25 @@ impl ActiveGuard {
             }
         }
         state.max_active.fetch_max(current + 1, Ordering::SeqCst);
-        Some(Self(state))
+        Some(Self(state, linger))
     }
 }
 
 impl Drop for ActiveGuard {
     fn drop(&mut self) {
-        self.0.active.fetch_sub(1, Ordering::SeqCst);
+        let state = self.0.clone();
+        // Like a host that counts a connection until it has closed, a moment
+        // after the client read the last byte.
+        if let Some(linger) = self.1
+            && let Ok(rt) = tokio::runtime::Handle::try_current()
+        {
+            rt.spawn(async move {
+                tokio::time::sleep(linger).await;
+                state.active.fetch_sub(1, Ordering::SeqCst);
+            });
+        } else {
+            state.active.fetch_sub(1, Ordering::SeqCst);
+        }
     }
 }
 

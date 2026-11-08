@@ -146,6 +146,42 @@ async fn refused_extra_connections_drop_to_what_the_host_allows() {
 }
 
 #[tokio::test]
+async fn a_closing_connection_does_not_lower_the_host_limit() {
+    // When a segment ends, its replacement goes out at once, while the host
+    // may still count the connection that just closed and refuse the new one.
+    // That refusal says nothing about the limit; taken at face value, it
+    // lowered the count by one every few segments (4 became 3, then 2).
+    let server = TestServer::start().await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = EngineConfig {
+        max_connections: 8,
+        initial_connections: 4,
+        min_split_size: 256 * KIB,
+        ..config()
+    };
+    let engine = engine(cfg);
+    for run in 0..2 {
+        let size = 16 * MIB;
+        let url = server.url(&format!(
+            "/file/{size}?max_conns=4&limit_status=429&linger_ms=100&rate=4194304&run={run}"
+        ));
+        let handle = engine.start(DownloadRequest::new(&url, dir.path()));
+        let rx = handle.progress();
+        let path = completed_path(handle.wait().await.unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), content(size, 0));
+        let notices = rx.borrow().notices.clone();
+        assert!(
+            !notices.iter().any(|n| n.contains("allows only 3")
+                || n.contains("allows only 2")
+                || n.contains("allows only 1")),
+            "run {run}: {notices:?}"
+        );
+        assert_eq!(engine.connection_limit(&url), Some(4), "run {run}");
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[tokio::test]
 async fn a_link_that_expires_mid_download_still_fails() {
     // Every request after the first is refused: not a connection limit the
     // download can live with once the first connection's part is done.

@@ -18,6 +18,12 @@ pub struct EngineConfig {
     pub max_connections: usize,
     /// Connections to start with before measuring whether more help.
     pub initial_connections: usize,
+    /// Downloads with at least this many bytes left start with
+    /// `large_file_connections` instead: on a large file the seconds spent
+    /// ramping up from 2 cost more than the extra connections ask of the host.
+    pub large_file_size: u64,
+    /// Starting connections for downloads of `large_file_size` or more.
+    pub large_file_connections: usize,
     /// Segments are never split into pieces smaller than this.
     pub min_split_size: u64,
     /// Bytes buffered per connection before a positional write.
@@ -44,6 +50,10 @@ pub struct EngineConfig {
     pub ramp_window: Duration,
     /// Minimum relative throughput gain to keep doubling connections.
     pub ramp_gain: f64,
+    /// After a doubling did not help, how long to wait before trying again.
+    /// Doubles after every miss, up to a minute: a doubling measured while
+    /// part of the file came slowly may well help later.
+    pub ramp_retry_after: Duration,
     /// Base delay for exponential backoff.
     pub retry_base_delay: Duration,
     pub retry_max_delay: Duration,
@@ -60,6 +70,8 @@ impl Default for EngineConfig {
         Self {
             max_connections: 8,
             initial_connections: 2,
+            large_file_size: 64 * MIB,
+            large_file_connections: 4,
             min_split_size: MIB,
             buffer_size: 256 * KIB as usize,
             connect_timeout: Duration::from_secs(15),
@@ -68,8 +80,9 @@ impl Default for EngineConfig {
             max_retries: 8,
             offline_grace: Duration::from_secs(10 * 60),
             checkpoint_interval: Duration::from_secs(5),
-            ramp_window: Duration::from_secs(2),
+            ramp_window: Duration::from_secs(1),
             ramp_gain: 1.10,
+            ramp_retry_after: Duration::from_secs(5),
             retry_base_delay: Duration::from_millis(500),
             retry_max_delay: Duration::from_secs(30),
             user_agent: concat!("Downpipe/", env!("CARGO_PKG_VERSION")).to_string(),

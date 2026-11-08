@@ -1,10 +1,10 @@
 //! The download controller: opens or resumes a download, runs the adaptive
 //! connection loop, checkpoints, verifies and atomically publishes the file.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
@@ -41,6 +41,11 @@ const MAX_CONNECTIONS_CAP: usize = 32;
 /// downloading (capped at half the stall timeout, so it shows before the
 /// silent connections are replaced).
 const NO_DATA_AFTER: Duration = Duration::from_secs(10);
+/// A refusal this soon after a connection of the download closed may be the
+/// host still counting that connection.
+const CLOSE_GRACE: Duration = Duration::from_secs(1);
+/// How long new connections wait after such a refusal.
+const CLOSE_PAUSE: Duration = Duration::from_millis(500);
 
 type WorkerSet = JoinSet<(SegmentId, Result<WorkerEnd, DownloadError>)>;
 
@@ -919,10 +924,14 @@ impl Job {
             ));
         }
         let min_split = cfg.min_split_size;
+        let remaining = session
+            .total
+            .map(|total| total.saturating_sub(map.written_bytes()));
         let shared = Arc::new(Shared {
             downloaded: AtomicU64::new(map.written_bytes()),
             map: Mutex::new(map),
             part: session.part.clone(),
+            served: AtomicUsize::new(0),
         });
         let ctx = Arc::new(WorkerCtx {
             client: self.inner.client.clone(),
@@ -948,8 +957,8 @@ impl Job {
         };
 
         let mut workers = WorkerSet::new();
-        let mut target = cfg.initial_connections.clamp(1, max);
-        let mut ramp = Ramp::new(cfg.ramp_window, cfg.ramp_gain);
+        let mut target = starting_connections(cfg, remaining).clamp(1, max);
+        let mut ramp = Ramp::new(cfg.ramp_window, cfg.ramp_gain, cfg.ramp_retry_after);
         let max_retries = self.req.retries(cfg);
         let mut budget = retry::Budget::new(max_retries, cfg.offline_grace);
         // (due, segment, failed on the network): network retries are pulled
@@ -958,6 +967,11 @@ impl Job {
         let mut hold_until: Option<Instant> = None;
         // The host refused extra connections during this download.
         let mut limited = false;
+        // When connections of this download closed, within `CLOSE_GRACE`:
+        // ones the host may still be counting.
+        let mut recent_closes: VecDeque<Instant> = VecDeque::new();
+        // The most connections the host has served at once in this download.
+        let mut proven = 0usize;
         // The latest failure and when it happened: what a waiting download
         // shows, unless nothing failed since the bytes stopped.
         let mut last_failure = (Instant::now(), WaitReason::Network);
@@ -1016,12 +1030,31 @@ impl Job {
                     let err = match result {
                         Ok(WorkerEnd::Done | WorkerEnd::Stopped) => {
                             shared.map.lock().release(id, false);
+                            note_close(&mut recent_closes, Instant::now());
                             continue;
                         }
                         Err(err) => err,
                     };
                     let others = workers.len();
+                    proven = proven.max(shared.served.load(Ordering::Relaxed));
                     if !stopping && others > 0 && is_refusal(&err) {
+                        let now = Instant::now();
+                        prune_closes(&mut recent_closes, now);
+                        // Right after a connection closed, its replacement
+                        // goes out while the host may still count the closed
+                        // one. A refusal of a count the host has already
+                        // served at once, that soon after a close, says
+                        // nothing new about the limit: wait a moment and send
+                        // it again. Refusals of a count never served (adding
+                        // connections) are a limit. So is a host that keeps
+                        // refusing once the closes are past `CLOSE_GRACE`: it
+                        // lowered its limit, and the count drops then.
+                        if others < proven && !recent_closes.is_empty() {
+                            shared.map.lock().release(id, false);
+                            hold_until = Some(now + err.retry_after().unwrap_or(CLOSE_PAUSE));
+                            tracing::debug!(segment = id, others, "refused right after a connection closed: {err}");
+                            continue;
+                        }
                         // Refused while other connections of this download
                         // are being served: the host caps connections per
                         // client. Not a failure; continue with the ones it
@@ -1048,6 +1081,11 @@ impl Job {
                         continue;
                     }
                     let now = Instant::now();
+                    // A connection that failed mid-body is one the host may
+                    // still be counting too.
+                    if !is_refusal(&err) {
+                        note_close(&mut recent_closes, now);
+                    }
                     // A refusal with no other connection left is usually the
                     // server still counting one that just closed, once it
                     // showed a limit; retried like a server failure. A link
@@ -1106,6 +1144,7 @@ impl Job {
                         }
                     });
                     let speed = meter.record(now, downloaded);
+                    proven = proven.max(shared.served.load(Ordering::Relaxed));
                     if !stopping {
                         ramp.observe(now, downloaded, workers.len(), &mut target, max);
                     }
@@ -1452,36 +1491,90 @@ impl Job {
     }
 }
 
+fn note_close(closes: &mut VecDeque<Instant>, now: Instant) {
+    prune_closes(closes, now);
+    closes.push_back(now);
+}
+
+fn prune_closes(closes: &mut VecDeque<Instant>, now: Instant) {
+    while closes
+        .front()
+        .is_some_and(|&t| now.duration_since(t) >= CLOSE_GRACE)
+    {
+        closes.pop_front();
+    }
+}
+
+/// Connections a download starts with: more when much of the file is left,
+/// where ramping up from a few would cost seconds.
+fn starting_connections(cfg: &EngineConfig, remaining: Option<u64>) -> usize {
+    if remaining.is_some_and(|left| left >= cfg.large_file_size) {
+        cfg.initial_connections.max(cfg.large_file_connections)
+    } else {
+        cfg.initial_connections
+    }
+}
+
+/// How long new connections get to finish their handshakes and leave TCP
+/// slow start before a measurement counts them.
+const RAMP_SETTLE: Duration = TICK;
+/// The longest rest between attempts to add connections.
+const RAMP_MAX_REST: Duration = Duration::from_secs(60);
+
 /// Decides when more connections are worth opening.
 ///
-/// Starts at `initial_connections`, measures throughput over a window once
-/// all connections are busy, then doubles. If a doubling did not improve
-/// throughput by at least `gain`, it goes back to the previous count and
-/// stops probing: more connections would only add load on the server.
+/// Once every connection is busy and has had a moment to get going, it
+/// measures throughput over a window, then doubles the count. If a doubling
+/// did not improve throughput by at least `gain`, it goes back to the
+/// previous count and rests. That verdict is not final: measured while the
+/// new connections landed on a slow part of the file, a doubling that would
+/// help looks useless. After the rest it measures the current count again and
+/// retries, resting twice as long after each miss, so a link that is simply
+/// full costs a short probe now and then. A host that refuses connections or
+/// rate-limits turns it off for good ([`Ramp::disable`]).
 #[derive(Debug)]
 struct Ramp {
-    enabled: bool,
+    state: RampState,
     window: Duration,
     gain: f64,
+    /// The next rest after a miss.
+    rest: Duration,
+    /// Since when every connection has been busy.
+    saturated_since: Option<Instant>,
+    /// Start of the window being measured: time and bytes downloaded.
     phase_start: Option<(Instant, u64)>,
-    prev_rate: Option<f64>,
-    prev_target: usize,
+    /// Rate and count before the doubling being measured; `None` while the
+    /// current count itself is measured, as the base for the next doubling.
+    prev: Option<(f64, usize)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RampState {
+    Probing,
+    Resting { until: Instant },
+    Off,
 }
 
 impl Ramp {
-    fn new(window: Duration, gain: f64) -> Self {
+    fn new(window: Duration, gain: f64, rest: Duration) -> Self {
         Self {
-            enabled: true,
+            state: RampState::Probing,
             window,
             gain,
+            rest,
+            saturated_since: None,
             phase_start: None,
-            prev_rate: None,
-            prev_target: 1,
+            prev: None,
         }
     }
 
     fn disable(&mut self) {
-        self.enabled = false;
+        self.state = RampState::Off;
+    }
+
+    fn restart_measurement(&mut self) {
+        self.saturated_since = None;
+        self.phase_start = None;
     }
 
     fn observe(
@@ -1492,16 +1585,28 @@ impl Ramp {
         target: &mut usize,
         max: usize,
     ) {
-        if !self.enabled {
-            return;
+        match self.state {
+            RampState::Off => return,
+            RampState::Resting { until } if now < until => return,
+            RampState::Resting { .. } => {
+                self.state = RampState::Probing;
+                self.prev = None;
+                self.restart_measurement();
+            }
+            RampState::Probing => {}
         }
         if *target >= max {
-            self.enabled = false;
+            // `max` only ever shrinks, so there is nothing left to try.
+            self.state = RampState::Off;
             return;
         }
         if active < *target {
             // Not saturated (connecting, or no work to split): measure later.
-            self.phase_start = None;
+            self.restart_measurement();
+            return;
+        }
+        let since = *self.saturated_since.get_or_insert(now);
+        if now.duration_since(since) < RAMP_SETTLE {
             return;
         }
         let Some((t0, b0)) = self.phase_start else {
@@ -1513,24 +1618,28 @@ impl Ramp {
             return;
         }
         let rate = downloaded.saturating_sub(b0) as f64 / elapsed.as_secs_f64();
-        if let Some(prev) = self.prev_rate
-            && rate < prev * self.gain
+        self.restart_measurement();
+        if let Some((prev_rate, prev_target)) = self.prev
+            && rate < prev_rate * self.gain
         {
             tracing::debug!(
                 rate,
-                prev,
+                prev = prev_rate,
                 target = *target,
+                rest = ?self.rest,
                 "more connections did not help"
             );
-            *target = self.prev_target;
-            self.enabled = false;
+            *target = prev_target;
+            self.prev = None;
+            self.state = RampState::Resting {
+                until: now + self.rest,
+            };
+            self.rest = (self.rest * 2).min(RAMP_MAX_REST);
             return;
         }
         tracing::debug!(rate, target = *target, "ramping up connections");
-        self.prev_rate = Some(rate);
-        self.prev_target = *target;
+        self.prev = Some((rate, *target));
         *target = (*target * 2).min(max);
-        self.phase_start = None;
     }
 }
 
@@ -1589,41 +1698,148 @@ fn file_name_of(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::MIB;
+
+    const SECOND: Duration = Duration::from_secs(1);
+
+    /// Feeds the ramp one measured window at a steady `rate` (bytes/s) with
+    /// all `target` connections busy, the way the engine's tick would.
+    struct Feed {
+        ramp: Ramp,
+        now: Instant,
+        bytes: u64,
+        target: usize,
+        max: usize,
+    }
+
+    impl Feed {
+        fn new(target: usize, max: usize) -> Self {
+            Self {
+                ramp: Ramp::new(SECOND, 1.1, Duration::from_secs(5)),
+                now: Instant::now(),
+                bytes: 0,
+                target,
+                max,
+            }
+        }
+
+        fn wait(&mut self, d: Duration, rate: u64) {
+            let end = self.now + d;
+            while self.now < end {
+                self.now += TICK;
+                self.bytes += rate / 4;
+                let active = self.target;
+                self.ramp
+                    .observe(self.now, self.bytes, active, &mut self.target, self.max);
+            }
+        }
+
+        /// Runs until the count changes or `limit` passes; returns the count.
+        fn until_change(&mut self, rate: u64, limit: Duration) -> usize {
+            let before = self.target;
+            let end = self.now + limit;
+            while self.target == before && self.now < end {
+                self.wait(TICK, rate);
+            }
+            self.target
+        }
+    }
 
     #[test]
     fn ramp_doubles_while_it_helps_then_backs_off() {
-        let mut ramp = Ramp::new(Duration::from_secs(1), 1.1);
-        let mut target = 2;
-        let t = Instant::now();
-        let s = |secs: u64| t + Duration::from_secs(secs);
+        let mut f = Feed::new(2, 8);
+        assert_eq!(
+            f.until_change(100, 3 * SECOND),
+            4,
+            "first window always ramps"
+        );
+        assert_eq!(f.until_change(200, 3 * SECOND), 8, "200 B/s beats 100 B/s");
 
-        ramp.observe(s(0), 0, 2, &mut target, 8);
-        ramp.observe(s(1), 100, 2, &mut target, 8);
-        assert_eq!(target, 4, "first window always ramps");
+        let mut f = Feed::new(4, 16);
+        assert_eq!(f.until_change(1000, 3 * SECOND), 8);
+        assert_eq!(
+            f.until_change(1050, 3 * SECOND),
+            4,
+            "5 % gain is not worth 4 more connections"
+        );
+    }
 
-        ramp.observe(s(2), 100, 4, &mut target, 8);
-        ramp.observe(s(3), 300, 4, &mut target, 8);
-        assert_eq!(target, 8, "200 B/s beats 100 B/s");
+    #[test]
+    fn ramp_steps_take_little_more_than_the_window() {
+        let mut f = Feed::new(2, 16);
+        let start = f.now;
+        f.until_change(100, 5 * SECOND);
+        f.until_change(200, 5 * SECOND);
+        f.until_change(400, 5 * SECOND);
+        assert_eq!(f.target, 16);
+        // Settling plus a 1 s window per step, at 250 ms ticks.
+        assert!(
+            f.now - start <= Duration::from_millis(4500),
+            "{:?}",
+            f.now - start
+        );
+    }
 
-        let mut target = 4;
-        let mut ramp = Ramp::new(Duration::from_secs(1), 1.1);
-        ramp.observe(s(0), 0, 4, &mut target, 16);
-        ramp.observe(s(1), 1000, 4, &mut target, 16);
-        assert_eq!(target, 8);
-        ramp.observe(s(2), 1000, 8, &mut target, 16);
-        ramp.observe(s(3), 2050, 8, &mut target, 16);
-        assert_eq!(target, 4, "5 % gain is not worth 4 more connections");
-        ramp.observe(s(10), 99_999, 4, &mut target, 16);
-        assert_eq!(target, 4, "ramp stays off");
+    #[test]
+    fn ramp_tries_again_after_a_miss_and_rests_longer_each_time() {
+        let mut f = Feed::new(4, 16);
+        assert_eq!(f.until_change(1000, 3 * SECOND), 8);
+        assert_eq!(f.until_change(1000, 3 * SECOND), 4, "no gain: back to 4");
+
+        // Resting: nothing changes for 5 s even though more would now help.
+        f.wait(Duration::from_millis(4750), 1000);
+        assert_eq!(f.target, 4);
+        // Then it measures 4 again and doubles.
+        assert_eq!(f.until_change(1000, 3 * SECOND), 8);
+        // A slow region made the first try look useless; now 8 help.
+        assert_eq!(f.until_change(2000, 3 * SECOND), 16);
+
+        // On a full link every retry misses, and the rests grow: 5 s, 10 s.
+        let mut f = Feed::new(4, 16);
+        f.until_change(1000, 3 * SECOND);
+        assert_eq!(f.until_change(1000, 3 * SECOND), 4, "first miss");
+        let missed = f.now;
+        assert_eq!(f.until_change(1000, 10 * SECOND), 8);
+        let retried = f.now - missed;
+        assert!(retried >= 5 * SECOND && retried < 7 * SECOND, "{retried:?}");
+        assert_eq!(f.until_change(1000, 3 * SECOND), 4, "second miss");
+        assert_eq!(f.until_change(1000, 9 * SECOND), 4, "rests 10 s now");
+        assert_eq!(f.until_change(1000, 3 * SECOND), 8);
+    }
+
+    #[test]
+    fn ramp_stays_off_once_disabled() {
+        let mut f = Feed::new(2, 16);
+        f.ramp.disable();
+        f.wait(120 * SECOND, 1000);
+        assert_eq!(f.target, 2);
     }
 
     #[test]
     fn ramp_waits_for_saturation() {
-        let mut ramp = Ramp::new(Duration::from_secs(1), 1.1);
+        let mut ramp = Ramp::new(SECOND, 1.1, Duration::from_secs(5));
         let mut target = 2;
         let t = Instant::now();
-        ramp.observe(t, 0, 1, &mut target, 8);
-        ramp.observe(t + Duration::from_secs(5), 500, 1, &mut target, 8);
+        for i in 0..20 {
+            ramp.observe(t + TICK * i, 100 * u64::from(i), 1, &mut target, 8);
+        }
         assert_eq!(target, 2);
+    }
+
+    #[test]
+    fn large_downloads_start_with_more_connections() {
+        let cfg = EngineConfig::default();
+        assert_eq!(starting_connections(&cfg, None), 2, "size unknown");
+        assert_eq!(starting_connections(&cfg, Some(10 * MIB)), 2);
+        assert_eq!(starting_connections(&cfg, Some(64 * MIB)), 4);
+        let cfg = EngineConfig {
+            initial_connections: 6,
+            ..EngineConfig::default()
+        };
+        assert_eq!(
+            starting_connections(&cfg, Some(1024 * MIB)),
+            6,
+            "never fewer"
+        );
     }
 }

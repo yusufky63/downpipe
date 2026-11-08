@@ -1,7 +1,7 @@
 //! One connection streaming one segment into the part file.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use bytes::BytesMut;
@@ -26,6 +26,25 @@ pub(crate) struct Shared {
     /// Bytes reserved so far (what the progress bar shows).
     pub downloaded: AtomicU64,
     pub part: Arc<PartFile>,
+    /// Connections the host is serving right now (it answered with the
+    /// range): how many it has shown it accepts at once.
+    pub served: AtomicUsize,
+}
+
+/// Counts a connection in [`Shared::served`] while it lives.
+struct Served<'a>(&'a AtomicUsize);
+
+impl<'a> Served<'a> {
+    fn new(count: &'a AtomicUsize) -> Self {
+        count.fetch_add(1, Ordering::Relaxed);
+        Self(count)
+    }
+}
+
+impl Drop for Served<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// Everything a worker needs to issue and validate its request.
@@ -96,6 +115,7 @@ async fn stream_segment(
         }
     };
 
+    let _served = Served::new(&shared.served);
     let mut stream = resp.bytes_stream();
     let mut buf = Buffer::new(ctx.buffer_size);
     let outcome = loop {
