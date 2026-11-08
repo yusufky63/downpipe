@@ -77,4 +77,13 @@ export const app: Messages["app"] = {
   exported: { one: "{count} Link gespeichert.", other: "{count} Links gespeichert." },
   duplicate: "Dieser Link ist bereits in der Liste.",
   whenDoneIdle: "Noch wird nichts heruntergeladen. Die Auswahl greift, sobald die nächsten Downloads abgeschlossen sind.",
+  update: {
+    available: "Downpipe {version} ist verfügbar.",
+    whatsNew: "Neuerungen",
+    install: "Jetzt installieren",
+    download: "Herunterladen",
+    installing: "Das Update wird heruntergeladen und geprüft… Downpipe schließt sich, wenn das Installationsprogramm startet.",
+    later: "Später",
+    failed: "Das Update konnte nicht installiert werden: {error}",
+  },
 };

@@ -197,6 +197,39 @@ async fn resume_detects_a_changed_file_and_starts_over() {
 }
 
 #[tokio::test]
+async fn resume_detects_a_changed_file_without_validators() {
+    // No ETag or Last-Modified, and the new file has the same size: only the
+    // bytes themselves can tell. The resume asks again for a few it already
+    // has and compares them.
+    let server = TestServer::start().await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let size = 8 * MIB;
+    let url = server.url(&format!("/file/{size}?rate=1048576&validators=0"));
+
+    let handle = engine(config()).start(DownloadRequest::new(&url, dir.path()));
+    wait_for(&handle, |p| p.downloaded >= MIB).await;
+    handle.pause();
+    assert!(matches!(
+        handle.wait().await.unwrap(),
+        Outcome::Paused {
+            resumable: true,
+            ..
+        }
+    ));
+
+    server.state.set_version(7);
+    let handle = engine(config()).start(DownloadRequest::new(&url, dir.path()));
+    let rx = handle.progress();
+    let path = completed_path(handle.wait().await.unwrap());
+    assert!(
+        std::fs::read(&path).unwrap() == content(size, 7),
+        "two versions were mixed: {:?}",
+        rx.borrow().notices
+    );
+    assert_only_file(dir.path(), &size.to_string());
+}
+
+#[tokio::test]
 async fn dropped_connections_are_retried() {
     let server = TestServer::start().await.unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -386,6 +419,65 @@ async fn checksums_are_verified() {
         "{err:?}"
     );
     // The data is kept for inspection, never published under the real name.
+    assert!(!wrong.join(size.to_string()).exists());
+    assert!(meta::part_path(&wrong.join(size.to_string())).exists());
+}
+
+#[tokio::test]
+async fn a_checksum_the_server_announces_is_verified() {
+    use base64::Engine as _;
+    let server = TestServer::start().await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let size = 3 * MIB;
+    let reference = dir.path().join("reference.bin");
+    std::fs::write(&reference, content(size, 0)).unwrap();
+    let hex = downpipe_http::hash_file(&reference, downpipe_http::HashAlgo::Sha256).unwrap();
+    std::fs::remove_file(&reference).unwrap();
+    let b64 =
+        |hex: &str| base64::engine::general_purpose::STANDARD.encode(hex::decode(hex).unwrap());
+    let url = |digest: String| {
+        let value: String = percent_encoding::utf8_percent_encode(
+            &format!("sha-256=:{digest}:"),
+            percent_encoding::NON_ALPHANUMERIC,
+        )
+        .collect();
+        server.url(&format!("/file/{size}?repr_digest={value}"))
+    };
+
+    let good = dir.path().join("good");
+    std::fs::create_dir(&good).unwrap();
+    let handle = engine(config()).start(DownloadRequest::new(url(b64(&hex)), &good));
+    let rx = handle.progress();
+    let outcome = handle.wait().await.unwrap();
+    assert!(
+        matches!(
+            outcome,
+            Outcome::Completed {
+                verified: Some(_),
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
+    assert!(
+        rx.borrow()
+            .notices
+            .iter()
+            .any(|n| n.contains("sha256 checksum"))
+    );
+
+    // A file that does not match what its server says it is: kept, not published.
+    let wrong = dir.path().join("wrong");
+    std::fs::create_dir(&wrong).unwrap();
+    let err = engine(config())
+        .start(DownloadRequest::new(url(b64(&"0".repeat(64))), &wrong))
+        .wait()
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, DownloadError::ChecksumMismatch { .. }),
+        "{err:?}"
+    );
     assert!(!wrong.join(size.to_string()).exists());
     assert!(meta::part_path(&wrong.join(size.to_string())).exists());
 }

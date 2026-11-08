@@ -181,6 +181,42 @@ async fn a_closing_connection_does_not_lower_the_host_limit() {
     }
 }
 
+// ------------------------------------------------- connections that crawl
+
+#[tokio::test]
+async fn a_connection_far_slower_than_the_others_is_replaced() {
+    // Every third request lands on a path that crawls. Work stealing shares
+    // its segment out, but the last piece it keeps (up to twice the minimum
+    // split) still takes seconds at its pace; a new request does not crawl.
+    let server = TestServer::start().await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let size = 8 * MIB;
+    let url = server.url(&format!(
+        "/file/{size}?rate=4194304&crawl_every=3&crawl_rate=65536"
+    ));
+    let mut took = Vec::new();
+    for shed_slow in [false, true] {
+        server.state.reset_stats();
+        let cfg = EngineConfig {
+            min_split_size: 256 * KIB,
+            buffer_size: 64 * KIB as usize,
+            shed_slow,
+            ..config()
+        };
+        let started = Instant::now();
+        let handle = engine(cfg).start(DownloadRequest::new(&url, dir.path()));
+        let path = completed_path(handle.wait().await.unwrap());
+        took.push(started.elapsed());
+        assert_eq!(std::fs::read(&path).unwrap(), content(size, 0));
+        std::fs::remove_file(path).unwrap();
+    }
+    let (kept, replaced) = (took[0], took[1]);
+    assert!(
+        replaced * 3 < kept * 2,
+        "replacing slow connections should save a third at least: {kept:?} vs {replaced:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_link_that_expires_mid_download_still_fails() {
     // Every request after the first is refused: not a connection limit the
@@ -448,6 +484,31 @@ async fn an_outage_longer_than_the_grace_fails_as_network() {
     // What arrived before the outage is kept for a later resume.
     let names = names_in(dir.path());
     assert!(names.iter().any(|n| n.ends_with(".part.meta")), "{names:?}");
+}
+
+// ------------------------------------------------------------- full disks
+
+#[tokio::test]
+async fn a_file_larger_than_the_free_space_is_refused_before_it_starts() {
+    // 8 PiB: no test machine has that much free.
+    let server = TestServer::start().await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let size: u64 = 1 << 53;
+    let err = engine(config())
+        .start(DownloadRequest::new(
+            server.url(&format!("/file/{size}")),
+            dir.path(),
+        ))
+        .wait()
+        .await
+        .unwrap_err();
+    let DownloadError::Io(io) = &err else {
+        panic!("expected a disk error, got {err:?}");
+    };
+    assert_eq!(io.kind(), std::io::ErrorKind::StorageFull, "{io}");
+    assert_eq!(err.kind(), "io");
+    assert!(io.to_string().contains("not enough free space"), "{io}");
+    assert!(names_in(dir.path()).is_empty(), "nothing written");
 }
 
 // ---------------------------------------------------------------- names

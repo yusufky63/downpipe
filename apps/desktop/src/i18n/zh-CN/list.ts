@@ -77,4 +77,13 @@ export const app: Messages["app"] = {
   exported: { other: "已保存 {count} 个链接。" },
   duplicate: "该链接已在列表中。",
   whenDoneIdle: "当前没有正在进行的下载。此选项将在接下来的下载完成后生效。",
+  update: {
+    available: "Downpipe {version} 已发布。",
+    whatsNew: "新内容",
+    install: "立即安装",
+    download: "下载",
+    installing: "正在下载并校验更新… 安装程序启动时 Downpipe 会关闭。",
+    later: "稍后",
+    failed: "无法安装更新：{error}",
+  },
 };

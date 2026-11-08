@@ -11,6 +11,7 @@
 //! | `weak=1`                     | weak `ETag` (`W/"..."`)                                |
 //! | `rate=N`                     | at most N bytes/s per connection                       |
 //! | `slow_from=O&slow_rate=N`    | bytes past offset O trickle at N bytes/s               |
+//! | `crawl_every=K&crawl_rate=N` | every Kth body trickles at N bytes/s (a slow path)     |
 //! | `drop_after=N&drop_times=K`  | the first K responses die after N bytes                |
 //! | `fail=S&fail_times=K`        | the first K requests get status S                      |
 //! | `fail_from=N`                | ... counting from request N (0 is the first)           |
@@ -27,6 +28,7 @@
 //! | `html=1`                     | a "link expired" page (`200 text/html`) instead        |
 //! | `html_after=N`               | the same, after the first N requests                   |
 //! | `cd=VALUE`                   | `Content-Disposition` exactly as given (raw UTF-8 too) |
+//! | `repr_digest=VALUE`          | `Repr-Digest` exactly as given (`sha-256=:...:`)       |
 //!
 //! `/redirect?to=/file/100` answers `302` to the given path; `/login` is a
 //! sign-in page, for links that redirect there once a session expired.
@@ -99,6 +101,8 @@ pub struct ServerState {
     drops: AtomicU64,
     failures: AtomicU64,
     stalls: AtomicU64,
+    /// Bodies served for `crawl_every`.
+    bodies: AtomicU64,
     hangs: AtomicU64,
     html_requests: AtomicU64,
     /// Requests refused by `max_conns`.
@@ -142,6 +146,7 @@ impl ServerState {
         self.drops.store(0, Ordering::SeqCst);
         self.failures.store(0, Ordering::SeqCst);
         self.stalls.store(0, Ordering::SeqCst);
+        self.bodies.store(0, Ordering::SeqCst);
         self.hangs.store(0, Ordering::SeqCst);
         self.html_requests.store(0, Ordering::SeqCst);
         self.refused.store(0, Ordering::SeqCst);
@@ -412,6 +417,8 @@ struct FileQuery {
     rate: Option<u64>,
     slow_from: Option<u64>,
     slow_rate: Option<u64>,
+    crawl_every: Option<u64>,
+    crawl_rate: Option<u64>,
     drop_after: Option<u64>,
     drop_times: Option<u64>,
     fail: Option<u16>,
@@ -432,6 +439,7 @@ struct FileQuery {
     html: Option<u8>,
     html_after: Option<u64>,
     cd: Option<String>,
+    repr_digest: Option<String>,
 }
 
 /// A page of links to the samples, for right-clicking in a browser.
@@ -675,13 +683,23 @@ fn build_file_response(
         let times = q.stall_times.unwrap_or(u64::MAX);
         start <= at && at < end && state.stalls.fetch_add(1, Ordering::SeqCst) < times
     });
+    // A slow TCP path or server slot: this one body, whatever its range.
+    let crawls = q
+        .crawl_every
+        .filter(|&k| k > 0)
+        .is_some_and(|k| state.bodies.fetch_add(1, Ordering::SeqCst) % k == k - 1);
+    let rate = if crawls {
+        q.crawl_rate.or(q.rate)
+    } else {
+        q.rate
+    };
     let body = body_stream(
         guard,
         BodyPlan {
             start,
             end,
             version,
-            rate: q.rate,
+            rate,
             slow_from: q.slow_from,
             slow_rate: q.slow_rate,
             drop_after: drop_at,
@@ -695,6 +713,13 @@ fn build_file_response(
     let mime = q.mime.as_deref().unwrap_or("application/octet-stream");
     if let Ok(v) = HeaderValue::from_str(mime) {
         h.insert(header::CONTENT_TYPE, v);
+    }
+    if let Some(v) = q
+        .repr_digest
+        .as_deref()
+        .and_then(|d| HeaderValue::from_str(d).ok())
+    {
+        h.insert("repr-digest", v);
     }
     if ranges {
         h.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));

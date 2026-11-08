@@ -176,7 +176,7 @@ pub async fn install(
 }
 
 /// The tag `releases/latest` redirects to.
-async fn latest_release(
+pub(crate) async fn latest_release(
     client: &reqwest::Client,
     base: &Url,
     repo: &str,
@@ -205,7 +205,10 @@ async fn latest_release(
     Ok(tag.to_string())
 }
 
-async fn fetch_text(client: &reqwest::Client, url: Url) -> Result<String, DownloadError> {
+pub(crate) async fn fetch_text(
+    client: &reqwest::Client,
+    url: Url,
+) -> Result<String, DownloadError> {
     let resp = client.get(url).send().await.map_err(|e| network(&e))?;
     if !resp.status().is_success() {
         return Err(status(resp.status().as_u16()));
@@ -220,7 +223,7 @@ async fn fetch_text(client: &reqwest::Client, url: Url) -> Result<String, Downlo
 }
 
 /// Stream `url` into `path`, returning the SHA-256 of what was written.
-async fn fetch_file(
+pub(crate) async fn fetch_file(
     client: &reqwest::Client,
     url: Url,
     path: &Path,

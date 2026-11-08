@@ -96,13 +96,19 @@ pub enum DownloadError {
     #[error("no data received for {0:?}")]
     Stalled(Duration),
 
+    /// Far slower than the download's other connections; dropped so a new
+    /// request (a new TCP path, often another server slot) takes its bytes.
+    /// Handled inside the engine, never shown.
+    #[error("much slower than the other connections; reconnecting")]
+    SlowConnection,
+
     #[error("network error: {0}")]
     Network(String),
 
     #[error("checksum mismatch: expected {expected}, got {actual}")]
     ChecksumMismatch { expected: String, actual: String },
 
-    #[error("invalid checksum `{0}` (expected sha256:<hex> or sha512:<hex>)")]
+    #[error("invalid checksum `{0}` (expected sha256:<hex>, sha512:<hex> or md5:<hex>)")]
     InvalidChecksum(String),
 
     #[error("disk error: {0}")]
@@ -164,6 +170,7 @@ impl DownloadError {
             Self::Throttled { .. }
                 | Self::PrematureEnd
                 | Self::Stalled(_)
+                | Self::SlowConnection
                 | Self::Network(_)
                 | Self::RangeNotHonoured
         ) || matches!(self, Self::HttpStatus { status } if *status == 408 || *status >= 500)
@@ -216,7 +223,9 @@ impl DownloadError {
             Self::LoginRequired => "login_required",
             Self::PrivateFile(_) => "private_file",
             Self::RangeNotHonoured => "range_not_honoured",
-            Self::PrematureEnd | Self::Stalled(_) | Self::Network(_) => "network",
+            Self::PrematureEnd | Self::Stalled(_) | Self::SlowConnection | Self::Network(_) => {
+                "network"
+            }
             Self::ChecksumMismatch { .. } | Self::InvalidChecksum(_) => "checksum",
             Self::Io(_) => "io",
             Self::CorruptMeta(_) => "corrupt_meta",

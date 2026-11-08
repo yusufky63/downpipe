@@ -77,4 +77,13 @@ export const app: Messages["app"] = {
   exported: { one: "{count} bağlantı kaydedildi.", other: "{count} bağlantı kaydedildi." },
   duplicate: "Bu bağlantı zaten listede.",
   whenDoneIdle: "Henüz indirilen bir şey yok. Sonraki indirmeler bittiğinde uygulanır.",
+  update: {
+    available: "Downpipe {version} çıktı.",
+    whatsNew: "Yenilikler",
+    install: "Şimdi kur",
+    download: "İndir",
+    installing: "Güncelleme indiriliyor ve denetleniyor… Kurulum başlayınca Downpipe kapanır.",
+    later: "Sonra",
+    failed: "Güncelleme kurulamadı: {error}",
+  },
 };

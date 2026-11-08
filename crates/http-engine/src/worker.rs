@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bytes::BytesMut;
 use futures_util::StreamExt;
@@ -29,7 +29,24 @@ pub(crate) struct Shared {
     /// Connections the host is serving right now (it answered with the
     /// range): how many it has shown it accepts at once.
     pub served: AtomicUsize,
+    /// The fastest one connection of this download has been, in bytes per
+    /// second over a measuring window: what "far slower" is measured by.
+    pub best_rate: AtomicU64,
 }
+
+/// How often a connection measures its own speed.
+const RATE_WINDOW: Duration = Duration::from_secs(1);
+/// A response this old already says how fast a connection can be: fast ones
+/// often finish their piece within one `RATE_WINDOW`.
+const BEST_AFTER: Duration = Duration::from_millis(250);
+/// A connection is never dropped for slowness in its first seconds (TCP slow
+/// start, a server warming up).
+const SHED_GRACE: Duration = Duration::from_secs(2);
+/// "Far slower": below 1/`SHED_RATIO` of the best connection's speed.
+const SHED_RATIO: u64 = 4;
+/// Only worth a new request if the rest would take longer than this at the
+/// connection's own speed.
+const SHED_LEFT: Duration = Duration::from_secs(2);
 
 /// Counts a connection in [`Shared::served`] while it lives.
 struct Served<'a>(&'a AtomicUsize);
@@ -61,6 +78,8 @@ pub(crate) struct WorkerCtx {
     pub response_timeout: Duration,
     /// The file itself is a web page, so `text/html` answers are expected.
     pub accept_html: bool,
+    /// See [`EngineConfig::shed_slow`](crate::EngineConfig::shed_slow).
+    pub shed_slow: bool,
 }
 
 #[derive(Debug)]
@@ -118,6 +137,11 @@ async fn stream_segment(
     let _served = Served::new(&shared.served);
     let mut stream = resp.bytes_stream();
     let mut buf = Buffer::new(ctx.buffer_size);
+    let started = Instant::now();
+    // Start of the current measuring window and the bytes taken in it, and
+    // all bytes taken from this response.
+    let mut window = (started, 0u64);
+    let mut taken = 0u64;
     let outcome = loop {
         let next = tokio::select! {
             biased;
@@ -147,10 +171,38 @@ async fn stream_segment(
         if r.exhausted {
             break Ok(WorkerEnd::Done);
         }
+        window.1 += r.take;
+        taken += r.take;
+        let now = Instant::now();
+        let age = now.duration_since(started);
+        if age >= BEST_AFTER {
+            let overall = (taken as f64 / age.as_secs_f64()) as u64;
+            shared.best_rate.fetch_max(overall, Ordering::Relaxed);
+        }
+        let elapsed = now.duration_since(window.0);
+        if elapsed >= RATE_WINDOW {
+            let rate = (window.1 as f64 / elapsed.as_secs_f64()) as u64;
+            window = (now, 0);
+            shared.best_rate.fetch_max(rate, Ordering::Relaxed);
+            if a.may_shed && ctx.shed_slow && now.duration_since(started) >= SHED_GRACE {
+                let best = shared.best_rate.load(Ordering::Relaxed);
+                let left = shared.map.lock().unclaimed(a.id);
+                if is_far_slower(rate, best, left) && !ctx.limits.limited() {
+                    break Err(DownloadError::SlowConnection);
+                }
+            }
+        }
     };
     // Bytes already received are valid whatever ended the loop.
     buf.flush(shared, a.id).await?;
     outcome
+}
+
+/// A connection at `rate` bytes/s with `left` bytes to go is worth replacing:
+/// far below the best connection's `best`, and with enough left that a new
+/// request pays off.
+fn is_far_slower(rate: u64, best: u64, left: u64) -> bool {
+    rate.saturating_mul(SHED_RATIO) < best && left as f64 > rate as f64 * SHED_LEFT.as_secs_f64()
 }
 
 impl WorkerCtx {
@@ -244,5 +296,23 @@ impl Buffer {
         blocking(move || part.write_all_at(offset, &data)).await?;
         self.offset = end;
         Ok(end)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_far_slower_connection_with_enough_left_is_replaced() {
+        const MIB: u64 = 1024 * 1024;
+        // A quarter of the best is not "far" slower yet.
+        assert!(!is_far_slower(MIB, 4 * MIB, 10 * MIB));
+        assert!(is_far_slower(MIB - 1, 4 * MIB, 10 * MIB));
+        // Two seconds or less left at its own pace: not worth a new request.
+        assert!(!is_far_slower(64 * 1024, 4 * MIB, 128 * 1024));
+        assert!(is_far_slower(64 * 1024, 4 * MIB, 129 * 1024));
+        // Nothing to compare with yet.
+        assert!(!is_far_slower(0, 0, MIB));
     }
 }

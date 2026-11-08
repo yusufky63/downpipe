@@ -78,4 +78,13 @@ export const app: Messages["app"] = {
   exported: { one: "{count} link salvo.", many: "{count} links salvos.", other: "{count} links salvos." },
   duplicate: "Esse link já está na lista.",
   whenDoneIdle: "Nada está sendo baixado ainda. A opção vale quando os próximos downloads terminarem.",
+  update: {
+    available: "O Downpipe {version} está disponível.",
+    whatsNew: "Novidades",
+    install: "Instalar agora",
+    download: "Baixar",
+    installing: "Baixando e verificando a atualização… O Downpipe fecha quando o instalador começar.",
+    later: "Mais tarde",
+    failed: "Não foi possível instalar a atualização: {error}",
+  },
 };

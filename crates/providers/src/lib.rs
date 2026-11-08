@@ -33,6 +33,7 @@ pub mod playlist;
 pub mod process;
 pub mod progress;
 pub mod tools;
+pub mod update;
 
 pub use args::{
     MAX_LIST_ENTRIES, Preset, SubtitleRef, format_selector, needs_merge, valid_format_id,

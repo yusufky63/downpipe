@@ -22,7 +22,7 @@ export const settings: Messages["settings"] = {
     concurrent: "同时下载数",
     concurrentHint: "其余下载在队列中等待。范围 1 到 16。",
     connections: "每个下载的连接数",
-    connectionsHint: "上限。Downpipe 先使用 2 个连接，仅在有助于提速时才增加。范围 1 到 32。",
+    connectionsHint: "上限。Downpipe 先使用 2 个连接（64 MiB 及以上的文件为 4 个），仅在有助于提速时才增加。范围 1 到 32。",
     speedLimit: "速度限制",
     speedLimitHint: "由所有下载共享。留空表示不限速。立即生效。",
     speedLimitInvalid: "请输入数字，例如 1.5 或 1,5。",
@@ -123,6 +123,11 @@ export const settings: Messages["settings"] = {
     stop: "停止时间",
     stopHint: "可选",
     days: "星期",
+    wake: "在开始时间唤醒电脑",
+    wakeHint:
+      "在开始时间前一分钟，Windows 会把电脑从睡眠中唤醒。Downpipe 需要在运行，在窗口或托盘中均可；如果开启了“下载时阻止电脑睡眠”，电脑会一直保持唤醒直到下载完成。",
+    wakeBlocked:
+      "Windows 电源计划不允许程序唤醒这台电脑。请在 控制面板 → 电源选项 → 更改计划设置 → 更改高级电源设置 → 睡眠 → 允许使用唤醒定时器 → 启用 中打开。",
   },
   app: {
     language: "语言",
@@ -139,6 +144,13 @@ export const settings: Messages["settings"] = {
       "当你复制的链接指向“类别”中列出的文件类型，或指向 YouTube 视频时，Downpipe 会用该链接打开“添加”对话框。已在列表中的链接会被跳过。",
     awake: "下载时阻止电脑睡眠",
     awakeHint: "睡眠会等到下载停止运行后再进行。屏幕仍可关闭。",
+    updates: "检查更新",
+    updatesHint:
+      "Downpipe 每天向 github.com 查询一次最新版本，有新版本时会告诉你。除了这个请求本身，不会发送任何内容。",
+    checkNow: "立即检查",
+    checking: "正在检查…",
+    upToDate: "Downpipe 已是最新版本。",
+    checkFailed: "无法检查：{error}",
     confirmBrowser: "从浏览器开始下载前询问",
     confirmBrowserHint:
       "先在浏览器上方的小窗口中选择文件名、文件夹和队列。关闭：下载会立即开始，并使用自动文件夹。",

@@ -40,6 +40,9 @@ pub struct Settings {
     /// Desktop app: keep the computer from sleeping while downloads run.
     /// The display may still turn off.
     pub keep_awake: bool,
+    /// Desktop app: ask github.com once a day whether a newer Downpipe is
+    /// out (the request itself is all it sends).
+    pub check_updates: bool,
     /// Downloads sent by the browser wait until the user confirms their
     /// name, folder and queue (IDM's "Download File Info").
     pub confirm_browser_downloads: bool,
@@ -239,6 +242,9 @@ pub struct Schedule {
     pub days: [bool; 7],
     /// Queue id the schedule starts and stops; empty for every queue.
     pub queue: String,
+    /// Wake the computer from sleep shortly before the start time (Windows;
+    /// the app has to be running, in the window or the tray).
+    pub wake: bool,
 }
 
 impl Default for Schedule {
@@ -249,6 +255,7 @@ impl Default for Schedule {
             stop: "07:00".into(),
             days: [true; 7],
             queue: String::new(),
+            wake: false,
         }
     }
 }
@@ -271,6 +278,7 @@ impl Default for Settings {
             schedule: Schedule::default(),
             watch_clipboard: false,
             keep_awake: true,
+            check_updates: true,
             confirm_browser_downloads: true,
             language: String::new(),
             queues: default_queues(),

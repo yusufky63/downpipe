@@ -14,6 +14,7 @@ use downpipe_http::{
 };
 use downpipe_providers::install::{self, Tool};
 use downpipe_providers::naming::{self, NameFields};
+use downpipe_providers::update::{self, Update as AppUpdate};
 use downpipe_providers::{
     RATE_LIMITED, SiteRequest, ToolConfig, Tools, ToolsStatus, files as site_files, pages,
 };
@@ -1262,6 +1263,23 @@ impl Manager {
         self.inner
             .emit(ManagerEvent::ListOffered { url: url.clone() });
         Ok(url)
+    }
+
+    /// A Downpipe release newer than this one, if there is one. Asks
+    /// github.com through the downloads' client (proxy and all).
+    pub async fn check_for_update(&self) -> Result<Option<AppUpdate>, CoreError> {
+        let client = self.http_client();
+        let base = url::Url::parse(install::GITHUB).expect("a valid URL");
+        Ok(update::check(&client, &base, env!("CARGO_PKG_VERSION")).await?)
+    }
+
+    /// Download `update`'s installer (Windows), checked against the
+    /// release's SHA-256 list, into a folder of its own in the temp folder.
+    pub async fn download_update(&self, update: &AppUpdate) -> Result<PathBuf, CoreError> {
+        let client = self.http_client();
+        let base = url::Url::parse(install::GITHUB).expect("a valid URL");
+        let dir = std::env::temp_dir().join("downpipe-update");
+        Ok(update::download_installer(&client, &base, update, &dir).await?)
     }
 
     /// The site provider's tools as the settings find them, with versions.

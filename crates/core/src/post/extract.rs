@@ -9,9 +9,13 @@
 //! no links, so no path can lead out of it. Sizes are checked against the
 //! bytes actually written (headers can lie): an archive may not expand past
 //! [`Limits`], which stops zip bombs. Nested archives are not opened.
+//!
+//! An archive cut into numbered pieces (`a.7z.001`, `a.7z.002`, ...: the
+//! byte-split volumes 7-Zip, HJSplit and file hosts make) is read as the one
+//! file its pieces make together, once all of them are there.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -58,6 +62,139 @@ pub fn stem(file_name: &str) -> &str {
         .map_or(file_name, |(end, _)| {
             &file_name[..file_name.len() - end.len()]
         })
+}
+
+/// `a.7z.001` -> (`a.7z`, 1, 3): a numbered piece of an archive Downpipe can
+/// open, its number and how many digits the numbers have.
+pub fn split_volume(file_name: &str) -> Option<(&str, u32, usize)> {
+    let (base, number) = file_name.rsplit_once('.')?;
+    if !(3..=4).contains(&number.len()) || !number.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let index: u32 = number.parse().ok()?;
+    (index >= 1 && ArchiveKind::of(base).is_some()).then_some((base, index, number.len()))
+}
+
+/// Whether every piece of a split archive is on disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VolumeSet {
+    /// The pieces in order. `certain` is false when nothing shows the last
+    /// one is the last (all the same size): then the archive itself must
+    /// tell, by opening.
+    Complete {
+        volumes: Vec<PathBuf>,
+        certain: bool,
+    },
+    /// A piece is missing or still downloading (its `.part` is there).
+    Incomplete,
+}
+
+/// The set `piece` belongs to, looked for next to it.
+pub fn volume_set(piece: &Path) -> VolumeSet {
+    let Some(name) = piece.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+        return VolumeSet::Incomplete;
+    };
+    let Some((base, _, digits)) = split_volume(&name) else {
+        return VolumeSet::Incomplete;
+    };
+    let dir = piece.parent().unwrap_or(Path::new("."));
+    let numbered = |i: u32| dir.join(format!("{base}.{i:0digits$}"));
+    let mut volumes = Vec::new();
+    let mut sizes = Vec::new();
+    for i in 1.. {
+        let path = numbered(i);
+        if dir.join(format!("{base}.{i:0digits$}.part")).exists() {
+            return VolumeSet::Incomplete;
+        }
+        match fs::metadata(&path) {
+            Ok(m) if m.is_file() => {
+                sizes.push(m.len());
+                volumes.push(path);
+            }
+            _ => break,
+        }
+    }
+    // A later piece already there or downloading means one before it is
+    // missing. (A set of one is possible: a small archive split by 7-Zip
+    // gives only `.001`. Its size cannot tell, so opening it will.)
+    let next = volumes.len() as u32 + 1;
+    if volumes.is_empty()
+        || dir.join(format!("{base}.{next:0digits$}.part")).exists()
+        || (next + 1..next + 4).any(|i| numbered(i).exists())
+    {
+        return VolumeSet::Incomplete;
+    }
+    let first = sizes[0];
+    let last = sizes[sizes.len() - 1];
+    // Every piece but the last has the size the splitter cut at.
+    if sizes[..sizes.len() - 1].iter().any(|&s| s != first) || last > first {
+        return VolumeSet::Incomplete;
+    }
+    VolumeSet::Complete {
+        volumes,
+        certain: last < first,
+    }
+}
+
+/// Several files read as one, one after the other.
+struct Volumes {
+    files: Vec<(File, u64)>,
+    total: u64,
+    pos: u64,
+}
+
+impl Volumes {
+    fn open(paths: &[PathBuf]) -> io::Result<Self> {
+        let mut files = Vec::with_capacity(paths.len());
+        let mut total = 0;
+        for path in paths {
+            let file = File::open(path)?;
+            let len = file.metadata()?.len();
+            total += len;
+            files.push((file, len));
+        }
+        Ok(Self {
+            files,
+            total,
+            pos: 0,
+        })
+    }
+}
+
+impl Read for Volumes {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let mut start = 0u64;
+        for (file, len) in &mut self.files {
+            if self.pos < start + *len {
+                let within = self.pos - start;
+                file.seek(SeekFrom::Start(within))?;
+                let want = buf.len().min((*len - within) as usize);
+                let n = file.read(&mut buf[..want])?;
+                self.pos += n as u64;
+                return Ok(n);
+            }
+            start += *len;
+        }
+        Ok(0)
+    }
+}
+
+impl Seek for Volumes {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        let target = match to {
+            SeekFrom::Start(n) => i128::from(n),
+            SeekFrom::End(d) => i128::from(self.total) + i128::from(d),
+            SeekFrom::Current(d) => i128::from(self.pos) + i128::from(d),
+        };
+        if target < 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "seek before the start",
+            ));
+        }
+        self.pos = u64::try_from(target).unwrap_or(u64::MAX);
+        Ok(self.pos)
+    }
 }
 
 /// How far an archive may expand.
@@ -144,13 +281,29 @@ pub fn extract(
     limits: Limits,
     cancel: &AtomicBool,
 ) -> Result<Extracted, ExtractError> {
-    let parent = archive.parent().unwrap_or(Path::new("."));
-    let name = archive
+    extract_volumes(&[archive.to_path_buf()], kind, limits, cancel)
+}
+
+/// Extract an archive cut into `volumes` (in order) as if it were one file,
+/// into a folder named after it (`a.7z.001` -> `a`).
+pub fn extract_volumes(
+    volumes: &[PathBuf],
+    kind: ArchiveKind,
+    limits: Limits,
+    cancel: &AtomicBool,
+) -> Result<Extracted, ExtractError> {
+    let first = volumes
+        .first()
+        .ok_or_else(|| ExtractError::Corrupt("no archive".into()))?;
+    let parent = first.parent().unwrap_or(Path::new("."));
+    let name = first
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let folder = new_folder(parent, &filename::sanitize(stem(&name)))?;
-    let archive_len = fs::metadata(archive)?.len();
+    let name = split_volume(&name).map_or(name.as_str(), |(base, _, _)| base);
+    let folder = new_folder(parent, &filename::sanitize(stem(name)))?;
+    let source = Volumes::open(volumes)?;
+    let archive_len = source.total;
     let mut out = Sink {
         root: folder.clone(),
         budget: limits.budget(archive_len),
@@ -162,23 +315,19 @@ pub fn extract(
         cancel,
     };
     let result = match kind {
-        ArchiveKind::Zip => zip_entries(archive, &mut out),
-        ArchiveKind::Tar => tar_entries(File::open(archive)?, &mut out),
+        ArchiveKind::Zip => zip_entries(io::BufReader::new(source), &mut out),
+        ArchiveKind::Tar => tar_entries(io::BufReader::new(source), &mut out),
         ArchiveKind::TarGz => tar_entries(
-            flate2::read::MultiGzDecoder::new(io::BufReader::new(File::open(archive)?)),
+            flate2::read::MultiGzDecoder::new(io::BufReader::new(source)),
             &mut out,
         ),
         // The dictionary an XZ header asks for is allocated up front; a
         // crafted header must not take all the memory.
         ArchiveKind::TarXz => tar_entries(
-            lzma_rust2::XzReader::new_mem_limit(
-                io::BufReader::new(File::open(archive)?),
-                true,
-                XZ_MEMORY_KIB,
-            ),
+            lzma_rust2::XzReader::new_mem_limit(io::BufReader::new(source), true, XZ_MEMORY_KIB),
             &mut out,
         ),
-        ArchiveKind::SevenZ => seven_z_entries(archive, &mut out),
+        ArchiveKind::SevenZ => seven_z_entries(io::BufReader::new(source), &mut out),
     };
     match result {
         Ok(()) => Ok(Extracted {
@@ -382,9 +531,8 @@ const S_IFMT: u32 = 0o170_000;
 const S_IFREG: u32 = 0o100_000;
 const S_IFDIR: u32 = 0o040_000;
 
-fn zip_entries(archive: &Path, out: &mut Sink<'_>) -> Result<(), ExtractError> {
-    let file = io::BufReader::new(File::open(archive)?);
-    let mut zip = zip::ZipArchive::new(file).map_err(zip_error)?;
+fn zip_entries(source: impl Read + Seek, out: &mut Sink<'_>) -> Result<(), ExtractError> {
+    let mut zip = zip::ZipArchive::new(source).map_err(zip_error)?;
     for i in 0..zip.len() {
         let (name, kind, declared) = {
             let entry = zip.by_index_raw(i).map_err(zip_error)?;
@@ -457,9 +605,9 @@ const ATTR_DIRECTORY: u32 = 0x10;
 const ATTR_REPARSE_POINT: u32 = 0x400;
 const ATTR_UNIX_EXTENSION: u32 = 0x8000;
 
-fn seven_z_entries(archive: &Path, out: &mut Sink<'_>) -> Result<(), ExtractError> {
+fn seven_z_entries(source: impl Read + Seek, out: &mut Sink<'_>) -> Result<(), ExtractError> {
     use sevenz_rust2::{ArchiveReader, Error, Password};
-    let mut reader = ArchiveReader::open(archive, Password::empty()).map_err(seven_z_error)?;
+    let mut reader = ArchiveReader::new(source, Password::empty()).map_err(seven_z_error)?;
     let mut failure: Option<ExtractError> = None;
     let walked = reader.for_each_entries(|entry, data| {
         let attrs = if entry.has_windows_attributes {
@@ -831,5 +979,131 @@ mod tests {
         assert_eq!(files_in(&done.folder), ["docs/a.txt"]);
         assert_eq!(done.skipped, 2);
         assert_eq!(fs::read(done.folder.join("docs/a.txt")).unwrap(), b"seven");
+    }
+
+    /// A piece size that cuts `archive` into three.
+    fn thirds(archive: &Path) -> usize {
+        fs::metadata(archive).unwrap().len() as usize / 3 + 1
+    }
+
+    /// Cut `archive` into pieces of `size` bytes named `<archive>.001`, ...
+    fn split(archive: &Path, size: usize) -> Vec<PathBuf> {
+        let bytes = fs::read(archive).unwrap();
+        fs::remove_file(archive).unwrap();
+        bytes
+            .chunks(size)
+            .enumerate()
+            .map(|(i, chunk)| {
+                let piece = PathBuf::from(format!("{}.{:03}", archive.display(), i + 1));
+                fs::write(&piece, chunk).unwrap();
+                piece
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pieces_of_split_archives_are_recognized() {
+        assert_eq!(split_volume("a.7z.001"), Some(("a.7z", 1, 3)));
+        assert_eq!(
+            split_volume("Big.Pack.zip.0012"),
+            Some(("Big.Pack.zip", 12, 4))
+        );
+        assert_eq!(split_volume("a.tar.gz.003"), Some(("a.tar.gz", 3, 3)));
+        assert_eq!(split_volume("a.7z.000"), None, "pieces count from 1");
+        assert_eq!(split_volume("movie.mkv.001"), None, "not an archive");
+        assert_eq!(split_volume("a.7z.01"), None);
+        assert_eq!(split_volume("a.7z"), None);
+    }
+
+    #[test]
+    fn a_split_set_is_complete_only_when_every_piece_is_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = |n: &str| dir.path().join(n);
+        fs::write(p("a.7z.001"), [0u8; 10]).unwrap();
+        fs::write(p("a.7z.002"), [0u8; 10]).unwrap();
+        // The last piece is still downloading.
+        fs::write(p("a.7z.003.part"), [0u8; 10]).unwrap();
+        assert_eq!(volume_set(&p("a.7z.001")), VolumeSet::Incomplete);
+        fs::remove_file(p("a.7z.003.part")).unwrap();
+        fs::write(p("a.7z.003"), [0u8; 4]).unwrap();
+        assert_eq!(
+            volume_set(&p("a.7z.002")),
+            VolumeSet::Complete {
+                volumes: vec![p("a.7z.001"), p("a.7z.002"), p("a.7z.003")],
+                certain: true,
+            }
+        );
+        // A gap: piece 5 without piece 4.
+        fs::write(p("a.7z.005"), [0u8; 4]).unwrap();
+        assert_eq!(volume_set(&p("a.7z.001")), VolumeSet::Incomplete);
+        fs::remove_file(p("a.7z.005")).unwrap();
+        // All the same size: maybe more pieces are on their way.
+        fs::write(p("a.7z.003"), [0u8; 10]).unwrap();
+        assert!(matches!(
+            volume_set(&p("a.7z.001")),
+            VolumeSet::Complete { certain: false, .. }
+        ));
+        // A middle piece of another size is not a set the splitter made.
+        fs::write(p("a.7z.002"), [0u8; 3]).unwrap();
+        assert_eq!(volume_set(&p("a.7z.001")), VolumeSet::Incomplete);
+    }
+
+    #[test]
+    fn split_zip_and_7z_extract_as_one_archive() {
+        use sevenz_rust2::{ArchiveEntry, ArchiveWriter};
+        let dir = tempfile::tempdir().unwrap();
+        let big: Vec<u8> = (0..200_000u32).map(|i| (i * 7 % 251) as u8).collect();
+
+        let zip = dir.path().join("pack.zip");
+        write_zip(&zip, &[("docs/a.txt", b"hello"), ("data.bin", &big)]);
+        let pieces = split(&zip, thirds(&zip));
+        assert_eq!(pieces.len(), 3);
+        let VolumeSet::Complete { volumes, .. } = volume_set(&pieces[1]) else {
+            panic!("the set is complete");
+        };
+        let done =
+            extract_volumes(&volumes, ArchiveKind::Zip, Limits::default(), &no_cancel()).unwrap();
+        assert_eq!(
+            done.folder,
+            dir.path().join("pack"),
+            "named after the archive"
+        );
+        assert_eq!(files_in(&done.folder), ["data.bin", "docs/a.txt"]);
+        assert_eq!(fs::read(done.folder.join("data.bin")).unwrap(), big);
+
+        let seven = dir.path().join("s.7z");
+        {
+            let mut w = ArchiveWriter::create(&seven).unwrap();
+            let mut entry = ArchiveEntry::new_file("data.bin");
+            entry.size = big.len() as u64;
+            w.push_archive_entry(entry, Some(&big[..])).unwrap();
+            w.finish().unwrap();
+        }
+        let pieces = split(&seven, thirds(&seven));
+        let VolumeSet::Complete { volumes, .. } = volume_set(&pieces[0]) else {
+            panic!("the set is complete");
+        };
+        let done = extract_volumes(
+            &volumes,
+            ArchiveKind::SevenZ,
+            Limits::default(),
+            &no_cancel(),
+        )
+        .unwrap();
+        assert_eq!(fs::read(done.folder.join("data.bin")).unwrap(), big);
+
+        // Without its last piece the archive does not open, and nothing stays.
+        let zip = dir.path().join("cut.zip");
+        write_zip(&zip, &[("data.bin", &big)]);
+        let pieces = split(&zip, thirds(&zip));
+        let err = extract_volumes(
+            &pieces[..pieces.len() - 1],
+            ArchiveKind::Zip,
+            Limits::default(),
+            &no_cancel(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, ExtractError::Corrupt(_)), "{err:?}");
+        assert!(!dir.path().join("cut").exists());
     }
 }

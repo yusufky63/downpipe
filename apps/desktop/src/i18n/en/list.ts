@@ -76,4 +76,13 @@ export const app = {
   exported: { one: "Saved {count} link.", other: "Saved {count} links." },
   duplicate: "That link is already in the list.",
   whenDoneIdle: "Nothing is downloading yet. It applies once the next downloads finish.",
+  update: {
+    available: "Downpipe {version} is available.",
+    whatsNew: "What's new",
+    install: "Install now",
+    download: "Download",
+    installing: "Downloading and checking the update… Downpipe closes when the installer starts.",
+    later: "Later",
+    failed: "The update could not be installed: {error}",
+  },
 };

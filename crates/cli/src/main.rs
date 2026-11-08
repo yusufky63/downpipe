@@ -56,7 +56,7 @@ struct GetArgs {
     /// File name to use instead of the one from the server.
     #[arg(short = 'n', long = "name")]
     file_name: Option<String>,
-    /// Expected digest, e.g. `sha256:9f86d0...`. Checked before the file is renamed into place.
+    /// Expected digest, e.g. `sha256:9f86d0...` (`sha512:` and `md5:` too). Checked before the file is renamed into place; without it, a digest the server announces is checked.
     #[arg(long)]
     checksum: Option<String>,
     /// Extra request header, e.g. `-H "Referer: https://example.org/"`.

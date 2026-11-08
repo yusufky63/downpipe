@@ -81,4 +81,13 @@ export const app: Messages["app"] = {
   exported: { one: "{count} lien enregistré.", many: "{count} liens enregistrés.", other: "{count} liens enregistrés." },
   duplicate: "Ce lien figure déjà dans la liste.",
   whenDoneIdle: "Aucun téléchargement en cours pour l'instant. Le choix s'appliquera à la fin des prochains téléchargements.",
+  update: {
+    available: "Downpipe {version} est disponible.",
+    whatsNew: "Nouveautés",
+    install: "Installer maintenant",
+    download: "Télécharger",
+    installing: "Téléchargement et vérification de la mise à jour… Downpipe se ferme quand le programme d'installation démarre.",
+    later: "Plus tard",
+    failed: "La mise à jour n'a pas pu être installée : {error}",
+  },
 };

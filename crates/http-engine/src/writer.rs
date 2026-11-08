@@ -67,6 +67,22 @@ impl PartFile {
         Ok(())
     }
 
+    /// Read exactly `buf.len()` bytes at `offset` (bytes already written).
+    pub fn read_exact_at(&self, mut offset: u64, mut buf: &mut [u8]) -> io::Result<()> {
+        while !buf.is_empty() {
+            let n = read_at(&self.file, buf, offset)?;
+            if n == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "part file ended early",
+                ));
+            }
+            buf = &mut buf[n..];
+            offset += n as u64;
+        }
+        Ok(())
+    }
+
     /// Flush data to stable storage; called before the meta claims it.
     pub fn sync(&self) -> io::Result<()> {
         self.file.sync_data()
@@ -87,6 +103,18 @@ fn write_at(file: &File, buf: &[u8], offset: u64) -> io::Result<usize> {
 fn write_at(file: &File, buf: &[u8], offset: u64) -> io::Result<usize> {
     use std::os::windows::fs::FileExt;
     file.seek_write(buf, offset)
+}
+
+#[cfg(unix)]
+fn read_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    use std::os::unix::fs::FileExt;
+    file.read_at(buf, offset)
+}
+
+#[cfg(windows)]
+fn read_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    use std::os::windows::fs::FileExt;
+    file.seek_read(buf, offset)
 }
 
 #[cfg(windows)]
@@ -110,6 +138,47 @@ fn set_sparse(file: &File) {
             std::ptr::null_mut(),
         );
     }
+}
+
+/// Bytes this user may still write under `dir` (disk quotas included), or
+/// `None` when the system cannot say (some network drives): then nothing is
+/// refused up front.
+pub(crate) fn free_space(dir: &Path) -> Option<u64> {
+    free_space_impl(dir).filter(|&n| n > 0)
+}
+
+#[cfg(windows)]
+fn free_space_impl(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+    let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut available = 0u64;
+    // SAFETY: `wide` is a NUL-terminated path that outlives the call; the
+    // two totals we do not need may be null.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(available)
+}
+
+#[cfg(unix)]
+// statvfs's fields are u64 on Linux but u32 (blocks) on macOS.
+#[allow(clippy::useless_conversion)]
+fn free_space_impl(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    // SAFETY: an all-zero statvfs is a valid value for the call to fill in.
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `path` is NUL-terminated and `stat` is writable for the call.
+    let rc = unsafe { libc::statvfs(path.as_ptr(), &mut stat) };
+    (rc == 0).then(|| u64::from(stat.f_bavail).saturating_mul(u64::from(stat.f_frsize)))
 }
 
 #[cfg(test)]

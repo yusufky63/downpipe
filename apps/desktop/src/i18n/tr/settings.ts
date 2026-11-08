@@ -22,7 +22,7 @@ export const settings: Messages["settings"] = {
     concurrent: "Aynı anda indirme sayısı",
     concurrentHint: "Diğerleri kuyrukta bekler. 1 ile 16 arası.",
     connections: "İndirme başına bağlantı sayısı",
-    connectionsHint: "Üst sınır. Downpipe 2 ile başlar ve yalnızca yararlı oldukları sürece daha fazlasını ekler. 1 ile 32 arası.",
+    connectionsHint: "Üst sınır. Downpipe 2 ile (64 MiB ve üstü dosyalarda 4 ile) başlar ve yalnızca yararlı oldukları sürece daha fazlasını ekler. 1 ile 32 arası.",
     speedLimit: "Hız sınırı",
     speedLimitHint: "Tüm indirmeler arasında paylaşılır. Sınır olmaması için boş bırakın. Hemen uygulanır.",
     speedLimitInvalid: "Bir sayı girin, örneğin 1,5 ya da 1.5.",
@@ -123,6 +123,11 @@ export const settings: Messages["settings"] = {
     stop: "Durdurma saati",
     stopHint: "İsteğe bağlı",
     days: "Günler",
+    wake: "Başlangıç saati için bilgisayarı uyandır",
+    wakeHint:
+      "Başlangıç saatinden bir dakika önce Windows bilgisayarı uykudan uyandırır. Downpipe pencerede ya da sistem tepsisinde çalışıyor olmalı; “İndirme sırasında bilgisayarı uyanık tut” açıksa indirmeler bitene kadar uyanık kalır.",
+    wakeBlocked:
+      "Windows güç planı, programların bu bilgisayarı uyandırmasına izin vermiyor. Denetim Masası → Güç Seçenekleri → Plan ayarlarını değiştir → Gelişmiş güç ayarlarını değiştir → Uyku → Uyandırma zamanlayıcılarına izin ver → Etkinleştir yolundan açın.",
   },
   app: {
     language: "Dil",
@@ -139,6 +144,13 @@ export const settings: Messages["settings"] = {
       "Kategoriler altında listelenen bir dosya türüne ya da bir YouTube videosuna giden bir bağlantıyı kopyaladığınızda, Downpipe Ekle penceresini bu bağlantıyla açar. Listede zaten olan bağlantılar atlanır.",
     awake: "İndirme sırasında bilgisayarı uyanık tut",
     awakeHint: "Uyku, indirmeler durana kadar bekler. Ekran yine de kapanabilir.",
+    updates: "Güncellemeleri denetle",
+    updatesHint:
+      "Downpipe günde bir kez github.com'a en son sürümü sorar ve daha yenisi çıkınca size söyler. Gönderdiği tek şey bu istektir.",
+    checkNow: "Şimdi denetle",
+    checking: "Denetleniyor…",
+    upToDate: "Downpipe güncel.",
+    checkFailed: "Denetlenemedi: {error}",
     confirmBrowser: "Tarayıcıdan gelen indirmeler başlamadan önce sor",
     confirmBrowserHint:
       "Önce dosya adını, klasörü ve kuyruğu tarayıcının üzerindeki küçük bir pencerede seçin. Kapalı: otomatik klasörle hemen başlarlar.",

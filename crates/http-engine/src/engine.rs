@@ -26,9 +26,9 @@ use crate::media::{MediaKind, MediaOptions};
 use crate::meta::{self, META_VERSION, ResumeMeta};
 use crate::progress::{Phase, Progress, SpeedMeter, WaitReason};
 use crate::ratelimit::{Limits, RateLimiter};
-use crate::segments::{Assignment, SegmentId, SegmentMap};
+use crate::segments::{Assignment, ByteRange, SegmentId, SegmentMap};
 use crate::worker::{self, Buffer, Shared, WorkerCtx, WorkerEnd};
-use crate::writer::PartFile;
+use crate::writer::{self, PartFile};
 use crate::{DownloadError, blocking, filename, retry};
 
 const TICK: Duration = Duration::from_millis(250);
@@ -411,6 +411,9 @@ struct Job {
     /// The link the resume data is filed under: the one the user gave, also
     /// when a file host's share link is downloaded from another address.
     key: String,
+    /// The digest the finished file must have: the user's, else the one the
+    /// server announced (kept in the resume data for later sessions).
+    expected: Option<Checksum>,
 }
 
 impl Job {
@@ -432,6 +435,7 @@ impl Job {
             max_connections,
             current: None,
             key: String::new(),
+            expected: None,
         }
     }
 
@@ -617,12 +621,26 @@ impl Job {
         });
 
         let info = ResourceInfo::from_response(&resp, url, accepts, total);
+        // A fresh start (also after the file changed) asks the server again.
+        self.expected = self.req.checksum.clone();
+        if self.expected.is_none() {
+            self.expected = checksum::announced(resp.headers(), total.is_some());
+            if let Some(c) = &self.expected {
+                self.notice(format!(
+                    "The server announced the file's {} checksum; the download is checked against it before it is renamed into place",
+                    c.algo.name()
+                ));
+            }
+        }
         let name = self
             .req
             .file_name
             .as_deref()
             .map(filename::sanitize)
             .unwrap_or_else(|| info.file_name.clone());
+        if let Some(total) = total {
+            ensure_space(&self.req.output_dir, total).await?;
+        }
         let dir = self.req.output_dir.clone();
         let final_path = {
             let name = name.clone();
@@ -654,7 +672,7 @@ impl Job {
                     last_modified: info.last_modified.clone(),
                     content_type: info.content_type.clone(),
                     completed: Vec::new(),
-                    checksum: self.req.checksum.as_ref().map(ToString::to_string),
+                    checksum: self.expected.as_ref().map(ToString::to_string),
                     created_at: now,
                     updated_at: now,
                 };
@@ -731,7 +749,16 @@ impl Job {
             }
         };
         let mut map = SegmentMap::new(total, &meta.completed);
+        // The part file is sparse: what is still missing takes new space.
+        if let Some(dir) = final_path.parent() {
+            ensure_space(dir, total.saturating_sub(map.written_bytes())).await?;
+        }
         let accept_html = meta.content_type.as_deref().is_some_and(http::is_html_type);
+        self.expected = self
+            .req
+            .checksum
+            .clone()
+            .or_else(|| meta.checksum.as_deref().and_then(|c| c.parse().ok()));
         self.tx.send_modify(|p| {
             p.file_name = Some(file_name_of(&final_path));
             p.path = Some(final_path.clone());
@@ -751,7 +778,19 @@ impl Job {
             Some(a) => {
                 let validator = meta.if_range_validator().map(str::to_owned);
                 if validator.is_none() {
-                    self.notice("Resuming without a validator: the server gives no way to confirm the file is unchanged".into());
+                    // Nothing says whether the file changed, and a new file
+                    // of the same size would be mixed into the old bytes: ask
+                    // for some bytes already on disk again and compare.
+                    match self.overlap_matches(url, headers, &meta.completed, &part).await? {
+                        Some(false) => {
+                            return Ok(Opened::Changed(
+                                "the bytes already downloaded no longer match the file on the server"
+                                    .into(),
+                            ));
+                        }
+                        Some(true) => {}
+                        None => self.notice("Resuming without a validator: the server gives no way to confirm the file is unchanged".into()),
+                    }
                 }
                 let client = self.inner.client.clone();
                 // Patient: the host served this file before, so a network
@@ -932,6 +971,7 @@ impl Job {
             map: Mutex::new(map),
             part: session.part.clone(),
             served: AtomicUsize::new(0),
+            best_rate: AtomicU64::new(0),
         });
         let ctx = Arc::new(WorkerCtx {
             client: self.inner.client.clone(),
@@ -944,6 +984,7 @@ impl Job {
             stall_timeout: cfg.stall_timeout,
             response_timeout: cfg.response_timeout,
             accept_html: session.accept_html,
+            shed_slow: cfg.shed_slow,
         });
         let stop_workers = self.control.stop.child_token();
         let spawn = |workers: &mut WorkerSet, a: Assignment, first: Option<Response>| {
@@ -1035,6 +1076,14 @@ impl Job {
                         }
                         Err(err) => err,
                     };
+                    if matches!(err, DownloadError::SlowConnection) {
+                        // Not a failure: the segment goes straight to a new
+                        // connection.
+                        shared.map.lock().release_shed(id);
+                        note_close(&mut recent_closes, Instant::now());
+                        tracing::debug!(segment = id, "far slower than the other connections; replacing it");
+                        continue;
+                    }
                     let others = workers.len();
                     proven = proven.max(shared.served.load(Ordering::Relaxed));
                     if !stopping && others > 0 && is_refusal(&err) {
@@ -1357,7 +1406,7 @@ impl Job {
         drop(part);
         let part_path = meta::part_path(&final_path);
 
-        let verified = match self.req.checksum.clone() {
+        let verified = match self.expected.clone() {
             Some(expected) => {
                 self.set_phase(Phase::Verifying);
                 let path = part_path.clone();
@@ -1503,6 +1552,86 @@ fn prune_closes(closes: &mut VecDeque<Instant>, now: Instant) {
     {
         closes.pop_front();
     }
+}
+
+/// How many already-downloaded bytes a resume without a validator fetches
+/// again to compare.
+const OVERLAP: u64 = 16 * 1024;
+
+impl Job {
+    /// Whether the last [`OVERLAP`] bytes of a finished range still match the
+    /// server's: `None` when there is nothing to compare or the server did
+    /// not answer with exactly that range.
+    async fn overlap_matches(
+        &self,
+        url: &Url,
+        headers: &HeaderMap,
+        completed: &[ByteRange],
+        part: &Arc<PartFile>,
+    ) -> Result<Option<bool>, DownloadError> {
+        let Some(range) = completed
+            .iter()
+            .filter(|r| !r.is_empty())
+            .max_by_key(|r| r.end)
+        else {
+            return Ok(None);
+        };
+        let start = range.end - range.len().min(OVERLAP);
+        let len = (range.end - start) as usize;
+        let client = self.inner.client.clone();
+        let Some(resp) = self
+            .send_initial(
+                || http::range_get(&client, url, headers, start, Some(range.end), None),
+                true,
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        if resp.status() != StatusCode::PARTIAL_CONTENT
+            || http::content_range(&resp).map(|c| c.first) != Some(start)
+        {
+            return Ok(None);
+        }
+        let theirs = resp
+            .bytes()
+            .await
+            .map_err(|e| DownloadError::from_reqwest(&e))?;
+        if theirs.len() != len {
+            return Ok(None);
+        }
+        let part = part.clone();
+        let ours = blocking(move || {
+            let mut buf = vec![0u8; len];
+            part.read_exact_at(start, &mut buf).map(|()| buf)
+        })
+        .await?;
+        Ok(Some(ours == theirs.as_ref()))
+    }
+}
+
+/// Refuse a download that cannot fit before any of it is fetched, instead of
+/// failing with a full disk gigabytes later. Reported as a disk error (`io`),
+/// which the apps already explain as "check the disk has free space".
+async fn ensure_space(dir: &Path, needed: u64) -> Result<(), DownloadError> {
+    let probe = dir.to_path_buf();
+    let free = blocking(move || Ok::<_, std::io::Error>(writer::free_space(&probe))).await?;
+    match free {
+        Some(free) if free < needed => Err(DownloadError::Io(std::io::Error::new(
+            std::io::ErrorKind::StorageFull,
+            format!(
+                "not enough free space in {}: the download needs {} and {} is free",
+                dir.display(),
+                mib(needed),
+                mib(free)
+            ),
+        ))),
+        _ => Ok(()),
+    }
+}
+
+fn mib(bytes: u64) -> String {
+    format!("{:.1} MiB", bytes as f64 / (1024.0 * 1024.0))
 }
 
 /// Connections a download starts with: more when much of the file is left,

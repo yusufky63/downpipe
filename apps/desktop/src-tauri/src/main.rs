@@ -11,6 +11,7 @@ mod power;
 mod progress;
 mod remote;
 mod tray;
+mod update;
 
 use std::path::PathBuf;
 
@@ -18,6 +19,7 @@ use background::{Background, WhenDone, WhenDoneView};
 use downpipe_core::feeds::Feeds;
 use downpipe_core::providers::ToolsStatus;
 use downpipe_core::providers::install::Tool;
+use downpipe_core::providers::update::Update;
 use downpipe_core::{
     AddListOptions, AddListResult, AddOptions, ConfirmOptions, CoreError, ListChoices, Manager,
     MediaChoices, PostActions, QueueMove, RefusedHost, RuleProblem, RuleTest, Settings,
@@ -296,6 +298,62 @@ fn set_post_actions(
 #[tauri::command]
 async fn inspect_media(manager: State<'_, Manager>, id: String) -> CmdResult<MediaChoices> {
     Ok(manager.inspect_media(&id).await?)
+}
+
+/// The newer release the last check found, for a window that opens later.
+#[tauri::command]
+fn update_status(state: State<'_, update::UpdateState>) -> Option<Update> {
+    state.found()
+}
+
+/// "Check now" in the settings: asks github.com whatever the setting says.
+#[tauri::command]
+async fn check_for_update(
+    app: AppHandle,
+    manager: State<'_, Manager>,
+) -> CmdResult<Option<Update>> {
+    let found = manager.check_for_update().await?;
+    update::publish(&app, &manager, found.clone());
+    Ok(found)
+}
+
+/// Opens the found release's page; only that address, never one from the page.
+#[tauri::command]
+fn open_update_page(app: AppHandle, state: State<'_, update::UpdateState>) -> CmdResult<()> {
+    let update = state
+        .found()
+        .ok_or_else(|| CommandError::new("no_update", "no update was found"))?;
+    app.opener()
+        .open_url(update.page, None::<&str>)
+        .map_err(|e| CommandError::new("open_failed", e.to_string()))
+}
+
+/// Windows: download the found release's installer, check it, start it and
+/// quit, so it can replace this program. The installer asks before it
+/// changes anything.
+#[tauri::command]
+async fn install_update(
+    app: AppHandle,
+    manager: State<'_, Manager>,
+    state: State<'_, update::UpdateState>,
+) -> CmdResult<()> {
+    let update = state
+        .found()
+        .ok_or_else(|| CommandError::new("no_update", "no update was found"))?;
+    let installer = manager.download_update(&update).await?;
+    std::process::Command::new(&installer)
+        .spawn()
+        .map_err(|e| CommandError::new("install_failed", e.to_string()))?;
+    tracing::info!("started {}; quitting for the update", installer.display());
+    app.exit(0);
+    Ok(())
+}
+
+/// Whether Windows lets programs wake the computer, for the schedule's
+/// "wake" switch; `None` elsewhere and when it cannot be read.
+#[tauri::command]
+fn wake_timers_allowed() -> Option<bool> {
+    power::wake_timers_allowed()
 }
 
 /// The FFmpeg stream downloads would use now, for the settings.
@@ -925,6 +983,8 @@ fn main() {
             app.manage(backup::PendingImports::default());
             app.manage(confirm::ConfirmWindow::default());
             background::spawn(app.handle().clone(), manager.clone());
+            app.manage(update::UpdateState::default());
+            update::spawn(app.handle().clone(), manager.clone());
             clipboard::spawn(app.handle().clone(), manager.clone());
             app.manage(remote::Remote::default());
             remote::spawn(app.handle().clone(), manager.clone());
@@ -1008,6 +1068,11 @@ fn main() {
             confirm_download,
             inspect_media,
             ffmpeg_status,
+            wake_timers_allowed,
+            update_status,
+            check_for_update,
+            open_update_page,
+            install_update,
             inspect_site,
             inspect_list,
             add_list,

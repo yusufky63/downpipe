@@ -22,7 +22,7 @@ export const settings: Messages["settings"] = {
     concurrent: "Téléchargements simultanés",
     concurrentHint: "Les autres attendent dans la file d'attente. De 1 à 16.",
     connections: "Connexions par téléchargement",
-    connectionsHint: "Limite supérieure. Downpipe commence avec 2 et n'en ajoute que tant qu'elles sont utiles. De 1 à 32.",
+    connectionsHint: "Limite supérieure. Downpipe commence avec 2 (4 pour les fichiers de 64 Mio ou plus) et n'en ajoute que tant qu'elles sont utiles. De 1 à 32.",
     speedLimit: "Limite de vitesse",
     speedLimitHint: "Partagée par tous les téléchargements. Laissez vide pour ne pas limiter. S'applique immédiatement.",
     speedLimitInvalid: "Saisissez un nombre, par exemple 1,5 ou 1.5.",
@@ -126,6 +126,11 @@ export const settings: Messages["settings"] = {
     stop: "Arrêter à",
     stopHint: "Facultatif",
     days: "Jours",
+    wake: "Réveiller l'ordinateur à l'heure de début",
+    wakeHint:
+      "Une minute avant l'heure de début, Windows sort l'ordinateur de la veille. Downpipe doit être ouvert, dans la fenêtre ou la zone de notification ; avec « Empêcher la mise en veille de l'ordinateur pendant les téléchargements », il reste éveillé jusqu'à la fin des téléchargements.",
+    wakeBlocked:
+      "Le mode de gestion de l'alimentation de Windows ne laisse pas les programmes réveiller cet ordinateur. Activez-le dans Panneau de configuration → Options d'alimentation → Modifier les paramètres du mode → Modifier les paramètres d'alimentation avancés → Veille → Autoriser les minuteurs de réveil → Activer.",
   },
   app: {
     language: "Langue",
@@ -143,6 +148,13 @@ export const settings: Messages["settings"] = {
       "Lorsque vous copiez un lien vers un type de fichier répertorié dans Catégories, ou vers une vidéo YouTube, Downpipe ouvre la boîte de dialogue d'ajout avec ce lien. Les liens déjà présents dans la liste sont ignorés.",
     awake: "Empêcher la mise en veille de l'ordinateur pendant les téléchargements",
     awakeHint: "La mise en veille attend qu'aucun téléchargement ne soit plus en cours. L'écran peut toujours s'éteindre.",
+    updates: "Rechercher les mises à jour",
+    updatesHint:
+      "Une fois par jour, Downpipe demande à github.com sa dernière version et vous prévient quand une plus récente est sortie. La requête est tout ce qu'il envoie.",
+    checkNow: "Rechercher maintenant",
+    checking: "Recherche…",
+    upToDate: "Downpipe est à jour.",
+    checkFailed: "Recherche impossible : {error}",
     confirmBrowser: "Demander avant de démarrer les téléchargements venant du navigateur",
     confirmBrowserHint:
       "Choisissez d'abord le nom du fichier, le dossier et la file d'attente, dans une petite fenêtre au-dessus du navigateur. Désactivé : ils démarrent aussitôt avec le dossier automatique.",

@@ -3,7 +3,7 @@
 //! Pure functions so the timing rules can be tested without a clock; the
 //! desktop app calls them from a timer.
 
-use chrono::{Datelike, Local, Timelike};
+use chrono::{Datelike, Local, NaiveDateTime, Timelike};
 
 use crate::settings::Schedule;
 use crate::task::{TaskSnapshot, TaskState};
@@ -92,6 +92,21 @@ pub fn due(schedule: &Schedule, prev: LocalStamp, now: LocalStamp) -> Option<Sch
     latest.map(|(_, action)| action)
 }
 
+/// The next start time after `now` (local wall-clock time), for waking the
+/// computer before it; `None` when the schedule is off or starts on no day.
+pub fn next_start(schedule: &Schedule, now: NaiveDateTime) -> Option<NaiveDateTime> {
+    if !schedule.enabled {
+        return None;
+    }
+    let minute = parse_time(&schedule.start)?;
+    let time = chrono::NaiveTime::from_hms_opt(minute / 60, minute % 60, 0)?;
+    (0..=7)
+        .filter_map(|d| now.date().checked_add_days(chrono::Days::new(d)))
+        .filter(|date| schedule.days[date.weekday().num_days_from_monday() as usize])
+        .map(|date| date.and_time(time))
+        .find(|at| *at > now)
+}
+
 /// Downloads that still need to run: anything running or waiting in the queue.
 pub fn active_count(tasks: &[TaskSnapshot]) -> usize {
     tasks
@@ -147,6 +162,7 @@ mod tests {
             stop: stop.into(),
             days: [true; 7],
             queue: String::new(),
+            wake: false,
         }
     }
 
@@ -238,5 +254,40 @@ mod tests {
         let mut w = DoneWatcher::default();
         w.arm(3);
         assert!(w.observe(0));
+    }
+
+    #[test]
+    fn next_start_is_the_first_enabled_day_after_now() {
+        let mut s = schedule("02:00", "07:00");
+        s.enabled = true;
+        // Monday 6 January 2025.
+        let monday = |hh: u32, mm: u32| {
+            chrono::NaiveDate::from_ymd_opt(2025, 1, 6)
+                .unwrap()
+                .and_hms_opt(hh, mm, 0)
+                .unwrap()
+        };
+        let day = |d: u32| {
+            chrono::NaiveDate::from_ymd_opt(2025, 1, d)
+                .unwrap()
+                .and_hms_opt(2, 0, 0)
+                .unwrap()
+        };
+        assert_eq!(next_start(&s, monday(1, 0)), Some(day(6)), "later today");
+        assert_eq!(
+            next_start(&s, monday(2, 0)),
+            Some(day(7)),
+            "exactly now is not next"
+        );
+        // Only Fridays and Sundays.
+        s.days = [false, false, false, false, true, false, true];
+        assert_eq!(next_start(&s, monday(3, 0)), Some(day(10)));
+        assert_eq!(next_start(&s, day(10)), Some(day(12)));
+        // Every day off, or the schedule off: nothing to wake for.
+        s.days = [false; 7];
+        assert_eq!(next_start(&s, monday(3, 0)), None);
+        s.days = [true; 7];
+        s.enabled = false;
+        assert_eq!(next_start(&s, monday(3, 0)), None);
     }
 }

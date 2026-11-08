@@ -22,7 +22,7 @@ export const settings: Messages["settings"] = {
     concurrent: "同時ダウンロード数",
     concurrentHint: "それ以外はキューで待機します。1～16 の範囲で指定します。",
     connections: "ダウンロードごとの接続数",
-    connectionsHint: "上限です。Downpipe は 2 接続から始め、速くなる間だけ接続を増やします。1～32 の範囲で指定します。",
+    connectionsHint: "上限です。Downpipe は 2 接続（64 MiB 以上のファイルは 4 接続）から始め、速くなる間だけ接続を増やします。1～32 の範囲で指定します。",
     speedLimit: "速度制限",
     speedLimitHint: "すべてのダウンロードで共有されます。空欄にすると制限なしになります。すぐに適用されます。",
     speedLimitInvalid: "1.5 や 1,5 のように数値を入力してください。",
@@ -125,6 +125,11 @@ export const settings: Messages["settings"] = {
     stop: "停止時刻",
     stopHint: "省略可",
     days: "曜日",
+    wake: "開始時刻にコンピューターを起こす",
+    wakeHint:
+      "開始時刻の 1 分前に、Windows がコンピューターをスリープから復帰させます。Downpipe はウィンドウかタスクトレイで起動している必要があります。「ダウンロード中はコンピューターをスリープさせない」がオンなら、ダウンロードが終わるまで起きたままです。",
+    wakeBlocked:
+      "Windows の電源プランが、プログラムによるこのコンピューターの復帰を許可していません。コントロール パネル → 電源オプション → プラン設定の変更 → 詳細な電源設定の変更 → スリープ → スリープ解除タイマーの許可 → 有効 でオンにしてください。",
   },
   app: {
     language: "言語",
@@ -141,6 +146,13 @@ export const settings: Messages["settings"] = {
       "「カテゴリ」に登録されたファイルの種類へのリンクや YouTube 動画のリンクをコピーすると、Downpipe がそのリンクで「リンクを追加」ダイアログを開きます。すでに一覧にあるリンクはスキップされます。",
     awake: "ダウンロード中はコンピューターをスリープさせない",
     awakeHint: "ダウンロードが止まるまでスリープを待機します。画面はオフになることがあります。",
+    updates: "更新を確認する",
+    updatesHint:
+      "Downpipe は 1 日に 1 回 github.com に最新リリースを問い合わせ、新しいバージョンが出たらお知らせします。送るのはその問い合わせだけです。",
+    checkNow: "今すぐ確認",
+    checking: "確認中…",
+    upToDate: "Downpipe は最新です。",
+    checkFailed: "確認できませんでした: {error}",
     confirmBrowser: "ブラウザーからのダウンロードを開始する前に確認する",
     confirmBrowserHint:
       "ブラウザーの上に表示される小さなウィンドウで、先にファイル名、フォルダー、キューを選択します。オフ：自動のフォルダーですぐに開始されます。",

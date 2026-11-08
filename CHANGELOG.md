@@ -2,6 +2,26 @@
 
 All notable changes to Downpipe. Dates are YYYY-MM-DD.
 
+## Unreleased
+
+### New
+
+- **Update check.** Once a day Downpipe asks github.com for its latest release and, when a newer one is out, says so above the list and with one notification. On Windows, **Install now** downloads the installer, checks it against the release's SHA-256 list, starts it and closes Downpipe; on macOS and Linux, **Download** opens the release page. **Settings → App → Check for updates** turns the daily check off, and **Check now** asks at once. The check is a single request to github.com; nothing else is sent.
+- **Wake the computer for the schedule** (Windows). With **Settings → Schedule → Wake the computer for the start time** on, Windows wakes the computer from sleep a minute before the start time, so overnight downloads start even when it went to sleep. Downpipe has to be running (the tray is enough). If Windows' power plan does not allow programs to wake the computer, the setting says where to turn that on.
+- **Split archives unpack.** Archives cut into numbered pieces (`name.7z.001`, `name.zip.001`, `name.tar.gz.001` ...) are extracted as one archive once their last piece has downloaded, with the same safety checks as other archives; the piece that completes the set does it, and **Delete archives after extracting** removes all the pieces.
+- **Benchmark tool** for contributors: `cargo run --release -p downpipe-bench` downloads a set of scenarios from the fault-injection server (per-connection caps, slow parts, crawling connections, host limits, drops, stalls) several times, checks every byte and prints the median and spread, and can compare other programs or older builds with `--external`.
+- **Checksums the server announces are checked.** When a server says what the file's hash is (`Repr-Digest` or `Digest` with SHA-256 or SHA-512, Google Cloud Storage's `x-goog-hash` with MD5, or `Content-MD5` for the whole file), the finished download is checked against it before it gets its real name, as with a checksum you give yourself; a notice says so. A file that does not match is kept as `.part` and the download fails with the checksum error. MD5 checksums (`md5:<hex>`) can now be given too.
+- **A file that does not fit is refused at once.** When the size is known and the folder's disk has less free space than the download needs, it fails before anything is written, instead of after filling the disk; a resume checks the space for what is still missing.
+
+### Changed
+
+- **Slow connections are replaced.** A connection that runs below a quarter of the download's fastest one for a while, with seconds of work left, is closed and its part goes to a new connection, which usually gets a better path to the server; up to three times per part, and never while a speed limit applies. On a test server where every third connection crawls at 128 KB/s, a 32 MiB file takes 6.3 s instead of 13.1 s.
+- **The last megabytes are shared more finely.** Parts are split down to 256 KiB instead of 1 MiB, so the end of a download is spread over more connections; a 100 MiB file whose last 15 MiB come slowly takes 11.4 s instead of 13.4 s with 8 connections.
+
+### Fixed
+
+- **Resuming from a server without an ETag or date no longer mixes two versions.** If the file had changed to another one of the same size, the resume added the new bytes to the old ones. Such a resume now fetches the last 16 KiB already on disk again and starts over when they differ.
+
 ## 0.5.5 — 2026-11-08
 
 ### Changed

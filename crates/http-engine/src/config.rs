@@ -54,6 +54,10 @@ pub struct EngineConfig {
     /// Doubles after every miss, up to a minute: a doubling measured while
     /// part of the file came slowly may well help later.
     pub ramp_retry_after: Duration,
+    /// Drop and replace a connection that runs far slower than the best one
+    /// of the download (a slow TCP path or server slot rarely survives a new
+    /// request); each segment's connection is replaced at most three times.
+    pub shed_slow: bool,
     /// Base delay for exponential backoff.
     pub retry_base_delay: Duration,
     pub retry_max_delay: Duration,
@@ -72,7 +76,10 @@ impl Default for EngineConfig {
             initial_connections: 2,
             large_file_size: 64 * MIB,
             large_file_connections: 4,
-            min_split_size: MIB,
+            // Small enough that the last few MiB of a file are shared by
+            // every connection, large enough that a split is not mostly
+            // round trip.
+            min_split_size: 256 * KIB,
             buffer_size: 256 * KIB as usize,
             connect_timeout: Duration::from_secs(15),
             stall_timeout: Duration::from_secs(30),
@@ -83,6 +90,7 @@ impl Default for EngineConfig {
             ramp_window: Duration::from_secs(1),
             ramp_gain: 1.10,
             ramp_retry_after: Duration::from_secs(5),
+            shed_slow: true,
             retry_base_delay: Duration::from_millis(500),
             retry_max_delay: Duration::from_secs(30),
             user_agent: concat!("Downpipe/", env!("CARGO_PKG_VERSION")).to_string(),

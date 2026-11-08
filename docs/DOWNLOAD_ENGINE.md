@@ -9,10 +9,11 @@ How `downpipe-http` turns a URL into a complete, verified file. Default values b
 | `max_connections` | 8 | Upper bound of connections per download (1 to 32). |
 | `initial_connections` | 2 | Connections before the first measurement. |
 | `large_file_size` / `large_file_connections` | 64 MiB / 4 | A download with at least this much left starts with this many connections instead (never fewer than `initial_connections`). |
-| `min_split_size` | 1 MiB | A segment is only split if both halves would be at least this big. |
+| `min_split_size` | 256 KiB | A segment is only split if both halves would be at least this big. |
 | `buffer_size` | 256 KiB | Bytes buffered per connection before a positional write. |
 | `ramp_window` | 1 s | Saturated-transfer time measured before deciding to add connections. |
 | `ramp_gain` | 1.10 | A doubling must raise throughput by 10 % to be kept. |
+| `shed_slow` | on | Replace a connection far slower than the download's best one (see [Segments](#segments-and-work-stealing)). |
 | `ramp_retry_after` | 5 s | Rest after a doubling that did not help, before trying again; doubles after each miss, up to 60 s. |
 | `checkpoint_interval` | 5 s | How often data is synced and the meta file updated. |
 | `stall_timeout` | 30 s | A connection that delivers nothing for this long is restarted. |
@@ -24,6 +25,8 @@ How `downpipe-http` turns a URL into a complete, verified file. Default values b
 ## Opening a download
 
 The engine sends `GET` with `Range: bytes=0-` and `Accept-Encoding: identity` (byte offsets must refer to the stored representation, not a compressed variant).
+
+When the size is known, a download that would not fit in the free space of its folder (the space this user may write, quotas included) fails at once with `io` and the message "not enough free space", before anything is written; a resume checks the space for what is still missing. Where the system cannot say how much is free (some network drives), nothing is refused up front.
 
 | Response | Meaning | What happens |
 |---|---|---|
@@ -59,6 +62,8 @@ A `SegmentMap` tracks byte ranges with three cursors each: `start <= written <= 
 - When a connection is free it takes an idle segment if there is one. Otherwise it splits the active segment with the most unreserved bytes at its midpoint (aligned to 64 KiB) and takes the second half. The victim keeps reading its original response and stops at the new end.
 
 Because the split always goes to the largest remaining segment, the last seconds of a download are shared by all connections instead of waiting for one slow one.
+
+Splitting stops at `min_split_size`, so a connection that crawls can still be left with up to twice that much. A connection is therefore replaced when, measured over a second and after its first two seconds, it runs below a quarter of the fastest any one connection of the download has been, and the rest of its segment would take more than two seconds at its own pace. Its segment goes straight to a new request without counting as a failure: a slow TCP path or server slot rarely survives one. A segment's connection is replaced at most three times (`segments::MAX_SHEDS`), because a part of the file the server sends slowly stays slow however often it is asked; nothing is replaced while a speed limit applies, since the limit, not the path, sets the speeds then.
 
 Every follow-up `206` must report the same total size and, if the server sends one, the same ETag. A mismatch means the file changed: the download restarts once from zero rather than combining two versions.
 
@@ -110,6 +115,8 @@ Checkpoints sync the part file *before* writing the meta (write to `.tmp`, then 
 
 Starting the same URL into the same folder finds the meta and sends the first missing range with `If-Range` set to the strong ETag (weak ETags are not allowed there, so Last-Modified is used instead). The resume is accepted only if the server answers `206` for exactly that offset and total size with the same ETag. Anything else (`200`, `416`, a different size or ETag, a missing or truncated part file) discards the old data and starts over, with a notice explaining why.
 
+A server that sends neither ETag nor Last-Modified gives no way to tell a changed file of the same size, which would be mixed into the old bytes. Before such a resume the engine asks again for the last 16 KiB of the furthest finished range and compares them with the part file; if they differ, the download starts over. If the server does not answer with exactly that range, the resume goes ahead with a notice that the file could not be confirmed unchanged.
+
 A web page (`text/html`) in answer to a resume of a file that is not one is checked first: it is a sign-in or "link expired" page, not a new version of the file, so the download fails with `login_required` or `expired_link` and the partial file and its meta stay as they were. The same goes for a web page arriving on any later connection or fragment request. The desktop app offers **Use a new link…** for these failures (and for `forbidden`) in place of **Retry**, which would get the same page.
 
 A download from a server without range support cannot resume; pausing it deletes the partial file. Pausing while a resume is still waiting for the server's first answer keeps the partial file and its meta untouched.
@@ -131,7 +138,7 @@ Not handled, on purpose: hosts that need an account, a premium plan, a captcha, 
 ## Finishing
 
 1. Final checkpoint and sync.
-2. If a checksum was given, the part file is hashed (SHA-256 or SHA-512, streamed). On mismatch the download fails with `checksum` and the part file is kept for inspection; the real file name is never used.
+2. If a checksum is known, the part file is hashed (SHA-256, SHA-512 or MD5, streamed). On mismatch the download fails with `checksum` and the part file is kept for inspection; the real file name is never used. The checksum is the one given with the download, else the one the server announced with its first answer, kept in the meta for later sessions: `Repr-Digest` (RFC 9530) or `Digest` (RFC 3230) with SHA-256 or SHA-512, `x-goog-hash` with MD5 (Google Cloud Storage), or `Content-MD5` when that answer is the whole file. The strongest one wins, and a notice says the file will be checked.
 3. `name.part` is renamed to `name`; if a file with that name appeared meanwhile, `name (1)` and so on.
 4. The meta file is deleted.
 
@@ -163,7 +170,7 @@ Besides `max_connections`, `limiter` and `site_limiter`, a request can set `max_
 
 ## Measuring
 
-`tools/test-server` can cap the rate per connection (`rate=`), slow down part of a file (`slow_from=`, `slow_rate=`), drop connections (`drop_after=`, `drop_times=`), fail requests (`fail=`, `fail_times=`, `fail_from=`, `retry_after=`), refuse more than N bodies at once (`max_conns=`, `limit_status=`) and keep counting a finished one for a while (`linger_ms=`), go silent mid-body (`stall_at=`, `stall_times=`) or before the headers (`hang_times=`), answer with a "link expired" page (`html=1`, `html_after=`) or redirect to a sign-in page (`/redirect?to=/login`), and send a `Content-Disposition` exactly as given (`cd=`). `TestServer::stop` and `restart` take it off the network and back, killing open connections too, as a Wi-Fi switch would. The tests in `crates/http-engine/tests/robustness.rs` use these. Example, with a per-connection cap of 8 MiB/s, where the engine starts with 4 connections (the file is larger than 64 MiB) and ramps to 8:
+`tools/test-server` can cap the rate per connection (`rate=`), slow down part of a file (`slow_from=`, `slow_rate=`), drop connections (`drop_after=`, `drop_times=`), fail requests (`fail=`, `fail_times=`, `fail_from=`, `retry_after=`), refuse more than N bodies at once (`max_conns=`, `limit_status=`) and keep counting a finished one for a while (`linger_ms=`), go silent mid-body (`stall_at=`, `stall_times=`) or before the headers (`hang_times=`), answer with a "link expired" page (`html=1`, `html_after=`) or redirect to a sign-in page (`/redirect?to=/login`), send a `Content-Disposition` exactly as given (`cd=`) or a `Repr-Digest` (`repr_digest=`), and make every Kth body crawl, as a slow path would (`crawl_every=`, `crawl_rate=`). `TestServer::stop` and `restart` take it off the network and back, killing open connections too, as a Wi-Fi switch would. The tests in `crates/http-engine/tests/robustness.rs` use these, and so does `tools/bench` (`cargo run --release -p downpipe-bench -- --list`), which runs a set of scenarios several times on fresh servers, checks every byte, and prints the median and interquartile range per scenario, also for other programs given with `--external NAME=COMMAND` (`{url}` and `{dir}` are filled in). Example, with a per-connection cap of 8 MiB/s, where the engine starts with 4 connections (the file is larger than 64 MiB) and ramps to 8:
 
 ```powershell
 cargo run --release -p downpipe-test-server

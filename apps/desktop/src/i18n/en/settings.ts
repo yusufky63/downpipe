@@ -20,7 +20,7 @@ export const settings = {
     concurrent: "Downloads at once",
     concurrentHint: "Others wait in the queue. 1 to 16.",
     connections: "Connections per download",
-    connectionsHint: "Upper limit. Downpipe starts with 2 and adds more only while they help. 1 to 32.",
+    connectionsHint: "Upper limit. Downpipe starts with 2 (4 for files of 64 MiB or more) and adds more only while they help. 1 to 32.",
     speedLimit: "Speed limit",
     speedLimitHint: "Shared by all downloads. Leave empty for no limit. Applies immediately.",
     speedLimitInvalid: "Enter a number, such as 1.5 or 1,5.",
@@ -125,6 +125,11 @@ export const settings = {
     stop: "Stop at",
     stopHint: "Optional",
     days: "Days",
+    wake: "Wake the computer for the start time",
+    wakeHint:
+      "A minute before the start time, Windows wakes the computer from sleep. Downpipe has to be running, in the window or the tray; with “Keep the computer awake while downloading” on, it stays awake until the downloads are done.",
+    wakeBlocked:
+      "Windows' power plan does not let programs wake this computer. Turn it on in Control Panel → Power Options → Change plan settings → Change advanced power settings → Sleep → Allow wake timers → Enable.",
   },
   app: {
     language: "Language",
@@ -141,6 +146,13 @@ export const settings = {
       "When you copy a link to a file type listed under Categories, or to a YouTube video, Downpipe opens the Add dialog with it. Links already in the list are skipped.",
     awake: "Keep the computer awake while downloading",
     awakeHint: "Sleep waits until downloads stop running. The screen can still turn off.",
+    updates: "Check for updates",
+    updatesHint:
+      "Once a day Downpipe asks github.com for its latest release and tells you when a newer one is out. The request is all it sends.",
+    checkNow: "Check now",
+    checking: "Checking…",
+    upToDate: "Downpipe is up to date.",
+    checkFailed: "Could not check: {error}",
     confirmBrowser: "Ask before downloads from the browser start",
     confirmBrowserHint:
       "Choose the file name, folder and queue first, in a small window over the browser. Off: they start at once with the automatic folder.",

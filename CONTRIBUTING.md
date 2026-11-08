@@ -19,6 +19,7 @@ cargo fmt --all --check; cargo clippy --workspace --all-targets -- -D warnings; 
 - Tests live next to the code they test (`#[cfg(test)]` modules, `crates/*/tests`, `*.test.ts` beside the source).
 - Network behaviour is tested against `tools/test-server`, never against real websites. If you need a new failure mode, add a query parameter there.
 - New user-visible behaviour updates the README or the relevant page in `docs/`, and `CHANGELOG.md`.
+- A change to how the engine downloads is measured before and after with `cargo run --release -p downpipe-bench` (scenarios on the fault-injection server; `--external` compares another program or an older build), and the numbers go into the change's description.
 
 ## Style
 

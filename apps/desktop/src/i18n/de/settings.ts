@@ -22,7 +22,7 @@ export const settings: Messages["settings"] = {
     concurrent: "Gleichzeitige Downloads",
     concurrentHint: "Weitere warten in der Warteschlange. 1 bis 16.",
     connections: "Verbindungen pro Download",
-    connectionsHint: "Obergrenze. Downpipe beginnt mit 2 und fügt weitere nur hinzu, solange sie helfen. 1 bis 32.",
+    connectionsHint: "Obergrenze. Downpipe beginnt mit 2 (4 bei Dateien ab 64 MiB) und fügt weitere nur hinzu, solange sie helfen. 1 bis 32.",
     speedLimit: "Geschwindigkeitslimit",
     speedLimitHint: "Gilt für alle Downloads zusammen. Leer lassen für kein Limit. Wirkt sofort.",
     speedLimitInvalid: "Geben Sie eine Zahl ein, etwa 1,5 oder 1.5.",
@@ -124,6 +124,11 @@ export const settings: Messages["settings"] = {
     stop: "Anhalten um",
     stopHint: "Optional",
     days: "Tage",
+    wake: "Computer zur Startzeit aufwecken",
+    wakeHint:
+      "Eine Minute vor der Startzeit weckt Windows den Computer aus dem Energiesparmodus. Downpipe muss laufen, im Fenster oder im Infobereich; mit „Computer während des Downloads aktiv halten“ bleibt er wach, bis die Downloads fertig sind.",
+    wakeBlocked:
+      "Der Energiesparplan von Windows erlaubt Programmen nicht, diesen Computer aufzuwecken. Schalten Sie es ein unter Systemsteuerung → Energieoptionen → Energiesparplaneinstellungen ändern → Erweiterte Energieeinstellungen ändern → Energie sparen → Zeitgeber zur Aktivierung zulassen → Aktivieren.",
   },
   app: {
     language: "Sprache",
@@ -140,6 +145,13 @@ export const settings: Messages["settings"] = {
       "Wenn Sie einen Link auf einen unter Kategorien aufgeführten Dateityp oder auf ein YouTube-Video kopieren, öffnet Downpipe damit das Dialogfeld „Link hinzufügen“. Links, die bereits in der Liste sind, werden übersprungen.",
     awake: "Computer während des Downloads aktiv halten",
     awakeHint: "Der Energiesparmodus wartet, bis keine Downloads mehr laufen. Der Bildschirm kann sich trotzdem ausschalten.",
+    updates: "Nach Updates suchen",
+    updatesHint:
+      "Einmal am Tag fragt Downpipe github.com nach der neuesten Version und sagt Bescheid, wenn eine neuere erschienen ist. Gesendet wird nur diese Anfrage.",
+    checkNow: "Jetzt suchen",
+    checking: "Wird gesucht…",
+    upToDate: "Downpipe ist auf dem neuesten Stand.",
+    checkFailed: "Suche fehlgeschlagen: {error}",
     confirmBrowser: "Vor dem Start von Downloads aus dem Browser nachfragen",
     confirmBrowserHint:
       "Wählen Sie zuerst Dateiname, Ordner und Warteschlange in einem kleinen Fenster über dem Browser. Aus: Downloads starten sofort im automatischen Ordner.",

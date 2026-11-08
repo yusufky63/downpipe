@@ -22,7 +22,7 @@ export const settings: Messages["settings"] = {
     concurrent: "Download contemporanei",
     concurrentHint: "Gli altri attendono in coda. Da 1 a 16.",
     connections: "Connessioni per download",
-    connectionsHint: "Limite massimo. Downpipe parte con 2 e ne aggiunge altre solo finché aiutano. Da 1 a 32.",
+    connectionsHint: "Limite massimo. Downpipe parte con 2 (4 per i file da 64 MiB in su) e ne aggiunge altre solo finché aiutano. Da 1 a 32.",
     speedLimit: "Limite di velocità",
     speedLimitHint: "Condiviso da tutti i download. Lascia vuoto per nessun limite. Si applica subito.",
     speedLimitInvalid: "Inserisci un numero, ad esempio 1,5 o 1.5.",
@@ -126,6 +126,11 @@ export const settings: Messages["settings"] = {
     stop: "Ferma alle",
     stopHint: "Facoltativo",
     days: "Giorni",
+    wake: "Riattiva il computer all'ora di inizio",
+    wakeHint:
+      "Un minuto prima dell'ora di inizio, Windows riattiva il computer dalla sospensione. Downpipe deve essere in esecuzione, nella finestra o nell'area di notifica; con “Mantieni attivo il computer durante il download” resta attivo finché i download non sono finiti.",
+    wakeBlocked:
+      "La combinazione per il risparmio di energia di Windows non permette ai programmi di riattivare questo computer. Attivala in Pannello di controllo → Opzioni risparmio energia → Modifica impostazioni combinazione → Cambia impostazioni avanzate risparmio energia → Sospensione → Consenti timer di riattivazione → Attiva.",
   },
   app: {
     language: "Lingua",
@@ -142,6 +147,13 @@ export const settings: Messages["settings"] = {
       "Quando copi un link a un tipo di file elencato in Categorie, o a un video di YouTube, Downpipe lo apre nella finestra Aggiungi. I link già presenti nell'elenco vengono ignorati.",
     awake: "Mantieni attivo il computer durante il download",
     awakeHint: "La sospensione attende che i download si fermino. Lo schermo può comunque spegnersi.",
+    updates: "Cerca aggiornamenti",
+    updatesHint:
+      "Una volta al giorno Downpipe chiede a github.com la sua ultima versione e ti avvisa quando ne esce una più recente. La richiesta è tutto ciò che invia.",
+    checkNow: "Cerca ora",
+    checking: "Ricerca…",
+    upToDate: "Downpipe è aggiornato.",
+    checkFailed: "Impossibile controllare: {error}",
     confirmBrowser: "Chiedi prima di avviare i download dal browser",
     confirmBrowserHint:
       "Scegli prima nome del file, cartella e coda, in una piccola finestra sopra il browser. Disattivato: partono subito con la cartella automatica.",

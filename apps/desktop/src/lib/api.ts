@@ -437,6 +437,8 @@ export interface Settings {
   watch_clipboard: boolean;
   /** Keep the computer from sleeping while downloads run. */
   keep_awake: boolean;
+  /** Ask github.com once a day whether a newer Downpipe is out. */
+  check_updates: boolean;
   /** Ask for name, folder and queue before a download from the browser starts. */
   confirm_browser_downloads: boolean;
   /** Interface language code such as "tr" or "pt-BR"; empty follows the system. */
@@ -582,6 +584,15 @@ export interface Category {
   extract: boolean;
 }
 
+/** A Downpipe release newer than the running one. */
+export interface AppUpdate {
+  version: string;
+  /** The release page, for its notes and the other packages. */
+  page: string;
+  /** The installer the app can run itself (Windows); null elsewhere. */
+  installer: string | null;
+}
+
 export interface Schedule {
   enabled: boolean;
   /** HH:MM */
@@ -592,6 +603,8 @@ export interface Schedule {
   days: boolean[];
   /** Queue id to start and stop; empty for every queue. */
   queue: string;
+  /** Wake the computer from sleep shortly before the start time (Windows). */
+  wake: boolean;
 }
 
 export type WhenDone = "nothing" | "quit" | "sleep" | "shutdown";
@@ -875,6 +888,15 @@ export const api = {
   inspectMedia: (id: string) => invoke<MediaChoices>("inspect_media", { id }),
   /** The FFmpeg streams would use now, or null when there is none. */
   ffmpegStatus: () => invoke<string | null>("ffmpeg_status"),
+  /** The newer release the last check found, if any. */
+  updateStatus: () => invoke<AppUpdate | null>("update_status"),
+  /** Ask github.com now, whatever the setting says. */
+  checkForUpdate: () => invoke<AppUpdate | null>("check_for_update"),
+  openUpdatePage: () => invoke("open_update_page"),
+  /** Windows: download, check and start the installer; the app then quits. */
+  installUpdate: () => invoke("install_update"),
+  /** Whether Windows' power plan lets programs wake the computer; null elsewhere. */
+  wakeTimersAllowed: () => invoke<boolean | null>("wake_timers_allowed"),
   /** Asks yt-dlp what a video page offers; downloads no video. */
   inspectSite: (id: string) => invoke<SiteChoices>("inspect_site", { id }),
   /** Asks yt-dlp for a playlist's or channel's videos; downloads no video. */
@@ -974,6 +996,11 @@ export function onConfirmClose(cb: () => void): Promise<UnlistenFn> {
 /** To the confirmation window: back from Settings, read the download again. */
 export function onConfirmAgain(cb: () => void): Promise<UnlistenFn> {
   return listen("downpipe://confirm-again", () => cb());
+}
+
+/** A check found a newer release (or none any more). */
+export function onUpdate(cb: (update: AppUpdate | null) => void): Promise<UnlistenFn> {
+  return listen<AppUpdate | null>("downpipe://update", (e) => cb(e.payload));
 }
 
 /** The event stream fell behind; the full list should be reloaded. */

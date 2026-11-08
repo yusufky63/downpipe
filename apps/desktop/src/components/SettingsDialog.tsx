@@ -134,6 +134,7 @@ export function SettingsDialog({
   const [queues, setQueues] = useState<QueueDraft[]>(() => settings.queues.map(toQueueDraft));
   const [watchClipboard, setWatchClipboard] = useState(settings.watch_clipboard);
   const [keepAwake, setKeepAwake] = useState(settings.keep_awake);
+  const [checkUpdates, setCheckUpdates] = useState(settings.check_updates);
   const [confirmBrowser, setConfirmBrowser] = useState(settings.confirm_browser_downloads);
   const [ffmpegPath, setFfmpegPath] = useState(settings.ffmpeg_path);
   const [ytDlpPath, setYtDlpPath] = useState(settings.yt_dlp_path);
@@ -200,6 +201,7 @@ export function SettingsDialog({
         schedule,
         watch_clipboard: watchClipboard,
         keep_awake: keepAwake,
+        check_updates: checkUpdates,
         confirm_browser_downloads: confirmBrowser,
         queues: queues.map(fromQueueDraft).filter((q) => q.id === MAIN_QUEUE || q.name),
         ffmpeg_path: ffmpegPath.trim(),
@@ -678,6 +680,17 @@ export function SettingsDialog({
                 })}
               </div>
             </fieldset>
+            {navigator.userAgent.includes("Windows") && (
+              <div className={schedule.enabled ? "" : "opacity-50"}>
+                <Switch
+                  label={t("settings.schedule.wake")}
+                  hint={t("settings.schedule.wakeHint")}
+                  checked={schedule.wake}
+                  onChange={(wake) => setSchedule({ ...schedule, wake })}
+                />
+                {schedule.wake && <WakeTimersNote />}
+              </div>
+            )}
           </>
         )}
 
@@ -700,6 +713,8 @@ export function SettingsDialog({
             <Switch label={t("settings.app.startup")} hint={t("settings.app.startupHint")} checked={startWithSystem} onChange={setStartWithSystem} />
             <Switch label={t("settings.app.clipboard")} hint={t("settings.app.clipboardHint")} checked={watchClipboard} onChange={setWatchClipboard} />
             <Switch label={t("settings.app.awake")} hint={t("settings.app.awakeHint")} checked={keepAwake} onChange={setKeepAwake} />
+            <Switch label={t("settings.app.updates")} hint={t("settings.app.updatesHint")} checked={checkUpdates} onChange={setCheckUpdates} />
+            <UpdateCheck />
             <Switch
               label={t("settings.app.confirmBrowser")}
               hint={t("settings.app.confirmBrowserHint")}
@@ -775,6 +790,55 @@ function NameTemplate({ value, onChange }: { value: string; onChange: (value: st
         </div>
       )}
     </Field>
+  );
+}
+
+/** "Check now": asks github.com at once and says what it found. */
+function UpdateCheck() {
+  const { t } = useI18n();
+  const [state, setState] = useState<{ kind: "idle" | "checking" } | { kind: "latest" } | { kind: "found"; version: string } | { kind: "failed"; error: string }>({
+    kind: "idle",
+  });
+  const check = () => {
+    setState({ kind: "checking" });
+    api
+      .checkForUpdate()
+      .then((found) => setState(found ? { kind: "found", version: found.version } : { kind: "latest" }))
+      .catch((err: unknown) => setState({ kind: "failed", error: errorMessage(err) }));
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <Button size="sm" onClick={check} disabled={state.kind === "checking"}>
+        {state.kind === "checking" ? t("settings.app.checking") : t("settings.app.checkNow")}
+      </Button>
+      <span className="text-[13px] text-ink-secondary" role="status">
+        {state.kind === "latest" && t("settings.app.upToDate")}
+        {state.kind === "found" && t("app.update.available", { version: state.version })}
+        {state.kind === "failed" && <span className="text-warning-fg">{t("settings.app.checkFailed", { error: state.error })}</span>}
+      </span>
+    </div>
+  );
+}
+
+/** A warning when Windows' power plan ignores programs' wake timers. */
+function WakeTimersNote() {
+  const { t } = useI18n();
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  useEffect(() => {
+    let current = true;
+    api
+      .wakeTimersAllowed()
+      .then((value) => current && setAllowed(value))
+      .catch(() => current && setAllowed(null));
+    return () => {
+      current = false;
+    };
+  }, []);
+  if (allowed !== false) return null;
+  return (
+    <div className="mt-2">
+      <Banner tone="warning">{t("settings.schedule.wakeBlocked")}</Banner>
+    </div>
   );
 }
 

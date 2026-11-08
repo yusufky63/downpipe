@@ -15,6 +15,11 @@ use serde::{Deserialize, Serialize};
 
 pub type SegmentId = u32;
 
+/// How often one segment's connection may be replaced for slowness. A slow
+/// path rarely survives a new request, but a new one may land on another
+/// slow path; a slow part of the file stays slow however often it is asked.
+pub const MAX_SHEDS: u8 = 3;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ByteRange {
     pub start: u64,
@@ -47,6 +52,10 @@ pub struct Segment {
     pub failures: u32,
     /// Failed and waiting for its backoff: not handed out until re-armed.
     pub cooling: bool,
+    /// How often its connection was dropped for being far slower than the
+    /// others. After [`MAX_SHEDS`] the next one keeps it whatever its speed:
+    /// a part of the file the server sends slowly stays slow.
+    pub sheds: u8,
 }
 
 impl Segment {
@@ -76,6 +85,9 @@ pub struct Assignment {
     pub end: u64,
     /// True when this assignment was carved out of another active segment.
     pub stolen: bool,
+    /// The connection may be dropped and replaced if it is far slower than
+    /// the others; false once that has happened [`MAX_SHEDS`] times.
+    pub may_shed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,6 +170,7 @@ impl SegmentMap {
                 start: seg.reserved,
                 end: seg.end,
                 stolen: false,
+                may_shed: seg.sheds < MAX_SHEDS,
             });
         }
         self.steal(min_split)
@@ -175,6 +188,7 @@ impl SegmentMap {
             start: seg.reserved,
             end: seg.end,
             stolen: false,
+            may_shed: seg.sheds < MAX_SHEDS,
         })
     }
 
@@ -206,6 +220,7 @@ impl SegmentMap {
             start: mid,
             end,
             stolen: true,
+            may_shed: true,
         })
     }
 
@@ -241,6 +256,25 @@ impl SegmentMap {
                 // keeps delivering data should not exhaust it.
                 seg.failures = 0;
             }
+        }
+    }
+
+    /// Bytes of the segment nobody has claimed yet (0 for an unknown id).
+    pub fn unclaimed(&self, id: SegmentId) -> u64 {
+        self.segments
+            .iter()
+            .find(|s| s.id == id)
+            .map_or(0, Segment::unclaimed)
+    }
+
+    /// The owner was dropped for being far slower than the others: hand the
+    /// segment back, without counting a failure, to be picked up at once by
+    /// a new connection.
+    pub fn release_shed(&mut self, id: SegmentId) {
+        if let Some(seg) = self.get_mut(id) {
+            seg.active = false;
+            seg.reserved = seg.written;
+            seg.sheds = seg.sheds.saturating_add(1);
         }
     }
 
@@ -355,6 +389,7 @@ impl SegmentMap {
             active: false,
             failures: 0,
             cooling: false,
+            sheds: 0,
         });
         id
     }

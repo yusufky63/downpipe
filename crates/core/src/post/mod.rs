@@ -25,7 +25,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use self::command::{CommandLine, CommandLineError, Exit, Values};
-use self::extract::{ArchiveKind, Limits};
+use self::extract::{ArchiveKind, Limits, VolumeSet};
 use self::scan::Scanner;
 use crate::settings::Settings;
 use crate::task::TaskRecord;
@@ -222,6 +222,9 @@ pub(crate) struct Plan {
     values: Values,
     scan: Option<Result<Scanner, CommandLineError>>,
     extract: Option<ArchiveKind>,
+    /// For a split archive, all its pieces in order, and whether the last
+    /// one is surely the last (see [`VolumeSet`]).
+    volumes: Option<(Vec<PathBuf>, bool)>,
     delete_archive: bool,
     command: Option<Result<CommandLine, CommandLineError>>,
     timeout: Duration,
@@ -249,13 +252,29 @@ impl Plan {
         .into_iter()
         .map(str::trim)
         .find(|c| !c.is_empty());
-        let extract = ArchiveKind::of(&name).filter(|_| {
-            record.post_actions.extract.unwrap_or_else(|| {
-                settings
-                    .category_of(&name)
-                    .is_some_and(|category| category.extract)
-            })
-        });
+        // A piece of a split archive is judged by the archive's name
+        // (`a.7z.001` by `a.7z`), and extracted only by the piece that
+        // completes the set.
+        let piece = extract::split_volume(&name).map(|(base, _, _)| base.to_string());
+        let archive_name = piece.as_deref().unwrap_or(&name);
+        let wanted = |kind: ArchiveKind| {
+            record
+                .post_actions
+                .extract
+                .unwrap_or_else(|| {
+                    settings
+                        .category_of(archive_name)
+                        .is_some_and(|category| category.extract)
+                })
+                .then_some(kind)
+        };
+        let (extract, volumes) = match ArchiveKind::of(archive_name).and_then(wanted) {
+            Some(kind) if piece.is_some() => match extract::volume_set(&path) {
+                VolumeSet::Complete { volumes, certain } => (Some(kind), Some((volumes, certain))),
+                VolumeSet::Incomplete => (None, None),
+            },
+            other => (other, None),
+        };
         let plan = Self {
             // A folder typed with `/` on Windows gives paths that some
             // programs cannot open; they get the system's separators.
@@ -276,6 +295,7 @@ impl Plan {
                 .scan
                 .then(|| Scanner::from_setting(&settings.post.scanner)),
             extract,
+            volumes,
             // A torrent seeds from its files: its archive stays.
             delete_archive: settings.post.delete_archive && record.torrent.is_none(),
             command: command_line.map(CommandLine::parse),
@@ -348,16 +368,37 @@ pub(crate) async fn run(
             return;
         }
     }
-    if let Some(kind) = plan.extract {
+    if let Some(kind) = plan.extract
+        && claim_set(plan.volumes.as_ref())
+    {
         if !apply(Update::Step(PostStep::Extracting)) {
             return;
         }
-        let archive = plan.path.clone();
+        let volumes = plan
+            .volumes
+            .as_ref()
+            .map_or_else(|| vec![plan.path.clone()], |(v, _)| v.clone());
         let flag = cancel.clone();
         let result = tokio::task::spawn_blocking(move || {
-            extract::extract(&archive, kind, Limits::default(), &flag)
+            extract::extract_volumes(&volumes, kind, Limits::default(), &flag)
         })
         .await;
+        // Pieces all the same size: a damaged-looking archive may just be
+        // waiting for its next piece. Not an error; the next piece to finish
+        // tries again.
+        if let Some((volumes, false)) = &plan.volumes
+            && matches!(result, Ok(Err(extract::ExtractError::Corrupt(_))))
+        {
+            tracing::info!(
+                task = id,
+                pieces = volumes.len(),
+                "{} does not open yet; waiting for more pieces",
+                plan.path.display()
+            );
+            release_set(volumes);
+            apply(Update::Done);
+            return;
+        }
         let report = match result {
             Ok(Ok(done)) => {
                 tracing::info!(
@@ -411,18 +452,57 @@ pub(crate) async fn run(
     // Last, so the command still finds the archive at `{path}`. An archive
     // with entries left out is kept: it has more than the folder.
     if extracted_whole && plan.delete_archive {
-        match std::fs::remove_file(&plan.path) {
-            Ok(()) => {
-                apply(Update::ArchiveDeleted);
+        let archives = plan
+            .volumes
+            .as_ref()
+            .map_or_else(|| vec![plan.path.clone()], |(v, _)| v.clone());
+        let mut deleted = true;
+        for archive in &archives {
+            if let Err(err) = std::fs::remove_file(archive) {
+                deleted = false;
+                tracing::warn!(
+                    task = id,
+                    "could not delete {} after extracting it: {err}",
+                    archive.display()
+                );
             }
-            Err(err) => tracing::warn!(
-                task = id,
-                "could not delete {} after extracting it: {err}",
-                plan.path.display()
-            ),
+        }
+        if deleted {
+            apply(Update::ArchiveDeleted);
         }
     }
     apply(Update::Done);
+}
+
+/// Split archives being extracted or extracted already, by first piece: two
+/// pieces finishing at once both see a complete set, and only one may
+/// extract it.
+static CLAIMED_SETS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// Whether this download extracts: always for a plain archive, for a split
+/// one only if no other piece has claimed the set.
+fn claim_set(volumes: Option<&(Vec<PathBuf>, bool)>) -> bool {
+    let Some(first) = volumes.and_then(|(v, _)| v.first()) else {
+        return true;
+    };
+    let mut claimed = CLAIMED_SETS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if claimed.contains(first) {
+        return false;
+    }
+    claimed.push(first.clone());
+    true
+}
+
+/// Let a later piece try the set again.
+fn release_set(volumes: &[PathBuf]) {
+    if let Some(first) = volumes.first() {
+        let mut claimed = CLAIMED_SETS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        claimed.retain(|p| p != first);
+    }
 }
 
 fn failed_extract(code: &str, detail: &str) -> ExtractReport {
@@ -583,6 +663,33 @@ mod tests {
         let mut rar = record("a.rar");
         rar.post_actions.extract = Some(true);
         assert!(Plan::new(&s, &rar).is_none(), "not a format Downpipe opens");
+    }
+
+    #[test]
+    fn the_piece_that_completes_a_split_archive_extracts_it() {
+        let mut s = settings();
+        for c in s.categories.iter_mut().filter(|c| c.name == "Compressed") {
+            c.extract = true;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let piece = |n: &str| {
+            let mut r = record(n);
+            r.path = Some(dir.path().join(n));
+            r
+        };
+        std::fs::write(dir.path().join("a.7z.001"), [0u8; 8]).unwrap();
+        std::fs::write(dir.path().join("a.7z.002.part"), [0u8; 8]).unwrap();
+        assert!(
+            Plan::new(&s, &piece("a.7z.001")).is_none(),
+            "the next piece is still downloading"
+        );
+        std::fs::remove_file(dir.path().join("a.7z.002.part")).unwrap();
+        std::fs::write(dir.path().join("a.7z.002"), [0u8; 3]).unwrap();
+        let plan = Plan::new(&s, &piece("a.7z.002")).unwrap();
+        assert_eq!(plan.extract, Some(ArchiveKind::SevenZ), "judged as a.7z");
+        let (volumes, certain) = plan.volumes.unwrap();
+        assert_eq!(volumes.len(), 2);
+        assert!(certain);
     }
 
     #[test]

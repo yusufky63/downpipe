@@ -16,6 +16,7 @@ import { RedownloadDialog } from "./components/RedownloadDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
 import { SettingsDialog, type SettingsTab } from "./components/SettingsDialog";
 import { SpeedLimitDialog } from "./components/SpeedLimitDialog";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { LocaleProvider, t, useLocale } from "./i18n";
 import {
   api,
@@ -604,6 +605,7 @@ export function App() {
       />
 
       <main className="flex min-h-0 flex-1 flex-col">
+        <UpdateBanner />
         {!native && (
           <div className="p-4">
             <Banner tone="warning">{t("app.noEngine")}</Banner>

@@ -94,6 +94,15 @@ impl Limits {
         self
     }
 
+    /// Whether any bucket this download draws from has a limit right now
+    /// (limits change while downloads run). Connections are then slowed by
+    /// the buckets, not by their paths, and their speeds say nothing.
+    pub(crate) fn limited(&self) -> bool {
+        self.global.rate() > 0
+            || self.own.as_ref().is_some_and(|l| l.rate() > 0)
+            || self.site.as_ref().is_some_and(|l| l.rate() > 0)
+    }
+
     pub(crate) async fn acquire(&self, bytes: usize) {
         // Narrowest bucket first: while this download sleeps off its own
         // debt the shared buckets refill for the others instead of being held.

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use downpipe_core::schedule::{DoneWatcher, LocalStamp, ScheduleAction, due};
+use downpipe_core::schedule::{DoneWatcher, LocalStamp, ScheduleAction, due, next_start};
 use downpipe_core::{Live, Manager, ManagerEvent, TaskSnapshot, TaskState};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,9 @@ pub const WHEN_DONE: &str = "downpipe://when-done";
 
 const COUNTDOWN: Duration = Duration::from_secs(60);
 const SCHEDULE_EVERY: Duration = Duration::from_secs(20);
+/// How long before the schedule's start the computer is woken: time to come
+/// back from sleep and find the network.
+const WAKE_EARLY: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -295,6 +298,7 @@ pub fn spawn(app: AppHandle, manager: Manager) {
     app.state::<Background>().seed(&manager.list());
     let awake = power::KeepAwake::spawn(app.config().identifier.clone());
     tauri::async_runtime::spawn(async move {
+        let mut wake = power::WakeTimer::new();
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut last_tooltip = String::new();
@@ -342,6 +346,7 @@ pub fn spawn(app: AppHandle, manager: Manager) {
                         let now = LocalStamp::now();
                         run_schedule(&app, &manager, prev_stamp, now);
                         prev_stamp = now;
+                        wake.set(wake_moment(&settings.schedule));
                     }
                 }
             }
@@ -479,6 +484,20 @@ fn set_taskbar(app: &AppHandle, taskbar: Taskbar) {
         status: Some(status),
         progress,
     });
+}
+
+/// When to wake the computer for the schedule's next start, if it should.
+fn wake_moment(schedule: &downpipe_core::Schedule) -> Option<std::time::SystemTime> {
+    use chrono::TimeZone;
+    if !schedule.wake {
+        return None;
+    }
+    let next = next_start(schedule, chrono::Local::now().naive_local())?;
+    // A start time that falls in a clock change's gap or overlap: the
+    // earlier of the two moments, or none.
+    let at = chrono::Local.from_local_datetime(&next).earliest()?;
+    let wake = std::time::SystemTime::from(at).checked_sub(WAKE_EARLY)?;
+    (wake > std::time::SystemTime::now()).then_some(wake)
 }
 
 fn run_schedule(app: &AppHandle, manager: &Manager, prev: LocalStamp, now: LocalStamp) {

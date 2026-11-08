@@ -78,4 +78,13 @@ export const app: Messages["app"] = {
   exported: { other: "{count} 件のリンクを保存しました。" },
   duplicate: "このリンクはすでに一覧にあります。",
   whenDoneIdle: "まだ何もダウンロードしていません。次のダウンロードが完了した時点で適用されます。",
+  update: {
+    available: "Downpipe {version} が利用できます。",
+    whatsNew: "新機能",
+    install: "今すぐインストール",
+    download: "ダウンロード",
+    installing: "更新をダウンロードして確認しています… インストーラーが起動すると Downpipe は終了します。",
+    later: "後で",
+    failed: "更新をインストールできませんでした: {error}",
+  },
 };
