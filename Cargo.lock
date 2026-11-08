@@ -1513,7 +1513,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
 name = "downpipe-bench"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -1525,7 +1525,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-cli"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -1540,7 +1540,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-core"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "axum",
  "chrono",
@@ -1572,7 +1572,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-crawl"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "axum",
  "futures-util",
@@ -1591,7 +1591,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-desktop"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "arboard",
  "chrono",
@@ -1621,7 +1621,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-http"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "aes",
  "axum",
@@ -1653,7 +1653,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-native-host"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "clap",
  "dirs 7.0.0",
@@ -1672,7 +1672,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-providers"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "downpipe-http",
  "downpipe-test-server",
@@ -1692,7 +1692,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-remote"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "axum",
  "downpipe-core",
@@ -1714,7 +1714,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-test-server"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "aes",
  "anyhow",
@@ -1732,7 +1732,7 @@ dependencies = [
 
 [[package]]
 name = "downpipe-torrent"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "bytes",
